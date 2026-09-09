@@ -187,9 +187,13 @@ def save_mapping_template(db: Session, organisation_id, dataset_type: str, colum
     db.flush()
 
 
-# Populated per domain as canonical tables land (Sprint 5+). Each importer
-# takes (db, organisation_id, mapped_fields) and returns (entity_type,
-# entity_id) for provenance linkage, or None to leave the row unmapped.
+# Populated per domain as canonical tables land (Sprint 5+ — the first
+# registration is app/development/importers.py, at import time). Each
+# importer takes (db, dataset, import_job, row, mapped_fields) — the full
+# dataset/job/row objects, not just organisation_id, so the created
+# entity can carry real provenance (source_dataset_id, import_job_id,
+# original_reference) back to the exact row it came from, not just a
+# bare organisation scope — and returns (entity_type, entity_id).
 IMPORTERS: dict[str, Callable] = {}
 
 
@@ -212,7 +216,7 @@ def import_dataset(db: Session, dataset: Dataset, import_job: ImportJob) -> dict
                 for header, field_key in (import_job.column_mapping or {}).items()
                 if field_key
             }
-            entity_type, entity_id = importer(db, dataset.organisation_id, mapped_fields)
+            entity_type, entity_id = importer(db, dataset, import_job, row, mapped_fields)
             row.mapped_entity_type = entity_type
             row.mapped_entity_id = str(entity_id)
             imported_count += 1

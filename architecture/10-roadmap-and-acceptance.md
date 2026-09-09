@@ -57,7 +57,15 @@ Sprint 3's ingestion pipeline are built and tested; "Manual Entry" as a
 distinct feature needs a canonical domain entity to add and stays
 conceptual until Sprint 5. See STATUS.md.
 
-Sprints 5–24 are not started; they are ordered and ready to pick up.
+**Sprint 5 (Property Model & Data Quality): built** — Property/Space
+(ProvenanceMixin's first real consumer), the shared create-entity
+service manual entry and import both call, `IMPORTERS["PROPERTIES"]`
+registered (closing Sprint 3's "honest no-op" for that dataset_type),
+and a Data Health rule registry v1 (4 rules, unweighted-mean score,
+fully transparent per-check breakdown). See STATUS.md for what's
+simplified (reference generation, synchronous recompute) and why.
+
+Sprints 6–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

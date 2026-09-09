@@ -160,13 +160,16 @@ def test_import_without_mapping_is_rejected(client):
 
 
 def test_import_with_no_registered_importer_is_an_honest_noop(client):
+    """PROPERTIES got a real importer in Sprint 5 (see test_ingestion_imports_real_property_entities
+    below) — COMPONENTS still has none, so it's still the honest-no-op case this test covers."""
     signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
     org_id = signup["organisation_id"]
-    upload = _upload_csv(client, org_id, GOOD_CSV).json()
+    csv_text = "Component Type,Manufacturer\nBoiler,Worcester\nSmoke Alarm,Aico\n"
+    upload = _upload_csv(client, org_id, csv_text, dataset_type="COMPONENTS").json()
     client.post(
         f"/api/v1/datasets/{upload['dataset_id']}/mapping",
         headers={"X-Organisation-Id": org_id},
-        json={"column_mapping": {"Property Address": "address", "Post Code": "postcode", "Type": "property_type"}},
+        json={"column_mapping": {"Component Type": "component_type", "Manufacturer": "manufacturer"}},
     )
 
     resp = client.post(
@@ -185,6 +188,42 @@ def test_import_with_no_registered_importer_is_an_honest_noop(client):
     ).json()
     assert detail["status"] == "IMPORTED"
     assert detail["row_status_counts"] == {"IMPORTED": 2}
+
+
+def test_ingestion_imports_real_property_entities(client):
+    """Sprint 5 registers IMPORTERS["PROPERTIES"] — this is the first
+    dataset_type where import_dataset actually creates canonical entities
+    instead of the honest no-op above."""
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    upload = _upload_csv(client, org_id, GOOD_CSV).json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Property Address": "address", "Post Code": "postcode", "Type": "property_type"}},
+    )
+
+    resp = client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/import",
+        headers={"X-Organisation-Id": org_id},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rows_processed"] == 2
+    assert body["entities_created"] == 2
+    assert body["importer_registered"] is True
+
+    properties = client.get("/api/v1/properties", headers={"X-Organisation-Id": org_id}).json()
+    assert len(properties) == 2
+    addresses = {p["address"] for p in properties}
+    assert addresses == {"12 Elm Street", "Flat 4, Oak House"}
+    assert all(p["property_reference"].startswith("PROP-") for p in properties)
+
+    rows = client.get(
+        f"/api/v1/datasets/{upload['dataset_id']}/rows",
+        headers={"X-Organisation-Id": org_id},
+    ).json()
+    assert all(r["status"] == "IMPORTED" for r in rows)
 
 
 def test_cleaning_trims_whitespace_and_is_logged(client):

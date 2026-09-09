@@ -135,6 +135,50 @@ export type DocumentOut = {
 
 export type DocumentDetail = DocumentOut & { versions: DocumentOut[] };
 
+export type PropertyOut = {
+  id: string;
+  property_reference: string;
+  address: string;
+  postcode: string | null;
+  uprn: string | null;
+  property_type: string | null;
+  status: string;
+  source_type: string;
+  source_dataset_id: string | null;
+  original_reference: string | null;
+  created_at: string;
+};
+
+export type SpaceOut = {
+  id: string;
+  property_id: string;
+  name: string;
+  space_type: string | null;
+  source_type: string;
+  created_at: string;
+};
+
+export type DataHealthCheck = {
+  check_code: string;
+  applicable_count: number;
+  failing_count: number;
+  pass_ratio: number;
+};
+
+export type DataHealthFinding = {
+  check_code: string;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  affected_entity_type: string;
+  affected_entity_id: string;
+  message: string;
+};
+
+export type DataHealth = {
+  score_pct: number;
+  checks: DataHealthCheck[];
+  findings: DataHealthFinding[];
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -222,6 +266,29 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, "Download failed");
     return res.blob();
   },
+  listProperties: (organisationId: string) =>
+    request<PropertyOut[]>("/api/v1/properties", { organisationId }),
+  getProperty: (organisationId: string, propertyId: string) =>
+    request<PropertyOut>(`/api/v1/properties/${propertyId}`, { organisationId }),
+  createProperty: (
+    organisationId: string,
+    payload: { address: string; postcode?: string; uprn?: string; property_type?: string },
+  ) =>
+    request<PropertyOut>("/api/v1/properties", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listSpaces: (organisationId: string, propertyId: string) =>
+    request<SpaceOut[]>(`/api/v1/properties/${propertyId}/spaces`, { organisationId }),
+  createSpace: (organisationId: string, propertyId: string, payload: { name: string; space_type?: string }) =>
+    request<SpaceOut>(`/api/v1/properties/${propertyId}/spaces`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  dataHealth: (organisationId: string) =>
+    request<DataHealth>("/api/v1/data-health", { organisationId }),
 };
 
 export const ORGANISATION_TYPES = [

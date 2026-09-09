@@ -199,18 +199,78 @@ per instruction — "continue with sprint 2, billing later"):
   no separate "manual record" model) and proves the pattern; the first
   domain "+Add" form is Sprint 5's.
 
+**Sprint 5 — Property Model & Data Quality:**
+
+- `app/core/provenance.py`'s `ProvenanceMixin` gets its first real
+  consumer: `app/development/models.py`'s `Property` and `Space`. No
+  `development_id`/`building_id`/`floor_id` yet — those tables don't
+  exist until Sprint 6 (Development Hierarchy); a standalone property
+  (existing stock, no development context) is exactly as valid as one
+  created through a development later, matching the architecture's
+  nullable-parent-chain design. `property_reference` (`PROP-000001`) is
+  the same interim per-org sequential counter pattern as documents,
+  carrying the same "not concurrency-safe, Sprint 7 replaces it" caveat.
+- `app/development/service.py`'s `create_property`/`create_space` are
+  the shared functions manual entry and import both call — the promise
+  from Sprint 4's STATUS note is now real: `POST /api/v1/properties` and
+  `IMPORTERS["PROPERTIES"]` (`app/development/importers.py`) both call
+  the same function, both produce identical, equally valid, fully
+  audited records.
+- **`IMPORTERS["PROPERTIES"]` is now registered** — the ingestion
+  pipeline's "honest no-op" (Sprint 3) creates real `Property` rows for
+  this dataset_type now, with full provenance (`source_dataset_id`,
+  `import_job_id`, `original_reference` set to the source row number).
+  Registration happens as an import-time side effect
+  (`app/development/importers.py`, imported once by `app/main.py`) so
+  `app/ingestion/pipeline.py` never has to import the development
+  module — the seam stays generic. `COMPONENTS` still has no importer,
+  so the "honest no-op" path is still directly tested, just against that
+  dataset_type instead now.
+- To make this work, `IMPORTERS`' callable signature changed from
+  `(db, organisation_id, mapped_fields)` to
+  `(db, dataset, import_job, row, mapped_fields)` — the org-only version
+  couldn't carry real provenance back to the row it came from.
+- `app/data_health/rules.py`: rule registry v1 — `MISSING_PROPERTY_TYPE`,
+  `MISSING_UPRN`, `MISSING_POSTCODE`, `DUPLICATE_PROPERTIES` (normalized-
+  address match). Each rule is a plain, independently testable function;
+  `GET /api/v1/data-health` recomputes fresh on every call (same
+  synchronous-for-now simplification as the ingestion pipeline) and
+  returns both the headline score and every contributing check's own
+  pass ratio — never just the number. Score is an unweighted mean of
+  per-check pass ratios; spec's "configurable weights" is unimplemented
+  (v1 is deliberately the simplest transparent version).
+- `apps/web`: `/properties` (list + manual add form) and
+  `/properties/[id]` (detail + spaces) are real, and Home now shows
+  actual KPI cards (Total Properties, Data Health Score) once any
+  property exists instead of always showing the empty state. The
+  `/properties/[id]` route is Next.js 16's first dynamic route in this
+  app — `params` is async per the version-16 breaking change, handled
+  with a thin server-component wrapper (`page.tsx`) that awaits it and
+  hands a plain string down to a client component
+  (`PropertyDetailClient.tsx`) that does the actual data fetching.
+- 14 new backend tests (55 total passing). Verified in-browser
+  end-to-end this time with no curl fallback needed for the core flow
+  (unlike Sprints 3-4, nothing here requires a native file picker): signed
+  up, added a property through the real form, opened its detail page,
+  added a space, and watched Home's KPI cards update — 75% Data Health
+  Score matched the hand-computed expected value (missing UPRN is the
+  only failing check of four). The CSV-to-Property import path was
+  additionally verified via curl against the live server to directly
+  observe the full provenance chain in the response JSON.
+
 ## Not yet done
 
-Sprints 5–24 (every domain model, Ask DataLume, reporting, hardening) —
-not started. Full order and scope in
+Sprints 6–24 (development hierarchy, every remaining domain model, Ask
+DataLume, reporting, hardening) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **Document references aren't concurrency-safe.** `next_document_reference`
-  is a `COUNT`-based number — two simultaneous uploads for the same org
-  could theoretically collide. Real fix is the Sprint 7 Reference Engine
-  (row-locked counters), not a patch here.
+- **Document and property references aren't concurrency-safe.**
+  `next_document_reference`/`next_property_reference` are `COUNT`-based
+  numbers — two simultaneous creates for the same org could theoretically
+  collide. Real fix is the Sprint 7 Reference Engine (row-locked
+  counters), not a patch here.
 - **The ingestion pipeline has no background job queue yet.**
   VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
   for the small CSVs used in testing; will not hold up against the
@@ -219,10 +279,11 @@ Specifically flagged as gaps to close early, not deferred to "later":
   queue — architecture/02 §2 explains why this matters.
 - **XLSX/XLS upload isn't supported**, only CSV — needs a real parsing
   library (openpyxl/Polars), deferred rather than half-wired.
-- **Uploaded files aren't retained anywhere** — parsed in memory and
-  discarded. Real file/evidence storage is a Sprint 4 concern.
-- **IMPORT never creates real entities yet** — `IMPORTERS` is empty
-  until Sprint 5+ domain tables exist to import into.
+- **Data Health v1 only checks Property fields.** The full spec §42 list
+  (missing building relationships, duplicate components, missing
+  handover information, orphan components, ...) needs the domain models
+  those checks are about — added the same way, one function each, as
+  Sprint 6+ lands them.
 
 - **RLS is unverified against real Postgres.** The policy SQL in
   `alembic/versions/0001_foundation.py` and `0002_billing.py` is written
