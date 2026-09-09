@@ -379,6 +379,7 @@ export type GoldenThreadComponent = {
   evidence: DocumentOut[];
   changes: ChangeControlOut[];
   external_references: Record<string, string>;
+  inspections: InspectionOut[];
 };
 
 export type GoldenThread = {
@@ -389,6 +390,7 @@ export type GoldenThread = {
   evidence: DocumentOut[];
   changes: ChangeControlOut[];
   external_references: Record<string, string>;
+  inspections: InspectionOut[];
   components: GoldenThreadComponent[];
   not_yet_available: string[];
 };
@@ -612,6 +614,62 @@ export type RequirementApplicabilityOut = {
   applicable_from: string;
   applicable_to: string | null;
   basis: string | null;
+};
+
+export type InspectionOut = {
+  id: string;
+  requirement_id: string;
+  entity_type: string;
+  entity_id: string;
+  inspector: string;
+  inspection_date: string;
+  result: string;
+  next_due_date: string | null;
+  evidence_document_id: string | null;
+};
+
+export type ComplianceActionOut = {
+  id: string;
+  inspection_id: string | null;
+  requirement_id: string;
+  entity_type: string;
+  entity_id: string;
+  description: string;
+  deadline: string;
+  status: string;
+  completed_date: string | null;
+  evidence_document_id: string | null;
+};
+
+export type HazardOut = {
+  id: string;
+  property_id: string;
+  hazard_type: string;
+  reported_date: string;
+  severity: string;
+  investigation_status: string;
+  findings: string | null;
+  deadline: string | null;
+  status: string;
+};
+
+export type HazardActionOut = {
+  id: string;
+  hazard_id: string;
+  description: string;
+  deadline: string;
+  status: string;
+  completed_date: string | null;
+  evidence_document_id: string | null;
+};
+
+export type RepeatHazardSignal = {
+  property_id: string;
+  hazard_type: string;
+  hazard_count: number;
+  window_months: number;
+  threshold: number;
+  hazard_ids: string[];
 };
 
 export const api = {
@@ -877,6 +935,111 @@ export const api = {
     const qs = params.toString();
     return request<RequirementApplicabilityOut[]>(`/api/v1/compliance/applicability${qs ? `?${qs}` : ""}`, { organisationId });
   },
+  listInspections: (
+    organisationId: string,
+    filters?: { entity_type?: string; entity_id?: string; requirement_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.entity_type) params.set("entity_type", filters.entity_type);
+    if (filters?.entity_id) params.set("entity_id", filters.entity_id);
+    if (filters?.requirement_id) params.set("requirement_id", filters.requirement_id);
+    const qs = params.toString();
+    return request<InspectionOut[]>(`/api/v1/compliance/inspections${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createInspection: (
+    organisationId: string,
+    payload: {
+      requirement_id: string;
+      entity_type: string;
+      entity_id: string;
+      inspector: string;
+      inspection_date: string;
+      result: string;
+      next_due_date?: string;
+    },
+  ) =>
+    request<InspectionOut>("/api/v1/compliance/inspections", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listComplianceActions: (
+    organisationId: string,
+    filters?: { entity_type?: string; entity_id?: string; requirement_id?: string; action_status?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.entity_type) params.set("entity_type", filters.entity_type);
+    if (filters?.entity_id) params.set("entity_id", filters.entity_id);
+    if (filters?.requirement_id) params.set("requirement_id", filters.requirement_id);
+    if (filters?.action_status) params.set("action_status", filters.action_status);
+    const qs = params.toString();
+    return request<ComplianceActionOut[]>(`/api/v1/compliance/actions${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createComplianceAction: (
+    organisationId: string,
+    payload: {
+      requirement_id: string;
+      entity_type: string;
+      entity_id: string;
+      description: string;
+      deadline: string;
+      inspection_id?: string;
+    },
+  ) =>
+    request<ComplianceActionOut>("/api/v1/compliance/actions", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  updateComplianceActionStatus: (organisationId: string, actionId: string, payload: { status: string; completed_date?: string }) =>
+    request<ComplianceActionOut>(`/api/v1/compliance/actions/${actionId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listHazards: (organisationId: string, filters?: { property_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    const qs = params.toString();
+    return request<HazardOut[]>(`/api/v1/hazards${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createHazard: (
+    organisationId: string,
+    payload: { property_id: string; hazard_type: string; reported_date: string; severity?: string },
+  ) => request<HazardOut>("/api/v1/hazards", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  updateHazardStatus: (
+    organisationId: string,
+    hazardId: string,
+    payload: { status: string; investigation_status?: string; findings?: string; deadline?: string },
+  ) =>
+    request<HazardOut>(`/api/v1/hazards/${hazardId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listHazardActions: (organisationId: string, hazardId: string) =>
+    request<HazardActionOut[]>(`/api/v1/hazards/${hazardId}/actions`, { organisationId }),
+  createHazardAction: (organisationId: string, hazardId: string, payload: { description: string; deadline: string }) =>
+    request<HazardActionOut>(`/api/v1/hazards/${hazardId}/actions`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  updateHazardActionStatus: (
+    organisationId: string,
+    actionId: string,
+    payload: { status: string; completed_date?: string },
+  ) =>
+    request<HazardActionOut>(`/api/v1/hazard-actions/${actionId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  repeatHazardsForProperty: (organisationId: string, propertyId: string, hazardType: string) =>
+    request<RepeatHazardSignal | null>(
+      `/api/v1/properties/${propertyId}/repeat-hazards?hazard_type=${encodeURIComponent(hazardType)}`,
+      { organisationId },
+    ),
   endApplicability: (organisationId: string, applicabilityId: string, applicableTo: string) =>
     request<RequirementApplicabilityOut>(`/api/v1/compliance/applicability/${applicabilityId}/end`, {
       method: "POST",

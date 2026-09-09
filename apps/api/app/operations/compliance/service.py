@@ -8,8 +8,18 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from app.core.provenance import SourceType
 from app.development.models import Building, Component, Property
-from app.operations.compliance.models import ComplianceDomain, ComplianceRequirement, RequirementApplicability
+from app.documents.models import Document
+from app.operations.compliance.models import (
+    ComplianceAction,
+    ComplianceActionStatus,
+    ComplianceDomain,
+    ComplianceRequirement,
+    Inspection,
+    InspectionResult,
+    RequirementApplicability,
+)
 from app.operations.compliance.seed import ensure_compliance_catalog_seeded, get_or_create_default_framework
 from app.platform.audit import record_audit_event
 
@@ -29,6 +39,11 @@ class UnsupportedApplicabilityEntityTypeError(ValueError):
 class RequirementAlreadySupersededError(ValueError):
     """Attempted to create a new version from a requirement row that
     isn't the current one — the router maps this to a 400."""
+
+
+class InvalidComplianceActionTransitionError(ValueError):
+    """The requested status transition isn't allowed from a compliance
+    action's current status — the router maps this to a 400."""
 
 
 class DuplicateRequirementCodeError(ValueError):
@@ -289,3 +304,196 @@ def end_applicability(
         after={"applicable_to": str(applicable_to)},
     )
     return applicability
+
+
+def _get_org_document(db: Session, organisation_id: uuid.UUID, document_id: uuid.UUID) -> Document:
+    document = db.query(Document).filter(Document.id == document_id, Document.organisation_id == organisation_id).first()
+    if document is None:
+        raise ComplianceNotFoundError(f"Document {document_id} not found")
+    return document
+
+
+def list_inspections(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    requirement_id: uuid.UUID | None = None,
+) -> list[Inspection]:
+    query = db.query(Inspection).filter(Inspection.organisation_id == organisation_id)
+    if entity_type is not None:
+        query = query.filter(Inspection.entity_type == entity_type)
+    if entity_id is not None:
+        query = query.filter(Inspection.entity_id == str(entity_id))
+    if requirement_id is not None:
+        query = query.filter(Inspection.requirement_id == requirement_id)
+    return query.order_by(Inspection.inspection_date.desc()).all()
+
+
+def create_inspection(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    requirement_id: uuid.UUID,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    inspector: str,
+    inspection_date: date,
+    result: str,
+    next_due_date: date | None,
+    evidence_document_id: uuid.UUID | None,
+    actor_user_id: uuid.UUID | None,
+) -> Inspection:
+    _get_org_requirement(db, organisation_id, requirement_id)
+    _validate_applicability_entity(db, organisation_id, entity_type, entity_id)
+    if evidence_document_id is not None:
+        _get_org_document(db, organisation_id, evidence_document_id)
+
+    inspection = Inspection(
+        organisation_id=organisation_id,
+        requirement_id=requirement_id,
+        entity_type=entity_type,
+        entity_id=str(entity_id),
+        inspector=inspector,
+        inspection_date=inspection_date,
+        result=InspectionResult(result),
+        next_due_date=next_due_date,
+        evidence_document_id=evidence_document_id,
+        source_type=SourceType.MANUAL,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(inspection)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="inspection.recorded",
+        entity_type="inspection",
+        entity_id=str(inspection.id),
+        after={"requirement_id": str(requirement_id), "result": result, "next_due_date": str(next_due_date)},
+    )
+    return inspection
+
+
+def list_compliance_actions(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    requirement_id: uuid.UUID | None = None,
+    action_status: str | None = None,
+) -> list[ComplianceAction]:
+    query = db.query(ComplianceAction).filter(ComplianceAction.organisation_id == organisation_id)
+    if entity_type is not None:
+        query = query.filter(ComplianceAction.entity_type == entity_type)
+    if entity_id is not None:
+        query = query.filter(ComplianceAction.entity_id == str(entity_id))
+    if requirement_id is not None:
+        query = query.filter(ComplianceAction.requirement_id == requirement_id)
+    if action_status is not None:
+        query = query.filter(ComplianceAction.status == ComplianceActionStatus(action_status))
+    return query.order_by(ComplianceAction.deadline).all()
+
+
+def create_compliance_action(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    requirement_id: uuid.UUID,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    description: str,
+    deadline: date,
+    inspection_id: uuid.UUID | None,
+    evidence_document_id: uuid.UUID | None,
+    actor_user_id: uuid.UUID | None,
+) -> ComplianceAction:
+    _get_org_requirement(db, organisation_id, requirement_id)
+    _validate_applicability_entity(db, organisation_id, entity_type, entity_id)
+    if inspection_id is not None:
+        found = (
+            db.query(Inspection.id)
+            .filter(Inspection.id == inspection_id, Inspection.organisation_id == organisation_id)
+            .first()
+        )
+        if found is None:
+            raise ComplianceNotFoundError(f"Inspection {inspection_id} not found")
+    if evidence_document_id is not None:
+        _get_org_document(db, organisation_id, evidence_document_id)
+
+    action = ComplianceAction(
+        organisation_id=organisation_id,
+        inspection_id=inspection_id,
+        requirement_id=requirement_id,
+        entity_type=entity_type,
+        entity_id=str(entity_id),
+        description=description,
+        deadline=deadline,
+        status=ComplianceActionStatus.OPEN,
+        evidence_document_id=evidence_document_id,
+        source_type=SourceType.MANUAL,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(action)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="compliance_action.raised",
+        entity_type="compliance_action",
+        entity_id=str(action.id),
+        after={"requirement_id": str(requirement_id), "deadline": str(deadline)},
+    )
+    return action
+
+
+COMPLIANCE_ACTION_TRANSITIONS: dict[ComplianceActionStatus, tuple[ComplianceActionStatus, ...]] = {
+    ComplianceActionStatus.OPEN: (ComplianceActionStatus.COMPLETED, ComplianceActionStatus.CANCELLED),
+    ComplianceActionStatus.COMPLETED: (),
+    ComplianceActionStatus.CANCELLED: (),
+}
+
+
+def update_compliance_action_status(
+    db: Session,
+    organisation_id: uuid.UUID,
+    action: ComplianceAction,
+    *,
+    new_status: str,
+    completed_date: date | None,
+    evidence_document_id: uuid.UUID | None,
+    actor_user_id: uuid.UUID | None,
+) -> ComplianceAction:
+    target = ComplianceActionStatus(new_status)
+    allowed = COMPLIANCE_ACTION_TRANSITIONS.get(action.status, ())
+    if target not in allowed:
+        raise InvalidComplianceActionTransitionError(f"Cannot move a compliance action from {action.status.value} to {target.value}")
+    if evidence_document_id is not None:
+        _get_org_document(db, organisation_id, evidence_document_id)
+
+    previous_status = action.status
+    action.status = target
+    if target == ComplianceActionStatus.COMPLETED:
+        action.completed_date = completed_date or date.today()
+    if evidence_document_id is not None:
+        action.evidence_document_id = evidence_document_id
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="compliance_action.status_changed",
+        entity_type="compliance_action",
+        entity_id=str(action.id),
+        before={"status": previous_status.value},
+        after={"status": target.value},
+    )
+    return action

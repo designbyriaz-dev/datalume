@@ -20,6 +20,8 @@ from app.development.schemas import GoldenThreadComponentOut, GoldenThreadRespon
 from app.documents.models import Document
 from app.documents.schemas import DocumentOut
 from app.identifiers.service import get_external_references
+from app.operations.compliance.models import Inspection
+from app.operations.compliance.schemas import InspectionOut
 
 
 def current_specifications(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> list:
@@ -58,6 +60,21 @@ def changes_for(db: Session, organisation_id: uuid.UUID, entity_type: str, entit
             ChangeControl.related_entity_id == str(entity_id),
         )
         .order_by(ChangeControl.created_at.desc())
+        .all()
+    )
+
+
+def inspections_for(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> list:
+    """Same "compose, don't duplicate" read as evidence_for/changes_for,
+    against Sprint 16's Inspection table."""
+    return (
+        db.query(Inspection)
+        .filter(
+            Inspection.organisation_id == organisation_id,
+            Inspection.entity_type == entity_type,
+            Inspection.entity_id == str(entity_id),
+        )
+        .order_by(Inspection.inspection_date.desc())
         .all()
     )
 
@@ -102,4 +119,5 @@ def build_component_view(
         evidence=[DocumentOut.model_validate(d) for d in evidence_for(db, organisation_id, "component", component.id)],
         changes=changes_to_out(db, organisation_id, changes_for(db, organisation_id, "component", component.id)),
         external_references=external_references,
+        inspections=[InspectionOut.model_validate(i) for i in inspections_for(db, organisation_id, "component", component.id)],
     )

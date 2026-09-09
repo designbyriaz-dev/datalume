@@ -72,6 +72,38 @@ def test_golden_thread_composes_building_specifications_and_components(client):
         files={"file": ("cert.pdf", io.BytesIO(b"pdf bytes"), "application/pdf")},
     )
 
+    domains = client.get("/api/v1/compliance/domains", headers={"X-Organisation-Id": org_id}).json()
+    gas_domain_id = next(d["id"] for d in domains if d["code"] == "GAS_SAFETY")
+    requirement = client.post(
+        "/api/v1/compliance/requirements",
+        headers={"X-Organisation-Id": org_id},
+        json={"domain_id": gas_domain_id, "code": "GAS-001", "title": "Annual gas safety check", "effective_date": "2024-01-01"},
+    ).json()
+    client.post(
+        "/api/v1/compliance/inspections",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "requirement_id": requirement["id"],
+            "entity_type": "component",
+            "entity_id": component["id"],
+            "inspector": "Gas Safe Ltd",
+            "inspection_date": "2026-01-15",
+            "result": "SATISFACTORY",
+        },
+    )
+    client.post(
+        "/api/v1/compliance/inspections",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "requirement_id": requirement["id"],
+            "entity_type": "building",
+            "entity_id": building["id"],
+            "inspector": "Fire Risk Assessor Ltd",
+            "inspection_date": "2026-02-01",
+            "result": "ADVISORY",
+        },
+    )
+
     resp = client.get(f"/api/v1/buildings/{building['id']}/golden-thread", headers={"X-Organisation-Id": org_id})
     assert resp.status_code == 200
     body = resp.json()
@@ -94,8 +126,14 @@ def test_golden_thread_composes_building_specifications_and_components(client):
     assert len(comp["changes"]) == 1
     assert comp["changes"][0]["id"] == change["id"]
     assert comp["changes"][0]["status"] == "PROPOSED"
+    assert len(comp["inspections"]) == 1
+    assert comp["inspections"][0]["result"] == "SATISFACTORY"
 
-    assert body["not_yet_available"] == ["inspections (Sprint 16)"]
+    assert len(body["inspections"]) == 1
+    assert body["inspections"][0]["result"] == "ADVISORY"
+
+    # Sprint 16 closed the last gap this list used to name.
+    assert body["not_yet_available"] == []
     assert body["handover_records"] == []
 
 

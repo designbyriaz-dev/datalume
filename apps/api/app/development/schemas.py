@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.data_health.schemas import FindingOut
 from app.development.models import ComponentStatus, PropertyStatus
 from app.documents.schemas import DocumentOut
+from app.operations.compliance.schemas import InspectionOut
 from app.operations.schemas import RepairOut
 
 
@@ -327,6 +328,7 @@ class GoldenThreadComponentOut(BaseModel):
     evidence: list[DocumentOut]
     changes: list[ChangeControlOut]
     external_references: dict[str, str]
+    inspections: list[InspectionOut]
 
 
 class GoldenThreadOut(BaseModel):
@@ -336,11 +338,12 @@ class GoldenThreadOut(BaseModel):
     tables only (architecture/03-development-domain.md §4: "compose,
     don't duplicate"). HANDOVER is Sprint 12's own addition
     (`HandoverRecord` rows for properties under this building).
-    `not_yet_available` names the one remaining link with no canonical
-    table yet — inspection (Sprint 16) — so the UI can be honest about
-    what this view does and doesn't cover yet, per spec §29's explicit
-    constraint that storing this information does not by itself satisfy
-    every legal Golden Thread obligation."""
+    INSPECTION is Sprint 16's own addition (`Inspection` rows against
+    this building and each of its components) — `not_yet_available` is
+    kept as an explicit (now empty) list rather than removed, per spec
+    §29's constraint that storing this information does not by itself
+    satisfy every legal Golden Thread obligation, so a future genuine
+    gap has an obvious place to be named honestly again."""
 
     building_id: uuid.UUID
     building_reference: str
@@ -350,6 +353,7 @@ class GoldenThreadOut(BaseModel):
     changes: list[ChangeControlOut]
     handover_records: list[HandoverRecordOut]
     external_references: dict[str, str]
+    inspections: list[InspectionOut]
     components: list[GoldenThreadComponentOut]
     not_yet_available: list[str]
 

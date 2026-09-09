@@ -13,36 +13,49 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
 from app.operations.compliance.models import (
+    ComplianceAction,
     ComplianceDomain,
     ComplianceFramework,
     ComplianceRequirement,
+    Inspection,
     RequirementApplicability,
 )
 from app.operations.compliance.schemas import (
+    ComplianceActionOut,
     ComplianceDomainOut,
     ComplianceFrameworkOut,
     ComplianceRequirementDetailOut,
     ComplianceRequirementOut,
     CreateApplicabilityRequest,
+    CreateComplianceActionRequest,
     CreateComplianceDomainRequest,
     CreateComplianceRequirementRequest,
+    CreateInspectionRequest,
     EndApplicabilityRequest,
+    InspectionOut,
     RequirementApplicabilityOut,
     ReviseComplianceRequirementRequest,
+    UpdateComplianceActionStatusRequest,
 )
 from app.operations.compliance.seed import ensure_compliance_catalog_seeded
 from app.operations.compliance.service import (
     ComplianceNotFoundError,
     DuplicateRequirementCodeError,
+    InvalidComplianceActionTransitionError,
     RequirementAlreadySupersededError,
     UnsupportedApplicabilityEntityTypeError,
     create_applicability,
+    create_compliance_action,
     create_domain,
+    create_inspection,
     create_requirement,
     create_requirement_version,
     end_applicability,
+    list_compliance_actions,
     list_domains,
+    list_inspections,
     list_requirements,
+    update_compliance_action_status,
 )
 
 router = APIRouter(prefix="/api/v1/compliance", tags=["compliance"])
@@ -72,6 +85,26 @@ def _get_org_applicability(db: Session, organisation_id: uuid.UUID, applicabilit
     if applicability is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Requirement applicability not found")
     return applicability
+
+
+def _get_org_inspection(db: Session, organisation_id: uuid.UUID, inspection_id: uuid.UUID) -> Inspection:
+    inspection = (
+        db.query(Inspection).filter(Inspection.id == inspection_id, Inspection.organisation_id == organisation_id).first()
+    )
+    if inspection is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Inspection not found")
+    return inspection
+
+
+def _get_org_action(db: Session, organisation_id: uuid.UUID, action_id: uuid.UUID) -> ComplianceAction:
+    action = (
+        db.query(ComplianceAction)
+        .filter(ComplianceAction.id == action_id, ComplianceAction.organisation_id == organisation_id)
+        .first()
+    )
+    if action is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Compliance action not found")
+    return action
 
 
 @router.get("/frameworks", response_model=list[ComplianceFrameworkOut])
@@ -275,3 +308,121 @@ def end_applicability_endpoint(
     db.commit()
     db.refresh(applicability)
     return applicability
+
+
+@router.get("/inspections", response_model=list[InspectionOut])
+def get_inspections(
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    requirement_id: uuid.UUID | None = None,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    return list_inspections(db, ctx.organisation_id, entity_type=entity_type, entity_id=entity_id, requirement_id=requirement_id)
+
+
+@router.post("/inspections", response_model=InspectionOut, status_code=status.HTTP_201_CREATED)
+def add_inspection(
+    payload: CreateInspectionRequest,
+    ctx: AuthContext = Depends(require_permission("operations.compliance")),
+    db: Session = Depends(get_db),
+):
+    try:
+        inspection = create_inspection(
+            db,
+            ctx.organisation_id,
+            requirement_id=payload.requirement_id,
+            entity_type=payload.entity_type,
+            entity_id=payload.entity_id,
+            inspector=payload.inspector,
+            inspection_date=payload.inspection_date,
+            result=payload.result,
+            next_due_date=payload.next_due_date,
+            evidence_document_id=payload.evidence_document_id,
+            actor_user_id=ctx.user.id,
+        )
+    except UnsupportedApplicabilityEntityTypeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except ComplianceNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    db.commit()
+    db.refresh(inspection)
+    return inspection
+
+
+@router.get("/actions", response_model=list[ComplianceActionOut])
+def get_actions(
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    requirement_id: uuid.UUID | None = None,
+    action_status: str | None = None,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    return list_compliance_actions(
+        db,
+        ctx.organisation_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        requirement_id=requirement_id,
+        action_status=action_status,
+    )
+
+
+@router.post("/actions", response_model=ComplianceActionOut, status_code=status.HTTP_201_CREATED)
+def add_action(
+    payload: CreateComplianceActionRequest,
+    ctx: AuthContext = Depends(require_permission("operations.compliance")),
+    db: Session = Depends(get_db),
+):
+    try:
+        action = create_compliance_action(
+            db,
+            ctx.organisation_id,
+            requirement_id=payload.requirement_id,
+            entity_type=payload.entity_type,
+            entity_id=payload.entity_id,
+            description=payload.description,
+            deadline=payload.deadline,
+            inspection_id=payload.inspection_id,
+            evidence_document_id=payload.evidence_document_id,
+            actor_user_id=ctx.user.id,
+        )
+    except UnsupportedApplicabilityEntityTypeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except ComplianceNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    db.commit()
+    db.refresh(action)
+    return action
+
+
+@router.post("/actions/{action_id}/status", response_model=ComplianceActionOut)
+def update_action_status_endpoint(
+    action_id: uuid.UUID,
+    payload: UpdateComplianceActionStatusRequest,
+    ctx: AuthContext = Depends(require_permission("operations.compliance")),
+    db: Session = Depends(get_db),
+):
+    action = _get_org_action(db, ctx.organisation_id, action_id)
+    try:
+        update_compliance_action_status(
+            db,
+            ctx.organisation_id,
+            action,
+            new_status=payload.status,
+            completed_date=payload.completed_date,
+            evidence_document_id=payload.evidence_document_id,
+            actor_user_id=ctx.user.id,
+        )
+    except InvalidComplianceActionTransitionError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except ComplianceNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    db.commit()
+    db.refresh(action)
+    return action

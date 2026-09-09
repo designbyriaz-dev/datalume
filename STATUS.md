@@ -907,11 +907,100 @@ per instruction — "continue with sprint 2, billing later"):
   browser against the fresh, code-current server and confirmed all 21
   domains and the requirements panel still render correctly.
 
+**Sprint 16 — Compliance Operations / Safety / Hazards:**
+
+- **Compliance Operations extends Sprint 15's chain**: `Inspection` and
+  `ComplianceAction` (`app/operations/compliance/models.py`) add the
+  INSPECTION -> EVIDENCE -> ACTION -> DEADLINE links, closing the gap
+  the module's own docstring named as Sprint 16's job. `Inspection`
+  carries a generic SATISFACTORY/UNSATISFACTORY/ADVISORY `result` — a
+  common UK-certification shape (e.g. a Gas Safety Certificate), not a
+  claim about any one scheme's own terminology. `ComplianceAction` can
+  arise from an inspection (`inspection_id` set) or be raised
+  independently, with its own OPEN/COMPLETED/CANCELLED transition
+  guard (same enforced-dict pattern as Repair/Defect status machines).
+  `evidence_document_id` on both is a plain FK to an already-uploaded
+  Document (upload separately via `POST /documents`, then reference its
+  id) — no bespoke inline upload endpoint.
+- **New `app/operations/hazards/` subpackage** for Hazards, damp &
+  mould (architecture/04 §5, spec §49). Damp & mould is a `hazard_type`
+  *value* on one `Hazard` table, not a parallel schema — `hazard_type`
+  is free text (e.g. `DAMP_AND_MOULD`, `EXCESS_COLD`), the same
+  non-fabrication stance Sprint 15 took with requirement content:
+  HHSRS's 29 official hazard categories are a real regulatory taxonomy
+  this build has no authoritative source to hard-code as canonical.
+- **`Hazard.status` state machine**: REPORTED → TRIAGED → INVESTIGATING
+  → INVESTIGATED → ACTION_IN_PROGRESS → FOLLOW_UP → CLOSED (with
+  FOLLOW_UP able to reopen into ACTION_IN_PROGRESS) — a coarse,
+  enforced simplification of spec §49's full named chain
+  ("...DEADLINE -> FINDING -> ACTION -> DEADLINE -> COMPLETION ->
+  EVIDENCE -> FOLLOW-UP -> CLOSED"): the ACTION/DEADLINE/COMPLETION/
+  EVIDENCE portion is carried by separate `HazardAction` rows instead
+  of more `Hazard.status` values, mirroring how Compliance splits
+  "what was found" (Inspection) from "what's being done about it"
+  (ComplianceAction) onto two tables. `investigation_status`
+  (PENDING/CONFIRMED/NOT_CONFIRMED/INCONCLUSIVE) is a separate field
+  from `status` — the investigation's *outcome*, recorded once
+  alongside `findings`, not another step in the same progression.
+- **Repeat hazard-occurrence engine**
+  (`app/operations/hazards/repeat_hazard.py`) reuses Sprint 14's
+  repeat-signal pattern exactly (`HazardRuleConfig`, lazily seeded,
+  per-organisation configurable window/threshold) but scoped by
+  `(property, hazard_type)` rather than property alone — a repeat
+  *pattern* is the same kind of hazard recurring, not any two
+  unrelated hazards sharing an address. Confirmed live that raising
+  the configured threshold immediately silences a previously-triggered
+  signal, same as Sprint 14's repair engine.
+- **`operations.compliance` permission reused for hazard writes**, not
+  the broader `operations.write` — hazards (especially HHSRS-category
+  ones) are the same safety-critical territory as the compliance
+  framework, held by COMPLIANCE_MANAGER/BUILDING_SAFETY_MANAGER only.
+- **Real gap found and fixed via live testing, unrelated to this
+  sprint's own new tables**: Golden Thread's `not_yet_available` list
+  has said `"inspections (Sprint 16)"` since Sprint 9 — a true claim
+  until this sprint actually built the `Inspection` table, at which
+  point it became a stale, false claim sitting in a view whose whole
+  purpose is not overstating what's traceable. Caught by literally
+  reading the Building detail page after wiring up compliance
+  inspections. Fixed by composing `Inspection` rows into Golden
+  Thread properly — both building-level and per-component (the same
+  `evidence_for`/`changes_for` pattern in `app/development/
+  composition.py`, now joined by `inspections_for`) — and clearing the
+  list rather than leaving a placeholder. `GoldenThreadComponentOut`
+  gained an `inspections` field, which Property 360 picks up for free
+  since both composed views share `build_component_view`.
+  `test_golden_thread.py` updated to assert the real composition
+  instead of the stale claim.
+- `apps/web`: `/safety` is now a real page (report-a-hazard form,
+  register with state-machine transition buttons, an inline
+  findings-recording form for the INVESTIGATING step, a hazard-actions
+  panel, and repeat-hazard-pattern callouts) replacing the `ComingSoon`
+  stub that named this exact sprint. The Building detail page's
+  existing Compliance requirements section (Sprint 15) gained an
+  inline inspections/actions panel per applicable requirement — record
+  an inspection, see the latest result, raise and complete actions,
+  all implicitly scoped to that building.
+- 18 new backend tests (199 total passing): inspection recording and
+  entity/requirement validation, action lifecycle and status-filtered
+  listing, the full hazard state machine (happy path and an illegal
+  skip), hazard action lifecycle, repeat-hazard triggering/threshold/
+  hazard-type-isolation, permission checks, cross-org 404s — plus the
+  Golden Thread test's assertions above.
+- Verified end-to-end live: reported a `DAMP_AND_MOULD` hazard through
+  the real `/safety` UI, drove it through every state (triaged →
+  investigating → recorded findings via the inline form → investigated
+  → action in progress), raised a hazard action, completed it, and
+  confirmed the badges updated correctly at each step. Separately
+  recorded a compliance inspection against a component through the
+  Building detail page's new panel and confirmed it appeared correctly
+  composed into that building's Golden Thread — which is what surfaced
+  and let me fix the stale `not_yet_available` gap above.
+
 ## Not yet done
 
-Sprints 16–24 (compliance operations, stock condition, tenancies, and
-the rest) — not started. Full order and scope in
-`architecture/10-roadmap-and-acceptance.md`.
+Sprints 17–24 (the compliance status engine and board assurance
+report, stock condition, tenancies, and the rest) — not started. Full
+order and scope in `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

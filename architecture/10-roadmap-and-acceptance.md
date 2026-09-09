@@ -198,7 +198,21 @@ RBAC permission. A duplicate-requirement-code gap was found during live
 verification and fixed, with a regression test. See STATUS.md for the
 full live verification narrative.
 
-Sprints 16–24 are not started; they are ordered and ready to pick up.
+**Sprint 16 (Compliance Operations / Safety / Hazards): built** —
+`Inspection`/`ComplianceAction` extend Sprint 15's compliance chain
+(architecture §3); a new `app/operations/hazards/` subpackage
+(architecture §5, spec §49) adds `Hazard`/`HazardAction` with damp &
+mould modelled as a `hazard_type` value, not a parallel schema, plus a
+repeat-hazard-occurrence engine reusing Sprint 14's pattern scoped by
+`(property, hazard_type)`. `Hazard.status` is an enforced state machine
+(REPORTED through CLOSED); `investigation_status` is a separate
+outcome field. Also fixed a real gap found via live testing: Golden
+Thread's `not_yet_available` list still claimed inspections had no
+canonical table, which became false the moment this sprint built one —
+now composed in for real, both building- and component-level. See
+STATUS.md for the full live verification.
+
+Sprints 17–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

@@ -87,3 +87,59 @@ class RequirementApplicabilityOut(BaseModel):
     basis: str | None
 
     model_config = {"from_attributes": True}
+
+
+class CreateInspectionRequest(BaseModel):
+    requirement_id: uuid.UUID
+    entity_type: str
+    entity_id: uuid.UUID
+    inspector: str
+    inspection_date: date
+    result: str
+    next_due_date: date | None = None
+    evidence_document_id: uuid.UUID | None = None
+
+
+class InspectionOut(BaseModel):
+    id: uuid.UUID
+    requirement_id: uuid.UUID
+    entity_type: str
+    entity_id: str
+    inspector: str
+    inspection_date: date
+    result: str
+    next_due_date: date | None
+    evidence_document_id: uuid.UUID | None
+
+    model_config = {"from_attributes": True}
+
+
+class CreateComplianceActionRequest(BaseModel):
+    requirement_id: uuid.UUID
+    entity_type: str
+    entity_id: uuid.UUID
+    description: str
+    deadline: date
+    inspection_id: uuid.UUID | None = None
+    evidence_document_id: uuid.UUID | None = None
+
+
+class UpdateComplianceActionStatusRequest(BaseModel):
+    status: str
+    completed_date: date | None = None
+    evidence_document_id: uuid.UUID | None = None
+
+
+class ComplianceActionOut(BaseModel):
+    id: uuid.UUID
+    inspection_id: uuid.UUID | None
+    requirement_id: uuid.UUID
+    entity_type: str
+    entity_id: str
+    description: str
+    deadline: date
+    status: str
+    completed_date: date | None
+    evidence_document_id: uuid.UUID | None
+
+    model_config = {"from_attributes": True}

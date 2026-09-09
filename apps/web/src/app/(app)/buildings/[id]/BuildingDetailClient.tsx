@@ -3,14 +3,16 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
-import { inputStyle, primaryBtn } from "@/components/formStyles";
+import { inputStyle, primaryBtn, secondaryBtn } from "@/components/formStyles";
 import {
   api,
   type BuildingOut,
+  type ComplianceActionOut,
   type ComplianceRequirementOut,
   type DefectOut,
   type FloorOut,
   type GoldenThread,
+  type InspectionOut,
   type PropertyOut,
   type RequirementApplicabilityOut,
   type SpecificationOut,
@@ -50,6 +52,139 @@ function defectSeverityVariant(severity: string) {
   if (severity === "CRITICAL" || severity === "HIGH") return "critical" as const;
   if (severity === "MEDIUM") return "warning" as const;
   return "neutral" as const;
+}
+
+function InspectionsPanel({
+  organisationId,
+  requirementId,
+  entityType,
+  entityId,
+}: {
+  organisationId: string;
+  requirementId: string;
+  entityType: string;
+  entityId: string;
+}) {
+  const [inspections, setInspections] = useState<InspectionOut[] | null>(null);
+  const [actions, setActions] = useState<ComplianceActionOut[] | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [inspector, setInspector] = useState("");
+  const [inspectionDate, setInspectionDate] = useState("");
+  const [result, setResult] = useState("SATISFACTORY");
+  const [nextDueDate, setNextDueDate] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function refresh() {
+    if (!organisationId) return;
+    const [i, a] = await Promise.all([
+      api.listInspections(organisationId, { entity_type: entityType, entity_id: entityId, requirement_id: requirementId }),
+      api.listComplianceActions(organisationId, { entity_type: entityType, entity_id: entityId, requirement_id: requirementId }),
+    ]);
+    setInspections(i);
+    setActions(a);
+  }
+
+  useEffect(() => {
+    (async () => {
+      await refresh();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organisationId, requirementId, entityId]);
+
+  async function onRecord() {
+    if (!inspector.trim() || !inspectionDate) return;
+    setSubmitting(true);
+    try {
+      await api.createInspection(organisationId, {
+        requirement_id: requirementId,
+        entity_type: entityType,
+        entity_id: entityId,
+        inspector: inspector.trim(),
+        inspection_date: inspectionDate,
+        result,
+        next_due_date: nextDueDate || undefined,
+      });
+      setInspector("");
+      setInspectionDate("");
+      setNextDueDate("");
+      setShowForm(false);
+      await refresh();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onCompleteAction(actionId: string) {
+    await api.updateComplianceActionStatus(organisationId, actionId, { status: "COMPLETED" });
+    await refresh();
+  }
+
+  const latest = inspections?.[0];
+  const openActions = actions?.filter((a) => a.status === "OPEN") ?? [];
+
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border-subtle)", fontSize: 12 }}>
+      <div style={{ color: "var(--text-secondary)", marginBottom: 6 }}>
+        {latest ? (
+          <>
+            Last inspection: {latest.inspection_date} by {latest.inspector} — <strong>{latest.result}</strong>
+            {latest.next_due_date && ` (next due ${latest.next_due_date})`}
+          </>
+        ) : (
+          "No inspections recorded yet."
+        )}
+      </div>
+      {openActions.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 6px" }}>
+          {openActions.map((a) => (
+            <li key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+              <span>
+                {a.description} — due {a.deadline}
+              </span>
+              <button style={{ ...secondaryBtn, padding: "1px 8px", fontSize: 11 }} onClick={() => onCompleteAction(a.id)}>
+                complete
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {showForm ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <input
+            style={{ ...inputStyle, fontSize: 12, maxWidth: 140 }}
+            placeholder="Inspector"
+            value={inspector}
+            onChange={(e) => setInspector(e.target.value)}
+          />
+          <input
+            style={{ ...inputStyle, fontSize: 12, maxWidth: 130 }}
+            type="date"
+            value={inspectionDate}
+            onChange={(e) => setInspectionDate(e.target.value)}
+          />
+          <select style={{ ...inputStyle, fontSize: 12, width: "auto" }} value={result} onChange={(e) => setResult(e.target.value)}>
+            <option value="SATISFACTORY">Satisfactory</option>
+            <option value="UNSATISFACTORY">Unsatisfactory</option>
+            <option value="ADVISORY">Advisory</option>
+          </select>
+          <input
+            style={{ ...inputStyle, fontSize: 12, maxWidth: 130 }}
+            type="date"
+            title="Next due date"
+            value={nextDueDate}
+            onChange={(e) => setNextDueDate(e.target.value)}
+          />
+          <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={onRecord} disabled={submitting}>
+            Save
+          </button>
+        </div>
+      ) : (
+        <button style={{ ...secondaryBtn, padding: "3px 8px", fontSize: 11 }} onClick={() => setShowForm(true)}>
+          + Record inspection
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
@@ -545,6 +680,12 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                     ? "none"
                     : c.changes.map((ch) => `${ch.change_reference} (${ch.status})`).join(", ")}
                 </div>
+                <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>
+                  Inspections:{" "}
+                  {c.inspections.length === 0
+                    ? "none"
+                    : c.inspections.map((i) => `${i.inspection_date} (${i.result})`).join(", ")}
+                </div>
                 <div style={{ color: "var(--text-secondary)" }}>
                   Responsible party:{" "}
                   {c.responsible_party.created_by_name ?? c.responsible_party.source_type}
@@ -553,9 +694,17 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
               </div>
             ))
           )}
-          <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
-            Not yet available: {goldenThread.not_yet_available.join(", ")}
+          <div style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 4 }}>
+            Building-level inspections:{" "}
+            {goldenThread.inspections.length === 0
+              ? "none"
+              : goldenThread.inspections.map((i) => `${i.inspection_date} (${i.result})`).join(", ")}
           </div>
+          {goldenThread.not_yet_available.length > 0 && (
+            <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+              Not yet available: {goldenThread.not_yet_available.join(", ")}
+            </div>
+          )}
         </div>
       )}
 
@@ -814,6 +963,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                   borderTop: "1px solid var(--border-subtle)",
                   fontSize: 13,
                   display: "flex",
+                  flexWrap: "wrap",
                   justifyContent: "space-between",
                   alignItems: "center",
                   gap: 12,
@@ -837,6 +987,16 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                     </button>
                   )}
                 </span>
+                {!a.applicable_to && (
+                  <div style={{ width: "100%" }}>
+                    <InspectionsPanel
+                      organisationId={orgId() ?? ""}
+                      requirementId={a.requirement_id}
+                      entityType="building"
+                      entityId={buildingId}
+                    />
+                  </div>
+                )}
               </li>
             );
           })}
