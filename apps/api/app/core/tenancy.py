@@ -108,6 +108,8 @@ def get_tenant_db(
 
 def require_permission(permission: str):
     def dependency(ctx: AuthContext = Depends(get_auth_context)) -> AuthContext:
+        if ctx.organisation_id is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
         if ctx.role_code is None or not role_has_permission(ctx.role_code, permission):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {permission}")
         return ctx

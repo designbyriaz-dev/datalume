@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.db import Base
 from app.organisations import models as org_models  # noqa: F401
 from app.platform import audit as platform_audit  # noqa: F401
+from app.platform import billing as platform_billing  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

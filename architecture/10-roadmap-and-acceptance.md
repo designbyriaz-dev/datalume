@@ -37,7 +37,13 @@
 `../apps/` and `../infra/`. What's actually implemented vs. stubbed is
 tracked in `../STATUS.md`, kept current as work continues; treat that
 file, not this one, as the source of truth for "what exists today."
-Sprints 2–24 are not started; they are ordered and ready to pick up.
+**Sprint 2 (SaaS / Billing): scaffolded, minus Stripe itself** — the
+plan catalog, subscriptions, entitlements enforcement and billing
+endpoints exist and are tested; `StripeBillingProvider` is deliberately
+not implemented (no credentials in this environment) — see
+`app/integrations/billing_provider.py` and STATUS.md.
+
+Sprints 3–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

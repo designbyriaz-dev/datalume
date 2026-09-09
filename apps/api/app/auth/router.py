@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.core.security import hash_password, new_session_token, verify_password
 from app.core.tenancy import hash_session_token, get_current_user, redis_client
 from app.organisations.models import Organisation, Workspace
 from app.platform.audit import record_audit_event
+from app.platform.billing import Subscription, SubscriptionStatus, TRIAL_LENGTH_DAYS, TRIAL_PLAN_CODE, get_or_create_plan
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 settings = get_settings()
@@ -70,6 +72,16 @@ def signup(payload: SignupRequest, response: Response, db: Session = Depends(get
     db.flush()
 
     db.add(Workspace(organisation_id=org.id, name="Default Workspace", workspace_type="DEFAULT"))
+
+    trial_plan = get_or_create_plan(db, TRIAL_PLAN_CODE)
+    db.add(
+        Subscription(
+            organisation_id=org.id,
+            plan_id=trial_plan.id,
+            status=SubscriptionStatus.TRIALING,
+            current_period_end=datetime.now(timezone.utc) + timedelta(days=TRIAL_LENGTH_DAYS),
+        )
+    )
 
     owner_role = _get_or_create_role(db, "OWNER")
     db.add(
