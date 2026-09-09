@@ -147,14 +147,70 @@ per instruction — "continue with sprint 2, billing later"):
   (`test_ragged_row_is_flagged_not_silently_misaligned`) using the exact
   malformed input that surfaced it.
 
+**Sprint 4 — Manual Entry / Documents / Evidence** (the Documents half;
+"Manual Entry" itself is still conceptual — see below):
+
+- `app/integrations/storage.py`: `DocumentStorage` Protocol +
+  `LocalFilesystemStorage` — unlike Stripe (Sprint 2) and a real job
+  queue (Sprint 3), local-disk storage needs no external credentials, so
+  this is a genuine working implementation, not a deferred stub. A cloud
+  adapter (S3/Azure Blob) is a second implementation behind the same
+  Protocol when this runs somewhere with those credentials.
+- `app/documents/`: `Document` model — append-only versioning (spec §28:
+  "never silently overwrite previous versions"). A new version is a new
+  row; the prior row is marked `SUPERSEDED` and linked via
+  `superseded_by_document_id`, never edited in place. All versions of one
+  document share a `lineage_id` so "get the version history" is a plain
+  query, not a linked-list walk. `related_entity_type`/`related_entity_id`
+  is a plain polymorphic reference (no FK) so a document can attach to
+  anything — including entity types that don't have a table yet.
+  `document_reference` (e.g. `DOC-000001`) is a simple per-org sequential
+  counter, explicitly interim: it is **not concurrency-safe** under
+  simultaneous uploads (a `COUNT`-based number, not row-locked) — the
+  real configurable Identifier & Reference Engine is Sprint 7; this
+  format is retired then, not extended.
+- `/api/v1/documents` (upload), `/{id}/versions` (new version — rejects
+  versioning from a stale/superseded row), `/{id}` (detail + full version
+  history), `/{id}/download`, `/` (list, filterable by related entity,
+  defaults to current versions only).
+- **Real integration with Sprint 3, not just parallel infrastructure:**
+  the ingestion upload endpoint now retains the raw uploaded CSV as a
+  `Document` (`related_entity_type="dataset"`) instead of discarding it
+  after parsing — closing the "no object storage" gap Sprint 3 flagged.
+  `Dataset.source_file_document_id` replaces the placeholder storage-key
+  field from Sprint 3.
+- `apps/web`: `/data-and-uploads` gained a Documents section (upload
+  form, current-version list, download) and a download link on each
+  dataset's source file. Verified in-browser end-to-end, including
+  clicking Download and confirming the real network request succeeded
+  with no console errors — the file-selection step itself was again
+  verified via curl (see Sprint 3's note on why the Browser pane can't
+  drive a native file picker), but everything downstream of an upload
+  (versioning, supersession, the current-only list filter, download) was
+  exercised for real in the browser this time, not just via curl.
+- 9 new backend tests (41 total passing), including a round-trip proof
+  that an old version's bytes remain unmodified and downloadable after a
+  new version supersedes it.
+- **"Manual Entry" is not built as its own feature in Sprint 4** — the
+  architecture's description ("every '+Add X' form is a thin wrapper over
+  the same service functions the import pipeline calls") needs a
+  canonical domain entity to add, and none exist until Sprint 5. Document
+  upload itself *is* a manual-entry-shaped flow (RBAC-checked, audited,
+  no separate "manual record" model) and proves the pattern; the first
+  domain "+Add" form is Sprint 5's.
+
 ## Not yet done
 
-Sprints 4–24 (documents/evidence, every domain model, Ask DataLume,
-reporting, hardening) — not started. Full order and scope in
+Sprints 5–24 (every domain model, Ask DataLume, reporting, hardening) —
+not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
+- **Document references aren't concurrency-safe.** `next_document_reference`
+  is a `COUNT`-based number — two simultaneous uploads for the same org
+  could theoretically collide. Real fix is the Sprint 7 Reference Engine
+  (row-locked counters), not a patch here.
 - **The ingestion pipeline has no background job queue yet.**
   VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
   for the small CSVs used in testing; will not hold up against the

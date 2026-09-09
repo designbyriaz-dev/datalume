@@ -50,7 +50,14 @@ model all exist and are tested (CSV only; XLSX deferred); IMPORT is a
 registered-importer seam that's empty until Sprint 5+ domain tables
 exist. See STATUS.md for the full list of what's simplified and why.
 
-Sprints 4–24 are not started; they are ordered and ready to pick up.
+**Sprint 4 (Manual Entry / Documents / Evidence): Documents half
+scaffolded** — append-only versioned Document storage (with a real
+working local-disk adapter, not deferred) and its integration with
+Sprint 3's ingestion pipeline are built and tested; "Manual Entry" as a
+distinct feature needs a canonical domain entity to add and stays
+conceptual until Sprint 5. See STATUS.md.
+
+Sprints 5–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

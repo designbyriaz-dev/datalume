@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
 
+    # Local-disk document storage — see app/integrations/storage.py. Swap
+    # for a real cloud adapter (S3/Azure Blob) behind the same Protocol
+    # for production; architecture 00 §5 / 02 §4.
+    local_storage_dir: str = "./storage"
+
     cors_origins: list[str] = ["http://localhost:3100"]
 
 

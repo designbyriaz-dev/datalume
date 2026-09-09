@@ -101,6 +101,7 @@ export type Dataset = {
   status: string;
   row_count: number;
   uploaded_at: string;
+  source_file_document_id: string | null;
 };
 
 export type DatasetDetail = Dataset & {
@@ -113,6 +114,26 @@ export type ImportResult = {
   entities_created: number;
   importer_registered: boolean;
 };
+
+export type DocumentOut = {
+  id: string;
+  document_reference: string;
+  title: string;
+  document_type: string;
+  revision: string;
+  status: "ACTIVE" | "SUPERSEDED" | "ARCHIVED";
+  uploaded_by: string;
+  uploaded_at: string;
+  effective_date: string | null;
+  superseded_by_document_id: string | null;
+  related_entity_type: string | null;
+  related_entity_id: string | null;
+  content_type: string;
+  size_bytes: number;
+  checksum: string;
+};
+
+export type DocumentDetail = DocumentOut & { versions: DocumentOut[] };
 
 export const api = {
   signup: (payload: {
@@ -169,6 +190,38 @@ export const api = {
     }),
   triggerImport: (organisationId: string, datasetId: string) =>
     request<ImportResult>(`/api/v1/datasets/${datasetId}/import`, { method: "POST", organisationId }),
+  listDocuments: (organisationId: string) =>
+    request<DocumentOut[]>("/api/v1/documents", { organisationId }),
+  getDocument: (organisationId: string, documentId: string) =>
+    request<DocumentDetail>(`/api/v1/documents/${documentId}`, { organisationId }),
+  uploadDocument: (organisationId: string, title: string, documentType: string, file: File) => {
+    const form = new FormData();
+    form.append("title", title);
+    form.append("document_type", documentType);
+    form.append("file", file);
+    return request<DocumentOut>("/api/v1/documents", { method: "POST", organisationId, body: form });
+  },
+  uploadDocumentVersion: (organisationId: string, documentId: string, revision: string, file: File) => {
+    const form = new FormData();
+    form.append("revision", revision);
+    form.append("file", file);
+    return request<DocumentOut>(`/api/v1/documents/${documentId}/versions`, {
+      method: "POST",
+      organisationId,
+      body: form,
+    });
+  },
+  // A plain <a href> can't carry the X-Organisation-Id header the API
+  // requires, so downloads go through fetch (with credentials + header)
+  // and hand the caller a Blob to save via an object URL instead.
+  downloadDocument: async (organisationId: string, documentId: string): Promise<Blob> => {
+    const res = await fetch(`${API_URL}/api/v1/documents/${documentId}/download`, {
+      credentials: "include",
+      headers: { "X-Organisation-Id": organisationId },
+    });
+    if (!res.ok) throw new ApiError(res.status, "Download failed");
+    return res.blob();
+  },
 };
 
 export const ORGANISATION_TYPES = [

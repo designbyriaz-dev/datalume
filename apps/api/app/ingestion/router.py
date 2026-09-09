@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.documents.models import Document, DocumentStatus
+from app.documents.reference import next_document_reference
 from app.ingestion.field_dictionary import FIELD_DICTIONARIES, FieldSpec, get_field_dictionary
 from app.ingestion.models import (
     Dataset,
@@ -25,6 +27,7 @@ from app.ingestion.schemas import (
     ImportRowOut,
     UploadResponse,
 )
+from app.integrations.storage import get_document_storage, sha256_hex
 from app.platform.entitlements import require_entitlement
 
 router = APIRouter(prefix="/api/v1", tags=["ingestion"])
@@ -73,6 +76,29 @@ def upload_dataset(
     except CsvParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
+    document_id = uuid.uuid4()
+    checksum = sha256_hex(raw_bytes)
+    storage_key = f"{ctx.organisation_id}/{document_id}"
+    get_document_storage().save(storage_key, raw_bytes)
+    source_document = Document(
+        id=document_id,
+        lineage_id=document_id,
+        organisation_id=ctx.organisation_id,
+        document_reference=next_document_reference(db, ctx.organisation_id),
+        title=file.filename or name,
+        document_type="DATA_UPLOAD",
+        revision="A",
+        status=DocumentStatus.ACTIVE,
+        uploaded_by=ctx.user.id,
+        source="dataset_upload",
+        storage_key=storage_key,
+        content_type=file.content_type or "text/csv",
+        size_bytes=len(raw_bytes),
+        checksum=checksum,
+    )
+    db.add(source_document)
+    db.flush()
+
     dataset = Dataset(
         organisation_id=ctx.organisation_id,
         name=name,
@@ -80,9 +106,15 @@ def upload_dataset(
         status=DatasetStatus.VALIDATED,
         row_count=len(data_rows),
         uploaded_by=ctx.user.id,
+        source_file_document_id=source_document.id,
     )
     db.add(dataset)
     db.flush()
+
+    # The document's related_entity_* couldn't be set before the dataset
+    # existed — link it back now that we have an id.
+    source_document.related_entity_type = "dataset"
+    source_document.related_entity_id = str(dataset.id)
 
     import_job = ImportJob(
         organisation_id=ctx.organisation_id, dataset_id=dataset.id, status=ImportJobStatus.AWAITING_MAPPING
@@ -161,6 +193,7 @@ def get_dataset(
         status=dataset.status.value,
         row_count=dataset.row_count,
         uploaded_at=dataset.uploaded_at,
+        source_file_document_id=dataset.source_file_document_id,
         latest_job_status=job.status.value if job else None,
         row_status_counts=row_status_counts,
     )

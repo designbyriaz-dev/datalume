@@ -6,22 +6,30 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     "ADMIN": {"*"},
     "DATA_ANALYST": {
         "development.read", "development.write", "operations.read", "operations.write",
-        "commercial.read", "uploads.write", "reports.read",
+        "commercial.read", "uploads.write", "documents.write", "reports.read",
     },
     "MANAGER": {
         "development.read", "development.write", "operations.read", "operations.write",
-        "commercial.read", "reports.read",
+        "commercial.read", "documents.write", "reports.read",
     },
     "VIEWER": {
         "development.read", "operations.read", "commercial.read", "reports.read",
     },
-    "DEVELOPMENT_MANAGER": {"development.read", "development.write", "reports.read"},
-    "HANDOVER_MANAGER": {"development.read", "development.write", "development.handover", "reports.read"},
-    "ASSET_MANAGER": {"development.read", "development.write", "operations.read", "reports.read"},
-    "REPAIRS_MANAGER": {"operations.read", "operations.write", "reports.read"},
-    "COMPLIANCE_MANAGER": {"operations.read", "operations.write", "operations.compliance", "reports.read"},
-    "BUILDING_SAFETY_MANAGER": {"operations.read", "operations.write", "operations.compliance", "reports.read"},
-    "PROPERTY_MANAGER": {"development.read", "operations.read", "operations.write", "reports.read"},
+    "DEVELOPMENT_MANAGER": {"development.read", "development.write", "documents.write", "reports.read"},
+    "HANDOVER_MANAGER": {
+        "development.read", "development.write", "development.handover", "documents.write", "reports.read",
+    },
+    "ASSET_MANAGER": {"development.read", "development.write", "operations.read", "documents.write", "reports.read"},
+    "REPAIRS_MANAGER": {"operations.read", "operations.write", "documents.write", "reports.read"},
+    "COMPLIANCE_MANAGER": {
+        "operations.read", "operations.write", "operations.compliance", "documents.write", "reports.read",
+    },
+    "BUILDING_SAFETY_MANAGER": {
+        "operations.read", "operations.write", "operations.compliance", "documents.write", "reports.read",
+    },
+    "PROPERTY_MANAGER": {
+        "development.read", "operations.read", "operations.write", "documents.write", "reports.read",
+    },
     "COMMERCIAL_PROPERTY_MANAGER": {"commercial.read", "commercial.write", "reports.read"},
     "LEASE_MANAGER": {"commercial.read", "commercial.write", "reports.read"},
     "RENT_MANAGER": {"commercial.read", "commercial.write", "commercial.payments", "reports.read"},

@@ -20,3 +20,7 @@ __pycache__/
 .DS_Store
 *.db
 apps/api/smoketest.db
+
+# Local document storage (app/integrations/storage.py) — real uploaded
+# file bytes, never committed.
+apps/api/storage/

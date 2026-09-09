@@ -22,6 +22,7 @@ class DatasetOut(BaseModel):
     status: str
     row_count: int
     uploaded_at: datetime
+    source_file_document_id: uuid.UUID | None
 
     model_config = {"from_attributes": True}
 

@@ -10,7 +10,7 @@ from app.main import app
 
 
 @pytest.fixture()
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     """SQLite-backed TestClient for fast unit/integration tests of business
     logic. Row Level Security (architecture 01 §1) is Postgres-only and is
     verified separately against real Postgres — see architecture/09 §2 and
@@ -53,6 +53,14 @@ def client(monkeypatch):
     fake_redis = FakeRedis()
     monkeypatch.setattr(tenancy_module, "redis_client", fake_redis)
     monkeypatch.setattr(auth_router_module, "redis_client", fake_redis)
+
+    import app.documents.router as documents_router_module
+    import app.ingestion.router as ingestion_router_module
+    from app.integrations.storage import LocalFilesystemStorage
+
+    test_storage = LocalFilesystemStorage(tmp_path / "storage")
+    monkeypatch.setattr(documents_router_module, "get_document_storage", lambda: test_storage)
+    monkeypatch.setattr(ingestion_router_module, "get_document_storage", lambda: test_storage)
 
     with TestClient(app) as c:
         yield c

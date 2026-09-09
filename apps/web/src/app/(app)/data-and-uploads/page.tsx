@@ -6,6 +6,7 @@ import {
   api,
   type Dataset,
   type DatasetDetail,
+  type DocumentOut,
   type FieldSpec,
   type ImportResult,
   type UploadResponse,
@@ -13,10 +14,29 @@ import {
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
+const DOCUMENT_TYPES = ["EVIDENCE", "DRAWING", "SPECIFICATION", "CERTIFICATE", "REPORT", "PHOTOGRAPH", "OTHER"];
+
 function datasetStatusVariant(status: string) {
   if (status === "IMPORTED") return "success" as const;
   if (status === "FAILED") return "critical" as const;
   return "neutral" as const;
+}
+
+function documentStatusVariant(status: string) {
+  if (status === "ACTIVE") return "success" as const;
+  if (status === "ARCHIVED") return "neutral" as const;
+  return "neutral" as const;
+}
+
+// Defined outside the component — same reasoning as
+// organisation/billing/page.tsx's redirectTo (react-hooks/immutability).
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 const inputStyle: React.CSSProperties = {
@@ -61,6 +81,13 @@ export default function DataAndUploadsPage() {
   const [datasetDetail, setDatasetDetail] = useState<DatasetDetail | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
+  const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
+  const [docTitle, setDocTitle] = useState("");
+  const [docType, setDocType] = useState<string>(DOCUMENT_TYPES[0] ?? "EVIDENCE");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docSubmitting, setDocSubmitting] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
   }
@@ -71,6 +98,12 @@ export default function DataAndUploadsPage() {
     setDatasets(await api.listDatasets(id));
   }
 
+  async function refreshDocuments() {
+    const id = orgId();
+    if (!id) return;
+    setDocuments(await api.listDocuments(id));
+  }
+
   useEffect(() => {
     (async () => {
       const id = orgId();
@@ -79,15 +112,51 @@ export default function DataAndUploadsPage() {
         return;
       }
       try {
-        const [dicts, list] = await Promise.all([api.fieldDictionaries(), api.listDatasets(id)]);
+        const [dicts, list, docs] = await Promise.all([
+          api.fieldDictionaries(),
+          api.listDatasets(id),
+          api.listDocuments(id),
+        ]);
         setFieldDictionaries(dicts);
         setDatasets(list);
+        setDocuments(docs);
         setDatasetType(Object.keys(dicts)[0] ?? "PROPERTIES");
       } catch {
         setLoadError("Couldn't load data & uploads.");
       }
     })();
   }, []);
+
+  async function onUploadDocument() {
+    const id = orgId();
+    if (!id || !docFile || !docTitle.trim()) {
+      setDocError("Give the document a title and choose a file first.");
+      return;
+    }
+    setDocSubmitting(true);
+    setDocError(null);
+    try {
+      await api.uploadDocument(id, docTitle.trim(), docType, docFile);
+      setDocTitle("");
+      setDocFile(null);
+      await refreshDocuments();
+    } catch {
+      setDocError("Upload failed.");
+    } finally {
+      setDocSubmitting(false);
+    }
+  }
+
+  async function onDownloadDocument(doc: DocumentOut) {
+    const id = orgId();
+    if (!id) return;
+    try {
+      const blob = await api.downloadDocument(id, doc.id);
+      triggerBlobDownload(blob, doc.title);
+    } catch {
+      setDocError("Download failed.");
+    }
+  }
 
   function resetUploadFlow() {
     setUploadResult(null);
@@ -325,6 +394,7 @@ export default function DataAndUploadsPage() {
               <th style={{ padding: "8px" }}>Rows</th>
               <th style={{ padding: "8px" }}>Status</th>
               <th style={{ padding: "8px" }}>Uploaded</th>
+              <th style={{ padding: "8px" }}>Source file</th>
             </tr>
           </thead>
           <tbody>
@@ -338,6 +408,109 @@ export default function DataAndUploadsPage() {
                 </td>
                 <td style={{ padding: "8px", color: "var(--text-secondary)" }}>
                   {new Date(d.uploaded_at).toLocaleString()}
+                </td>
+                <td style={{ padding: "8px" }}>
+                  {d.source_file_document_id ? (
+                    <button
+                      style={{ ...secondaryBtn, padding: "4px 10px" }}
+                      onClick={async () => {
+                        const id = orgId();
+                        if (!id || !d.source_file_document_id) return;
+                        const blob = await api.downloadDocument(id, d.source_file_document_id);
+                        triggerBlobDownload(blob, d.name);
+                      }}
+                    >
+                      Download
+                    </button>
+                  ) : (
+                    <span style={{ color: "var(--text-secondary)" }}>—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, margin: "32px 0 12px" }}>Documents</h2>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Title
+            </label>
+            <input
+              style={inputStyle}
+              value={docTitle}
+              onChange={(e) => setDocTitle(e.target.value)}
+              placeholder="e.g. Fire door installation certificate — Block A"
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Document type
+            </label>
+            <select style={inputStyle} value={docType} onChange={(e) => setDocType(e.target.value)}>
+              {DOCUMENT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              File
+            </label>
+            <input style={inputStyle} type="file" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+          </div>
+          {docError && <div style={{ color: "var(--color-critical)", fontSize: 13 }}>{docError}</div>}
+          <div>
+            <button style={primaryBtn} onClick={onUploadDocument} disabled={docSubmitting}>
+              {docSubmitting ? "Uploading…" : "Upload document"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {documents === null ? (
+        <div style={{ color: "var(--text-secondary)" }}>Loading…</div>
+      ) : documents.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>No documents uploaded yet.</div>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: "left", color: "var(--text-secondary)" }}>
+              <th style={{ padding: "8px" }}>Reference</th>
+              <th style={{ padding: "8px" }}>Title</th>
+              <th style={{ padding: "8px" }}>Type</th>
+              <th style={{ padding: "8px" }}>Revision</th>
+              <th style={{ padding: "8px" }}>Status</th>
+              <th style={{ padding: "8px" }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {documents.map((doc) => (
+              <tr key={doc.id} style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                <td style={{ padding: "8px", fontFamily: "monospace" }}>{doc.document_reference}</td>
+                <td style={{ padding: "8px" }}>{doc.title}</td>
+                <td style={{ padding: "8px" }}>{doc.document_type}</td>
+                <td style={{ padding: "8px" }}>{doc.revision}</td>
+                <td style={{ padding: "8px" }}>
+                  <StatusBadge label={doc.status} variant={documentStatusVariant(doc.status)} />
+                </td>
+                <td style={{ padding: "8px" }}>
+                  <button style={{ ...secondaryBtn, padding: "4px 10px" }} onClick={() => onDownloadDocument(doc)}>
+                    Download
+                  </button>
                 </td>
               </tr>
             ))}

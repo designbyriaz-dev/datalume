@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 from app.auth import models as auth_models  # noqa: F401
 from app.core.config import get_settings
 from app.core.db import Base
+from app.documents import models as document_models  # noqa: F401
 from app.ingestion import models as ingestion_models  # noqa: F401
 from app.organisations import models as org_models  # noqa: F401
 from app.platform import audit as platform_audit  # noqa: F401

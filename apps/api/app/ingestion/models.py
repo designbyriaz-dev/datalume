@@ -52,11 +52,11 @@ class Dataset(Base):
     row_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    # Object-storage key for the uploaded file. Architecture 02 §4 calls
-    # for a real `documents` table (versioned, FK'd here as
-    # source_file_document_id) — that lands in Sprint 4. Until then this
-    # is a plain key, not a document reference.
-    source_file_storage_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The raw uploaded file, retained via Sprint 4's Document model
+    # (app/documents/models.py) rather than a bare storage key.
+    source_file_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id"), nullable=True
+    )
 
 
 class ImportJob(Base):
