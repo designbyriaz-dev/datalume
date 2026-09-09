@@ -9,6 +9,7 @@ from app.data_health.router import router as data_health_router
 from app.documents.router import router as documents_router
 from app.identifiers.router import router as identifiers_router
 from app.ingestion.router import router as ingestion_router
+from app.intelligence.ask.router import router as ask_router
 from app.organisations.router import router as organisations_router
 from app.platform.router import router as billing_router
 
@@ -63,6 +64,7 @@ app.include_router(stock_condition_router)
 app.include_router(planned_investment_router)
 app.include_router(data_health_router)
 app.include_router(identifiers_router)
+app.include_router(ask_router)
 
 
 @app.get("/health")

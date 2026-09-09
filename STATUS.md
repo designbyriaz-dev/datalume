@@ -1372,10 +1372,95 @@ per instruction — "continue with sprint 2, billing later"):
   with a working link to the flagged property, then clicked Resolve
   and watched it disappear live.
 
+**Sprint 22 — Ask DataLume:**
+
+- **The full pipeline architecture §1 specifies**: DATA → ... →
+  DETERMINISTIC ANALYTICS → CONTROLLED AI TOOLS → LLM INTERPRETATION →
+  USER. `app/intelligence/ask/tools.py` exposes seven typed tools —
+  `get_compliance_status`, `get_repeat_repairs`, `get_repeat_failures`,
+  `get_arrears`, `get_planned_investment`, `get_property_360`,
+  `get_defects` — every one a thin wrapper around an already-built
+  deterministic engine (Sprints 11/13/14/17/18/20). None computes
+  anything new; the three architecture names explicitly
+  (`get_compliance_status`, `get_repeat_repairs`, `get_arrears`) are
+  implemented exactly as named.
+- **Tool selection is deterministic application code
+  (`pipeline.py.select_tools`), never delegated to the LLM's own
+  judgement** — a keyword router matches the question's text against
+  each tool's registered keywords, scoped to the entity types that
+  tool actually supports. This is a deliberate strengthening of spec
+  §57's "never invent" guarantee beyond what native function-calling
+  would give: with native tool-use, the *model* decides which query to
+  run; here, which tools execute is fully deterministic, code-reviewed,
+  and unit-tested, and the LLM (when configured) only ever sees
+  results that already came back from real queries — never gets to
+  choose what to query.
+- **`ToolResultOut`/`AskResponseOut` implement architecture §2's own
+  contract field-for-field** (`dataset`, `fields`, `filters`,
+  `time_period`, `records`, `calculation` / `answer_text`,
+  `tool_results`, `grounded`, `suggested_follow_ups`) — the same shape
+  spec §58 Explainability and the mobile app's `<GroundedClaim>`
+  pattern both expect, so a future mobile client could consume this
+  exact API unchanged.
+- **`grounded=False` is enforced in the API layer, not hoped for in a
+  prompt**: when no tool matches the question for the given entity,
+  `pipeline.py` returns a fixed "I don't have data to answer that"
+  message and an empty `tool_results` list *before* any LLM is ever
+  called — spec §56/§91's "say so explicitly rather than guessing" is
+  structural, not a system-prompt request that an LLM could ignore.
+- **`app/integrations/llm_provider.py` follows Sprint 2's
+  `BillingProvider` precedent exactly**: a `Protocol` boundary,
+  `NullLLMProvider` active whenever `ANTHROPIC_API_KEY` is unset (the
+  case in this environment), and a real `AnthropicLLMProvider` using
+  the official `anthropic` Python package (added as a real dependency
+  this sprint) for when a key is configured. Unlike Stripe, an
+  unconfigured LLM doesn't take the whole feature down: the LLM is
+  architecture's own narrowest, final step — turning already-grounded
+  `ToolResultOut` rows into prose — so `NullLLMProvider` still runs the
+  full deterministic pipeline and falls back to a templated summary
+  built from each tool's own `calculation` field, never a fake
+  interpretation. Every test in this sprint runs against
+  `NullLLMProvider`, since no key is configured here, proving the
+  entire grounding pipeline works independently of whether an LLM is
+  available — exactly the property spec §57 is trying to guarantee.
+- **Deliberate substitution of the Python `anthropic` package for the
+  architecture doc's literal `@anthropic-ai/sdk` (the JS/TS package)**:
+  every other domain and integration in this codebase lives in the
+  FastAPI backend (`apps/api`) — Stripe, sessions, storage, every
+  sprint's business logic — and `intelligence/ask/`'s own tools are
+  explicitly specified as "Python functions with typed signatures."
+  Introducing a second server-side runtime in the Next.js app just to
+  match one package name, with no functional benefit, would break that
+  established pattern for no reason; the Python SDK fills the
+  identical role.
+- `apps/web`: `/ask` replaces its `ComingSoon` stub with a real
+  chat-style page — pick what kind of record to ask about (building/
+  property/component/lease), pick the specific record, ask a free-text
+  question, and see the grounded answer with a `Grounded`/`No data`
+  badge, an expandable "show the data behind this answer" panel
+  (dataset/fields/filters/calculation/record count per tool call — the
+  Explainability rendering spec §58 asks for), and clickable suggested
+  follow-ups.
+- 10 new backend tests (284 total passing): one per tool's own
+  grounded composition, the ungrounded fallback, a tool/entity-type
+  mismatch correctly staying ungrounded, a planned-investment question
+  against a component with no expected life (still grounded, factor
+  correctly inapplicable), and a cross-org isolation check confirming
+  a tool resolves to "not found" rather than leaking another
+  organisation's data when asked about a foreign entity_id.
+- Verified end-to-end live: through the real `/ask` UI, asked a
+  building "Is this building's gas safety compliance up to date?" and
+  watched the `get_compliance_status` tool's grounded result render
+  with the full explainability panel (dataset, fields, filters,
+  calculation, record count) and suggested follow-ups; asked an
+  off-topic question and confirmed the fixed "I don't have data"
+  message rendered instead of any guess, with no explainability panel
+  shown since no tool ran.
+
 ## Not yet done
 
-Sprints 22–24 (Ask DataLume, reporting, and security/performance/
-accessibility hardening) — not started. Full order and scope in
+Sprints 23–24 (reporting, and security/performance/accessibility
+hardening) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

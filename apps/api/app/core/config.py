@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
 
+    # Ask DataLume — architecture/06-intelligence-layer.md §1-2. See
+    # app/integrations/llm_provider.py: unset means NullLLMProvider,
+    # same "deferred adapter, not a fake implementation" pattern as
+    # stripe_secret_key above.
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-sonnet-5"
+
     # Local-disk document storage — see app/integrations/storage.py. Swap
     # for a real cloud adapter (S3/Azure Blob) behind the same Protocol
     # for production; architecture 00 §5 / 02 §4.

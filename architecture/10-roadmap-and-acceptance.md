@@ -288,7 +288,33 @@ and regression-tested. See STATUS.md for the full live verification,
 including the Home dashboard's new live-updating "Needs attention"
 section.
 
-Sprints 22–24 are not started; they are ordered and ready to pick up.
+**Sprint 22 (Ask DataLume): built** — implements architecture §1's full
+pipeline boundary (DATA → ... → DETERMINISTIC ANALYTICS → CONTROLLED AI
+TOOLS → LLM INTERPRETATION → USER): seven typed tools in
+`intelligence/ask/tools.py`, each a thin wrapper over an already-built
+deterministic engine (Sprints 11/13/14/17/18/20) — the LLM never gets
+database access, only typed `ToolResultOut` rows. Tool selection is
+deterministic application code (keyword + entity-type matching), never
+delegated to the LLM's own judgement, a deliberate strengthening of
+spec §57's "never invent" guarantee beyond native function-calling.
+`grounded=False` is enforced structurally in the API layer before any
+LLM call — the fixed "I don't have data" response is not a prompt
+request, it's the code path taken when no tool matches. LLM
+interpretation follows Sprint 2's BillingProvider adapter precedent
+(`LLMProvider` Protocol, `NullLLMProvider`, `AnthropicLLMProvider`),
+using the Python `anthropic` package rather than the architecture doc's
+literal `@anthropic-ai/sdk`, since every other domain in this codebase
+lives in the FastAPI backend and introducing a second server-side
+runtime for one package name would break that pattern for no benefit.
+No `ANTHROPIC_API_KEY` is configured in this environment, so all
+testing exercises `NullLLMProvider`'s templated-summary fallback,
+proving the grounding pipeline works fully independently of whether an
+LLM is configured — exactly the property spec §57 requires. See
+STATUS.md for the full live verification, including a grounded
+compliance question with its expandable explainability panel and an
+explicitly ungrounded fallback question.
+
+Sprints 23–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

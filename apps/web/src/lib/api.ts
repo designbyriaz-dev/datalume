@@ -845,6 +845,23 @@ export type AttentionScanResult = {
   signals_refreshed: number;
 };
 
+export type ToolResultOut = {
+  tool_name: string;
+  dataset: string;
+  fields: string[];
+  filters: Record<string, string>;
+  time_period: { start: string | null; end: string | null } | null;
+  records: Record<string, unknown>[];
+  calculation: string | null;
+};
+
+export type AskResponse = {
+  answer_text: string;
+  tool_results: ToolResultOut[];
+  grounded: boolean;
+  suggested_follow_ups: string[];
+};
+
 export type BoardAssuranceDomainSummary = {
   domain_id: string;
   domain_code: string;
@@ -1436,6 +1453,8 @@ export const api = {
     }),
   triggerAttentionScan: (organisationId: string) =>
     request<AttentionScanResult>("/api/v1/attention/scan", { method: "POST", organisationId }),
+  askDataLume: (organisationId: string, payload: { question: string; entity_type: string; entity_id: string }) =>
+    request<AskResponse>("/api/v1/ask", { method: "POST", organisationId, body: JSON.stringify(payload) }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>
