@@ -225,6 +225,36 @@ export type DevelopmentHierarchy = {
   unbuilt_property_count: number;
 };
 
+export type HandoverCheck = {
+  check_code: string;
+  label: string;
+  weight: number;
+  applicable_count: number;
+  failing_count: number;
+  pass_ratio: number;
+  missing_items: string[];
+};
+
+export type HandoverReadiness = {
+  development_id: string;
+  score_pct: number;
+  threshold_pct: number;
+  ready: boolean;
+  checks: HandoverCheck[];
+  missing: string[];
+};
+
+export type HandoverRecordOut = {
+  id: string;
+  property_id: string;
+  development_id: string;
+  readiness_score_pct: number;
+  readiness_snapshot: Record<string, unknown>[];
+  override_reason: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type DataHealthCheck = {
   check_code: string;
   applicable_count: number;
@@ -550,6 +580,22 @@ export const api = {
     }),
   dataHealth: (organisationId: string) =>
     request<DataHealth>("/api/v1/data-health", { organisationId }),
+  getHandoverReadiness: (organisationId: string, developmentId: string) =>
+    request<HandoverReadiness>(`/api/v1/developments/${developmentId}/handover-readiness`, { organisationId }),
+  authoriseHandover: (organisationId: string, developmentId: string, overrideReason?: string) =>
+    request<HandoverRecordOut[]>(`/api/v1/developments/${developmentId}/handover/authorise`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ override_reason: overrideReason || undefined }),
+    }),
+  listHandoverRecords: (organisationId: string, developmentId: string) =>
+    request<HandoverRecordOut[]>(`/api/v1/developments/${developmentId}/handover-records`, { organisationId }),
+  updatePropertyStatus: (organisationId: string, propertyId: string, newStatus: string) =>
+    request<PropertyOut>(`/api/v1/properties/${propertyId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ status: newStatus }),
+    }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

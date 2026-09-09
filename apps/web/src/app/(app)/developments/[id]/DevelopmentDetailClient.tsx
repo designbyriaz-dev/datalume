@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type DevelopmentHierarchy, type DevelopmentOut } from "@/lib/api";
+import {
+  api,
+  type DevelopmentHierarchy,
+  type DevelopmentOut,
+  type HandoverReadiness,
+  type HandoverRecordOut,
+} from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -17,12 +23,18 @@ function statusVariant(status: string) {
 export function DevelopmentDetailClient({ developmentId }: { developmentId: string }) {
   const [development, setDevelopment] = useState<DevelopmentOut | null>(null);
   const [hierarchy, setHierarchy] = useState<DevelopmentHierarchy | null>(null);
+  const [readiness, setReadiness] = useState<HandoverReadiness | null>(null);
+  const [records, setRecords] = useState<HandoverRecordOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [buildingName, setBuildingName] = useState("");
   const [storeys, setStoreys] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [overrideReason, setOverrideReason] = useState("");
+  const [authorising, setAuthorising] = useState(false);
+  const [authoriseError, setAuthoriseError] = useState<string | null>(null);
 
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
@@ -34,6 +46,17 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
     setHierarchy(await api.getDevelopmentHierarchy(id, developmentId));
   }
 
+  async function refreshHandover() {
+    const id = orgId();
+    if (!id) return;
+    const [readinessResult, recordList] = await Promise.all([
+      api.getHandoverReadiness(id, developmentId),
+      api.listHandoverRecords(id, developmentId),
+    ]);
+    setReadiness(readinessResult);
+    setRecords(recordList);
+  }
+
   useEffect(() => {
     (async () => {
       const id = orgId();
@@ -42,12 +65,16 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
         return;
       }
       try {
-        const [dev, tree] = await Promise.all([
+        const [dev, tree, readinessResult, recordList] = await Promise.all([
           api.getDevelopment(id, developmentId),
           api.getDevelopmentHierarchy(id, developmentId),
+          api.getHandoverReadiness(id, developmentId),
+          api.listHandoverRecords(id, developmentId),
         ]);
         setDevelopment(dev);
         setHierarchy(tree);
+        setReadiness(readinessResult);
+        setRecords(recordList);
       } catch {
         setLoadError("Couldn't load this development.");
       }
@@ -78,11 +105,29 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
     }
   }
 
+  async function onAuthoriseHandover() {
+    const id = orgId();
+    if (!id) return;
+    setAuthorising(true);
+    setAuthoriseError(null);
+    try {
+      await api.authoriseHandover(id, developmentId, overrideReason.trim() || undefined);
+      setOverrideReason("");
+      await refreshHandover();
+    } catch (err) {
+      setAuthoriseError(
+        err instanceof Error && err.message ? err.message : "Couldn't authorise handover.",
+      );
+    } finally {
+      setAuthorising(false);
+    }
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!development || !hierarchy) {
+  if (!development || !hierarchy || !readiness || !records) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -180,6 +225,79 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
             );
           })}
         </div>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, marginTop: 24 }}>Handover readiness</h2>
+      <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 16 }}>
+        Only properties currently marked READY_FOR_HANDOVER are transitioned by authorising handover — everything
+        else in this development is left untouched.
+      </p>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+          <span style={{ fontSize: 28, fontWeight: 700 }}>{readiness.score_pct}%</span>
+          <StatusBadge
+            label={readiness.ready ? "Ready" : "Not ready"}
+            variant={readiness.ready ? "success" : "warning"}
+          />
+        </div>
+        {readiness.missing.length > 0 && (
+          <div style={{ fontSize: 13, marginBottom: 16 }}>
+            <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>Missing:</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {readiness.missing.map((item, i) => (
+                <li key={i}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Override reason (only needed below {readiness.threshold_pct}%)
+            </label>
+            <input
+              style={inputStyle}
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="e.g. Client accepted risk on outstanding O&M documentation"
+            />
+          </div>
+          <button style={primaryBtn} onClick={onAuthoriseHandover} disabled={authorising}>
+            {authorising ? "Authorising…" : "Authorise handover"}
+          </button>
+        </div>
+        {authoriseError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{authoriseError}</div>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Handover history</h2>
+      {records.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>No properties handed over yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {records.map((r) => (
+            <li key={r.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <Link href={`/properties/${r.property_id}`} style={{ color: "var(--color-primary)" }}>
+                  Property {r.property_id.slice(0, 8)}
+                </Link>
+                <span style={{ color: "var(--text-secondary)" }}>{r.readiness_score_pct}% at handover</span>
+              </div>
+              {r.override_reason && (
+                <div style={{ color: "var(--text-secondary)", marginTop: 4 }}>Override: {r.override_reason}</div>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

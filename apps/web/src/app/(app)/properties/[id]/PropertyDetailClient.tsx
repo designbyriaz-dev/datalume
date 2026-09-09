@@ -8,6 +8,18 @@ import { api, type BuildingOut, type PropertyOut, type SpaceOut } from "@/lib/ap
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
+// HANDED_OVER excluded — only app.development.service.authorise_handover
+// can set that status, so offering it here would just produce a 400.
+const PROPERTY_STATUSES = [
+  "PLANNED",
+  "UNDER_CONSTRUCTION",
+  "READY_FOR_HANDOVER",
+  "OPERATIONAL",
+  "OCCUPIED",
+  "VOID",
+  "DISPOSED",
+] as const;
+
 function statusVariant(status: string) {
   if (status === "OPERATIONAL" || status === "OCCUPIED") return "success" as const;
   if (status === "VOID" || status === "DISPOSED") return "critical" as const;
@@ -24,6 +36,9 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
   const [spaceType, setSpaceType] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
@@ -81,6 +96,20 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
     }
   }
 
+  async function onChangeStatus(newStatus: string) {
+    const id = orgId();
+    if (!id || newStatus === property?.status) return;
+    setStatusUpdating(true);
+    setStatusError(null);
+    try {
+      setProperty(await api.updatePropertyStatus(id, propertyId, newStatus));
+    } catch (err) {
+      setStatusError(err instanceof Error && err.message ? err.message : "Couldn't update status.");
+    } finally {
+      setStatusUpdating(false);
+    }
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
@@ -99,9 +128,26 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{property.address}</h1>
         <StatusBadge label={property.status} variant={statusVariant(property.status)} />
       </div>
-      <p style={{ color: "var(--text-secondary)", marginBottom: 24, fontFamily: "monospace", fontSize: 13 }}>
+      <p style={{ color: "var(--text-secondary)", marginBottom: 8, fontFamily: "monospace", fontSize: 13 }}>
         {property.property_reference}
       </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
+        <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Change status:</label>
+        <select
+          style={{ ...inputStyle, width: "auto", padding: "4px 8px", fontSize: 12 }}
+          value={property.status}
+          disabled={statusUpdating}
+          onChange={(e) => onChangeStatus(e.target.value)}
+        >
+          {property.status === "HANDED_OVER" && <option value="HANDED_OVER">HANDED_OVER</option>}
+          {PROPERTY_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        {statusError && <span style={{ color: "var(--color-critical)", fontSize: 12 }}>{statusError}</span>}
+      </div>
 
       <div
         style={{

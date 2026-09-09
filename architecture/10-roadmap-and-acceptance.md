@@ -136,7 +136,23 @@ back. Defects Intelligence (spec §35) is a fixed set of aggregate reads,
 not a scored engine — the spec's own examples are plain counts. See
 STATUS.md for the full live browser/curl verification.
 
-Sprints 12–24 are not started; they are ordered and ready to pick up.
+**Sprint 12 (Handover & Operational Transition): built** — the Handover
+Readiness Engine (spec §37) is a nine-check weighted registry, per-org
+configurable (spec's own emphasis on transparent/configurable scoring),
+same shape as Data Health's rule registry but weighted from day one.
+`HandoverService.authorise` (§9/§38) is exactly the transaction the
+architecture specifies: assert readiness or a `development.handover`-
+permitted override, flip in-scope `READY_FOR_HANDOVER` properties to
+`HANDED_OVER` in one transaction, write a permanent per-property
+`HandoverRecord` snapshot, audit each. Preserving development history at
+handover (spec §39) needed no new code — it was already guaranteed by
+every prior sprint's decision to key components/specifications/evidence/
+warranties/defects to the same `properties` rows a status flip touches,
+never a copy. See STATUS.md for the live verification and a real bug
+the test suite caught (an empty development scoring ~85% instead of 0%,
+since most checks vacuously pass when there's nothing to apply to yet).
+
+Sprints 13–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

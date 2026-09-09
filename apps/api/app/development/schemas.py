@@ -446,3 +446,53 @@ class WarrantyOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class UpdatePropertyStatusRequest(BaseModel):
+    status: str
+
+
+class HandoverCheckOut(BaseModel):
+    check_code: str
+    label: str
+    weight: float
+    applicable_count: int
+    failing_count: int
+    pass_ratio: float
+    missing_items: list[str]
+
+
+class HandoverReadinessOut(BaseModel):
+    development_id: uuid.UUID
+    score_pct: float
+    threshold_pct: float
+    ready: bool
+    checks: list[HandoverCheckOut]
+    missing: list[str]
+
+
+class AuthoriseHandoverRequest(BaseModel):
+    override_reason: str | None = None
+
+
+class HandoverRecordOut(BaseModel):
+    id: uuid.UUID
+    property_id: uuid.UUID
+    development_id: uuid.UUID
+    readiness_score_pct: float
+    readiness_snapshot: list[dict]
+    override_reason: str | None
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class HandoverReadinessWeightOut(BaseModel):
+    check_code: str
+    label: str
+    weight: float
+
+
+class UpdateHandoverReadinessWeightRequest(BaseModel):
+    weight: float

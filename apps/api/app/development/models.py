@@ -429,3 +429,51 @@ class Warranty(Base, ProvenanceMixin):
     terms_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
     status: Mapped[WarrantyStatus] = mapped_column(Enum(WarrantyStatus), default=WarrantyStatus.ACTIVE)
+
+
+class HandoverReadinessCheckWeight(Base):
+    """Per-organisation weight for one Handover Readiness check — spec
+    §37: "All scoring methodology must be transparent/configurable."
+    Same lazy-seeded, one-row-per-(org, code) pattern as
+    app.identifiers.models.ReferencePattern (Sprint 7); see
+    app/development/handover.py for the registry of checks this
+    configures and why configurability matters here specifically (unlike
+    Data Health's v1, which stayed deliberately unweighted)."""
+
+    __tablename__ = "handover_readiness_check_weights"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    check_code: Mapped[str] = mapped_column(String(64))
+    weight: Mapped[float] = mapped_column(Float)
+
+
+class HandoverRecord(Base, ProvenanceMixin):
+    """The permanent evidence a handover happened and what was known at
+    the time — architecture/03-development-domain.md §9. One row per
+    property, written inside the same transaction as that property's
+    READY_FOR_HANDOVER -> HANDED_OVER status flip
+    (app/development/service.py.authorise_handover), never edited
+    afterwards.
+
+    created_by/created_at (ProvenanceMixin) ARE the authoriser and
+    timestamp spec §9 asks for — a separate authorised_by/authorised_at
+    pair would just duplicate them, since creating this row is itself
+    the authorisation act.
+
+    readiness_snapshot is the full per-check breakdown (code, weight,
+    pass_ratio, missing_items) at the moment of authorisation — not just
+    the headline score — so "what was known at the time" (spec §9)
+    survives even if the checks' definitions or an org's configured
+    weights change later.
+    """
+
+    __tablename__ = "handover_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    property_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("properties.id"))
+    development_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("developments.id"))
+    readiness_score_pct: Mapped[float] = mapped_column(Float)
+    readiness_snapshot: Mapped[list] = mapped_column(JSON)
+    override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -621,10 +621,81 @@ per instruction — "continue with sprint 2, billing later"):
   actual defect over curl, and that `expiring_within_days` correctly
   excluded a warranty over a decade from expiry.
 
+**Sprint 12 — Handover & Operational Transition:**
+
+- **Handover Readiness Engine** (`app/development/handover.py`, spec
+  §37) — a registry of nine independent, weighted checks, same shape as
+  Data Health's rule registry (Sprint 5) but weighted and per-org
+  configurable (`HandoverReadinessCheckWeight`, lazily seeded exactly
+  like Sprint 7's `ReferencePattern`), because spec §37 calls scoring
+  configurability out as core to this engine specifically, not a later
+  enhancement the way Data Health's weighting stayed. Ten checks are
+  named in spec §37's own list; nine are real registry entries —
+  "Outstanding remedial actions" has no table to check yet (that's
+  Compliance Operations, Sprint 16) and isn't faked as an always-passing
+  check, so the other checks' weights are renormalised to still sum to
+  100%. "Missing evidence" and "Data-quality problems" from the same
+  list aren't separate checks either — checks 3-6 (component fields,
+  warranties, certificates, commissioning evidence) and the existing
+  Data Health module already cover that ground.
+  A development with **zero properties recorded scores 0%, not a
+  vacuous ~85%** — `HandoverCheckResult.pass_ratio` is `1.0` when
+  `applicable_count` is 0 (correct once real properties/components
+  exist and a given check genuinely has nothing to apply to), and this
+  was caught by this sprint's own test (not a spec requirement written
+  down anywhere, but an obvious correctness bug once the test made the
+  number concrete).
+- **Handover workflow** (`app/development/service.py.authorise_handover`,
+  spec §9/§38) — exactly the transaction the architecture describes:
+  assert readiness meets the threshold (or an explicit `override_reason`
+  from a `development.handover`-permitted role — `HANDOVER_MANAGER`,
+  the permission Sprint 1 created and this sprint is the first to
+  actually gate anything behind), flip every in-scope
+  `READY_FOR_HANDOVER` property to `HANDED_OVER` in one transaction,
+  write one `HandoverRecord` per property capturing the full readiness
+  snapshot (not just the headline score), audit each. Properties not
+  currently `READY_FOR_HANDOVER` are left untouched, so a development
+  can be handed over in phases. Threshold is fixed at 100% for v1 — spec
+  §37 only calls out the *scoring methodology* as needing to be
+  configurable, not the pass/fail bar, and the override path already
+  covers the real "ships below 100% for a documented reason" case.
+  `PropertyStatus.HANDED_OVER` can only be reached through this action —
+  the new `POST /api/v1/properties/{id}/status` endpoint (for the
+  ordinary `PLANNED → UNDER_CONSTRUCTION → READY_FOR_HANDOVER`
+  progression) explicitly refuses to set it directly.
+- Preserving development history at handover needed **no new code at
+  all** — architecture 03 §9 already decided this back when Component/
+  Specification/Warranty/Defect were built: handover is a status flip
+  on the same `properties` rows, never a copy, so the component
+  register, specifications, evidence, warranties, defects and Golden
+  Thread composition are automatically unchanged by the flip (spec §39).
+- `apps/web`: "Handover readiness" + "Handover history" sections added
+  to the Development detail page (score, missing items, override-reason
+  field, authorise button); a "Change status" control added to the
+  Property detail page for the ordinary pre-handover progression, with
+  `HANDED_OVER` deliberately absent from its options.
+- 12 new backend tests (143 total passing). One real bug found by the
+  test suite itself before this ever reached the browser: an empty
+  development (no properties) scored ~85% instead of 0%, because eight
+  of the nine checks have nothing to apply to yet and vacuously "pass" —
+  fixed by special-casing zero properties to a flat 0% rather than
+  letting the weighted average paper over "nothing has been captured."
+- Verified end-to-end live: built a development with a building
+  (Building Control reference), a property, and a component carrying a
+  warranty, an electrical certificate, a commissioning record and a
+  development-level O&M document — confirmed the readiness score moved
+  from 78.9% (missing components-captured and O&M items, matching
+  exactly) to 100% as each piece was added over curl; set the property
+  to `READY_FOR_HANDOVER` through the new UI control and authorised
+  handover through the real UI button, confirming the property flipped
+  to `HANDED_OVER` and the full 9-check readiness snapshot was recorded
+  permanently in `handover_records`; confirmed the weight-configuration
+  PATCH endpoint and its 404 guard on an unknown check_code over curl.
+
 ## Not yet done
 
-Sprints 12–24 (handover, Property 360, repairs, compliance, and the
-rest) — not started. Full order and scope in
+Sprints 13–24 (Property 360, repairs, compliance, and the rest) — not
+started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

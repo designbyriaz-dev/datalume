@@ -8,8 +8,20 @@ from app.core.provenance import SourceType
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
 from app.development.models import Property, Space
 from app.development.presenters import properties_to_out, property_to_out
-from app.development.schemas import CreatePropertyRequest, CreateSpaceRequest, PropertyOut, SpaceOut
-from app.development.service import HierarchyMismatchError, HierarchyNotFoundError, create_property, create_space
+from app.development.schemas import (
+    CreatePropertyRequest,
+    CreateSpaceRequest,
+    PropertyOut,
+    SpaceOut,
+    UpdatePropertyStatusRequest,
+)
+from app.development.service import (
+    HierarchyMismatchError,
+    HierarchyNotFoundError,
+    create_property,
+    create_space,
+    update_property_status,
+)
 
 router = APIRouter(prefix="/api/v1/properties", tags=["development"])
 
@@ -84,6 +96,23 @@ def get_property(
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
     prop = _get_org_property(db, ctx.organisation_id, property_id)
+    return property_to_out(db, ctx.organisation_id, prop)
+
+
+@router.post("/{property_id}/status", response_model=PropertyOut)
+def update_property_status_endpoint(
+    property_id: uuid.UUID,
+    payload: UpdatePropertyStatusRequest,
+    ctx: AuthContext = Depends(require_permission("development.write")),
+    db: Session = Depends(get_db),
+):
+    prop = _get_org_property(db, ctx.organisation_id, property_id)
+    try:
+        update_property_status(db, ctx.organisation_id, prop, new_status=payload.status, actor_user_id=ctx.user.id)
+    except HierarchyMismatchError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    db.commit()
+    db.refresh(prop)
     return property_to_out(db, ctx.organisation_id, prop)
 
 

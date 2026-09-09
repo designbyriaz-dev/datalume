@@ -31,6 +31,8 @@ from app.development.models import (
     DefectStatus,
     Development,
     Floor,
+    HandoverReadinessCheckWeight,
+    HandoverRecord,
     Property,
     PropertyStatus,
     Space,
@@ -42,6 +44,12 @@ from app.development.models import (
 from app.identifiers.models import ExternalReferenceType
 from app.identifiers.service import generate_reference, get_external_references, record_external_reference
 from app.platform.audit import record_audit_event
+
+
+class HandoverNotReadyError(ValueError):
+    """The development's handover readiness score is below the required
+    threshold and no override_reason was supplied — the router maps this
+    to a 400."""
 
 
 class HierarchyNotFoundError(ValueError):
@@ -1201,3 +1209,152 @@ def void_warranty(
         after={"status": "VOID"},
     )
     return warranty
+
+
+def get_or_create_handover_readiness_weight(
+    db: Session, organisation_id: uuid.UUID, check_code: str, default_weight: float
+) -> HandoverReadinessCheckWeight:
+    weight = (
+        db.query(HandoverReadinessCheckWeight)
+        .filter(
+            HandoverReadinessCheckWeight.organisation_id == organisation_id,
+            HandoverReadinessCheckWeight.check_code == check_code,
+        )
+        .with_for_update()
+        .first()
+    )
+    if weight is not None:
+        return weight
+    weight = HandoverReadinessCheckWeight(organisation_id=organisation_id, check_code=check_code, weight=default_weight)
+    db.add(weight)
+    db.flush()
+    return weight
+
+
+def list_handover_readiness_weights(db: Session, organisation_id: uuid.UUID) -> list[HandoverReadinessCheckWeight]:
+    from app.development.handover import DEFAULT_CHECK_WEIGHTS
+
+    for code, default in DEFAULT_CHECK_WEIGHTS.items():
+        get_or_create_handover_readiness_weight(db, organisation_id, code, default)
+    return (
+        db.query(HandoverReadinessCheckWeight)
+        .filter(HandoverReadinessCheckWeight.organisation_id == organisation_id)
+        .all()
+    )
+
+
+def set_handover_readiness_weight(
+    db: Session, organisation_id: uuid.UUID, check_code: str, weight: float
+) -> HandoverReadinessCheckWeight:
+    from app.development.handover import DEFAULT_CHECK_WEIGHTS
+
+    if check_code not in DEFAULT_CHECK_WEIGHTS:
+        raise HierarchyNotFoundError(f"Unknown handover readiness check_code: {check_code}")
+    row = get_or_create_handover_readiness_weight(db, organisation_id, check_code, DEFAULT_CHECK_WEIGHTS[check_code])
+    row.weight = weight
+    db.flush()
+    return row
+
+
+HANDOVER_READINESS_THRESHOLD_PCT = 100.0
+# v1 requires full readiness (or an explicit permitted override) rather
+# than a second per-org configurable threshold — spec §37 only calls out
+# the *scoring methodology* (the checks and their weights) as needing to
+# be transparent/configurable, not the pass/fail bar itself, and
+# HANDOVER_MANAGER+'s override path (architecture §9 step 1) already
+# covers the real-world case where a development ships below 100% for a
+# documented reason.
+
+
+def authorise_handover(
+    db: Session,
+    organisation_id: uuid.UUID,
+    development: Development,
+    *,
+    override_reason: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> list[HandoverRecord]:
+    """architecture/03-development-domain.md §9.
+    HandoverService.authorise: assert readiness (or a permitted
+    override), flip every in-scope READY_FOR_HANDOVER property to
+    HANDED_OVER, write one HandoverRecord per property, audit each.
+    Properties not currently READY_FOR_HANDOVER are left untouched —
+    handover can be authorised in phases as blocks of a development
+    reach readiness at different times."""
+    from app.development.handover import compute_handover_readiness, properties_in_development
+
+    score_pct, checks = compute_handover_readiness(db, organisation_id, development.id)
+    if score_pct < HANDOVER_READINESS_THRESHOLD_PCT and not override_reason:
+        raise HandoverNotReadyError(
+            f"Handover readiness is {score_pct}%, below the required {HANDOVER_READINESS_THRESHOLD_PCT}% "
+            "— supply an override_reason to authorise anyway"
+        )
+
+    snapshot = [
+        {
+            "check_code": c.check_code,
+            "label": c.label,
+            "weight": c.weight,
+            "pass_ratio": round(c.pass_ratio, 3),
+            "missing_items": c.missing_items,
+        }
+        for c in checks
+    ]
+
+    properties = [
+        p for p in properties_in_development(db, organisation_id, development.id) if p.status == PropertyStatus.READY_FOR_HANDOVER
+    ]
+
+    records: list[HandoverRecord] = []
+    for prop in properties:
+        prop.status = PropertyStatus.HANDED_OVER
+        record = HandoverRecord(
+            organisation_id=organisation_id,
+            property_id=prop.id,
+            development_id=development.id,
+            readiness_score_pct=score_pct,
+            readiness_snapshot=snapshot,
+            override_reason=override_reason,
+            source_type=SourceType.MANUAL,
+            created_by=actor_user_id,
+            updated_by=actor_user_id,
+        )
+        db.add(record)
+        records.append(record)
+
+        record_audit_event(
+            db,
+            organisation_id=organisation_id,
+            actor_user_id=actor_user_id,
+            action_code="property.handed_over",
+            entity_type="property",
+            entity_id=str(prop.id),
+            before={"status": "READY_FOR_HANDOVER"},
+            after={"status": "HANDED_OVER", "readiness_score_pct": score_pct},
+        )
+
+    db.flush()
+    return records
+
+
+def update_property_status(
+    db: Session, organisation_id: uuid.UUID, prop: Property, *, new_status: str, actor_user_id: uuid.UUID | None = None
+) -> Property:
+    target = PropertyStatus(new_status)
+    if target == PropertyStatus.HANDED_OVER:
+        raise HierarchyMismatchError(
+            "HANDED_OVER can only be set by authorising handover, not by a direct status update"
+        )
+    previous = prop.status
+    prop.status = target
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="property.status_changed",
+        entity_type="property",
+        entity_id=str(prop.id),
+        before={"status": previous.value},
+        after={"status": target.value},
+    )
+    return prop
