@@ -13,11 +13,14 @@ async function request<T>(
   options: RequestInit & { organisationId?: string } = {},
 ): Promise<T> {
   const { organisationId, headers, ...rest } = options;
+  const isFormData = rest.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
     ...rest,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      // Omit Content-Type for FormData bodies — fetch must set its own
+      // multipart boundary, which a fixed header here would clobber.
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(organisationId ? { "X-Organisation-Id": organisationId } : {}),
       ...headers,
     },
@@ -75,6 +78,42 @@ export type Subscription = {
   entitlements: Record<string, boolean | number | null>;
 };
 
+export type FieldSpec = {
+  key: string;
+  label: string;
+  required: boolean;
+  aliases: string[];
+};
+
+export type UploadResponse = {
+  dataset_id: string;
+  import_job_id: string;
+  row_count: number;
+  proposed_mapping: Record<string, string | null>;
+  field_dictionary: FieldSpec[];
+  suggested_mapping_from_template: boolean;
+};
+
+export type Dataset = {
+  id: string;
+  name: string;
+  dataset_type: string;
+  status: string;
+  row_count: number;
+  uploaded_at: string;
+};
+
+export type DatasetDetail = Dataset & {
+  latest_job_status: string | null;
+  row_status_counts: Record<string, number>;
+};
+
+export type ImportResult = {
+  rows_processed: number;
+  entities_created: number;
+  importer_registered: boolean;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -110,6 +149,26 @@ export const api = {
       method: "POST",
       organisationId,
     }),
+  fieldDictionaries: () => request<Record<string, FieldSpec[]>>("/api/v1/datasets/field-dictionaries"),
+  listDatasets: (organisationId: string) =>
+    request<Dataset[]>("/api/v1/datasets", { organisationId }),
+  getDataset: (organisationId: string, datasetId: string) =>
+    request<DatasetDetail>(`/api/v1/datasets/${datasetId}`, { organisationId }),
+  uploadDataset: (organisationId: string, datasetType: string, name: string, file: File) => {
+    const form = new FormData();
+    form.append("dataset_type", datasetType);
+    form.append("name", name);
+    form.append("file", file);
+    return request<UploadResponse>("/api/v1/uploads", { method: "POST", organisationId, body: form });
+  },
+  applyMapping: (organisationId: string, datasetId: string, columnMapping: Record<string, string | null>) =>
+    request<DatasetDetail>(`/api/v1/datasets/${datasetId}/mapping`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ column_mapping: columnMapping }),
+    }),
+  triggerImport: (organisationId: string, datasetId: string) =>
+    request<ImportResult>(`/api/v1/datasets/${datasetId}/import`, { method: "POST", organisationId }),
 };
 
 export const ORGANISATION_TYPES = [

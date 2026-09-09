@@ -43,7 +43,14 @@ endpoints exist and are tested; `StripeBillingProvider` is deliberately
 not implemented (no credentials in this environment) — see
 `app/integrations/billing_provider.py` and STATUS.md.
 
-Sprints 3–24 are not started; they are ordered and ready to pick up.
+**Sprint 3 (Data Ingestion & Provenance): scaffolded, minus the
+background job queue** — the upload/validate/understand/map/review
+pipeline, provenance mixin and dataset/import_job/import_row staging
+model all exist and are tested (CSV only; XLSX deferred); IMPORT is a
+registered-importer seam that's empty until Sprint 5+ domain tables
+exist. See STATUS.md for the full list of what's simplified and why.
+
+Sprints 4–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

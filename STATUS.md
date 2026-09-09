@@ -89,13 +89,84 @@ per instruction — "continue with sprint 2, billing later"):
   that didn't exist in earlier eslint-config-next — fixed rather than
   suppressed (see `organisation/billing/page.tsx`).
 
+**Sprint 3 — Data Ingestion & Provenance:**
+
+- `app/core/provenance.py`: `ProvenanceMixin` (source_type, source_system,
+  source_dataset_id, import_job_id, original_reference, created_by/at,
+  updated_by/at) — no real consumer table exists yet (domain entities
+  start Sprint 5), so it's tested against a throwaway table
+  (`app/tests/test_provenance.py`) ahead of time rather than left
+  unverified until something depends on it.
+- `app/ingestion/`: `Dataset` / `ImportJob` / `ImportRow` /
+  `MappingTemplate` models, and the pipeline (`pipeline.py`):
+  UPLOAD → VALIDATE → UNDERSTAND → MAP → REVIEW → IMPORT, exactly the
+  staging-table shape architecture/02 §2 specifies (never parse-and-insert
+  directly). `/api/v1/uploads` (multipart CSV), `/api/v1/datasets`
+  (list/detail/rows), `/mapping` (apply + persist as a reusable
+  per-org-per-dataset-type template), `/import`.
+- Two dataset types seeded as field dictionaries (`PROPERTIES`,
+  `COMPONENTS`) — enough to exercise the pipeline for real; the rest of
+  spec §13's dataset list gets a dictionary each as its domain lands.
+- Simplifications, each documented at the point they matter (mainly
+  `pipeline.py`'s module docstring): **CSV only**, no XLSX/XLS yet.
+  VALIDATE/UNDERSTAND run **synchronously** in the upload request, not as
+  an RQ-backed background job — the DB shape already matches the
+  background-job design, so moving it later is a call-site change, not a
+  schema change; not done yet because there's no Redis available in this
+  environment to verify a real job queue against (same reasoning as
+  Sprint 2's Stripe deferral — build what's genuinely testable now).
+  **No object storage** — uploaded files are parsed in memory and
+  discarded, not persisted; real file retention is a Sprint 4 (Documents)
+  concern. **IMPORT is a registered-importer seam** (`IMPORTERS` dict) —
+  empty in Sprint 3 since no canonical domain tables exist to import
+  into; running it today is an honest no-op (rows move to `IMPORTED`,
+  zero entities created, `importer_registered: false` in the response),
+  not a fake success.
+- Cleaning: whitespace trimming only, logged per-row
+  (`raw_data["_cleaning"]`) so it's visible on review, never silent.
+- `apps/web`: `/data-and-uploads` is real — upload form, a mapping-review
+  table (dropdown per column, pre-filled from the proposed/template
+  mapping), apply/import buttons, and a dataset list. Verified two ways:
+  the automated test suite, and real `curl` multipart requests against a
+  live (SQLite-backed) run of the API — **the Browser pane's tools
+  cannot drive a native file picker** (`form_input` on a `type="file"`
+  input throws `InvalidStateError`, a real browser security restriction,
+  not a tool bug), so the file-selection step itself was verified via
+  curl + pytest rather than a full GUI click-through; everything else
+  (empty state, the populated dataset list after a curl-driven upload,
+  the 401→sign-in redirect) was verified in-browser.
+- 15 new backend tests (32 total passing).
+- **A real bug found by hand-testing, not by the original test suite:**
+  an unescaped comma in a test CSV ("Flat 4, Oak House") produced one
+  extra cell; the pipeline silently truncated it, shifting every
+  subsequent field left and marking the corrupted row VALID/IMPORTED.
+  Root cause was that every test fixture happened to be well-formed CSV,
+  so nothing exercised a ragged row. Fixed: a cell-count mismatch is now
+  flagged `INVALID` at staging time with a specific message and excluded
+  from import; regression-tested
+  (`test_ragged_row_is_flagged_not_silently_misaligned`) using the exact
+  malformed input that surfaced it.
+
 ## Not yet done
 
-Sprints 3–24 (data ingestion, every domain model, Ask DataLume,
+Sprints 4–24 (documents/evidence, every domain model, Ask DataLume,
 reporting, hardening) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
+
+- **The ingestion pipeline has no background job queue yet.**
+  VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
+  for the small CSVs used in testing; will not hold up against the
+  "tens of thousands of properties" performance requirement (spec §72)
+  until it moves to `worker/jobs/ingestion.py` behind a real RQ+Redis
+  queue — architecture/02 §2 explains why this matters.
+- **XLSX/XLS upload isn't supported**, only CSV — needs a real parsing
+  library (openpyxl/Polars), deferred rather than half-wired.
+- **Uploaded files aren't retained anywhere** — parsed in memory and
+  discarded. Real file/evidence storage is a Sprint 4 concern.
+- **IMPORT never creates real entities yet** — `IMPORTERS` is empty
+  until Sprint 5+ domain tables exist to import into.
 
 - **RLS is unverified against real Postgres.** The policy SQL in
   `alembic/versions/0001_foundation.py` and `0002_billing.py` is written
