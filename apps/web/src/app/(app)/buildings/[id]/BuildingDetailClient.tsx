@@ -523,10 +523,11 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a floor</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="floor-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
             </label>
             <input
+              id="floor-name"
               style={inputStyle}
               value={floorName}
               onChange={(e) => setFloorName(e.target.value)}
@@ -534,10 +535,10 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="floor-level-index" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Level index
             </label>
-            <input style={inputStyle} value={levelIndex} onChange={(e) => setLevelIndex(e.target.value)} placeholder="0" />
+            <input id="floor-level-index" style={inputStyle} value={levelIndex} onChange={(e) => setLevelIndex(e.target.value)} placeholder="0" />
           </div>
           <button style={primaryBtn} onClick={onAddFloor} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}
@@ -599,10 +600,11 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a specification</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="spec-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Title
             </label>
             <input
+              id="spec-title"
               style={inputStyle}
               value={specTitle}
               onChange={(e) => setSpecTitle(e.target.value)}
@@ -610,10 +612,10 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="spec-description" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Description
             </label>
-            <input style={inputStyle} value={specDescription} onChange={(e) => setSpecDescription(e.target.value)} />
+            <input id="spec-description" style={inputStyle} value={specDescription} onChange={(e) => setSpecDescription(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddSpecification} disabled={specSubmitting}>
             {specSubmitting ? "Adding…" : "Add"}
@@ -752,10 +754,11 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Report a defect</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1.5fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="defect-category" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Category
             </label>
             <input
+              id="defect-category"
               style={inputStyle}
               value={defectCategory}
               onChange={(e) => setDefectCategory(e.target.value)}
@@ -763,20 +766,22 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="defect-description" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Description
             </label>
             <input
+              id="defect-description"
               style={inputStyle}
               value={defectDescription}
               onChange={(e) => setDefectDescription(e.target.value)}
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="defect-severity" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Severity
             </label>
             <select
+              id="defect-severity"
               style={inputStyle}
               value={defectSeverity}
               onChange={(e) => setDefectSeverity(e.target.value as (typeof DEFECT_SEVERITIES)[number])}
@@ -845,16 +850,17 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a warranty</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.2fr 1.2fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="warranty-provider" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Provider
             </label>
-            <input style={inputStyle} value={warrantyProvider} onChange={(e) => setWarrantyProvider(e.target.value)} />
+            <input id="warranty-provider" style={inputStyle} value={warrantyProvider} onChange={(e) => setWarrantyProvider(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="warranty-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
             </label>
             <input
+              id="warranty-type"
               style={inputStyle}
               value={warrantyType}
               onChange={(e) => setWarrantyType(e.target.value)}
@@ -862,10 +868,11 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="warranty-expiry-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Expiry date
             </label>
             <input
+              id="warranty-expiry-date"
               style={inputStyle}
               type="date"
               value={warrantyExpiryDate}
@@ -940,10 +947,11 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a compliance requirement</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="applicability-requirement" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Requirement
             </label>
             <select
+              id="applicability-requirement"
               style={inputStyle}
               value={applicabilityRequirementId}
               onChange={(e) => setApplicabilityRequirementId(e.target.value)}
@@ -956,10 +964,11 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="applicability-basis" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Basis
             </label>
             <input
+              id="applicability-basis"
               style={inputStyle}
               value={applicabilityBasis}
               onChange={(e) => setApplicabilityBasis(e.target.value)}

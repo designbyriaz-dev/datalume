@@ -152,8 +152,9 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         {property.property_reference}
       </p>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 24 }}>
-        <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Change status:</label>
+        <label htmlFor="property-status" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Change status:</label>
         <select
+          id="property-status"
           style={{ ...inputStyle, width: "auto", padding: "4px 8px", fontSize: 12 }}
           value={property.status}
           disabled={statusUpdating}
@@ -244,10 +245,11 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
       >
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="space-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
             </label>
             <input
+              id="space-name"
               style={inputStyle}
               value={spaceName}
               onChange={(e) => setSpaceName(e.target.value)}
@@ -255,10 +257,10 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="space-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
             </label>
-            <input style={inputStyle} value={spaceType} onChange={(e) => setSpaceType(e.target.value)} />
+            <input id="space-type" style={inputStyle} value={spaceType} onChange={(e) => setSpaceType(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddSpace} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}

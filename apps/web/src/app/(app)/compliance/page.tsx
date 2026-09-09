@@ -246,10 +246,11 @@ export default function CompliancePage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a domain</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="domain-code" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Code
             </label>
             <input
+              id="domain-code"
               style={inputStyle}
               value={domainCode}
               onChange={(e) => setDomainCode(e.target.value)}
@@ -257,10 +258,11 @@ export default function CompliancePage() {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="domain-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
             </label>
             <input
+              id="domain-name"
               style={inputStyle}
               value={domainName}
               onChange={(e) => setDomainName(e.target.value)}
@@ -321,22 +323,22 @@ export default function CompliancePage() {
           >
             <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 2fr 1fr auto", alignItems: "end" }}>
               <div>
-                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                <label htmlFor="requirement-code" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                   Code
                 </label>
-                <input style={inputStyle} value={reqCode} onChange={(e) => setReqCode(e.target.value)} placeholder="GAS-001" />
+                <input id="requirement-code" style={inputStyle} value={reqCode} onChange={(e) => setReqCode(e.target.value)} placeholder="GAS-001" />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                <label htmlFor="requirement-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                   Title
                 </label>
-                <input style={inputStyle} value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} />
+                <input id="requirement-title" style={inputStyle} value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} />
               </div>
               <div>
-                <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                <label htmlFor="requirement-cadence" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                   Cadence
                 </label>
-                <input style={inputStyle} value={reqCadence} onChange={(e) => setReqCadence(e.target.value)} placeholder="annual" />
+                <input id="requirement-cadence" style={inputStyle} value={reqCadence} onChange={(e) => setReqCadence(e.target.value)} placeholder="annual" />
               </div>
               <button style={primaryBtn} onClick={onAddRequirement} disabled={reqSubmitting}>
                 {reqSubmitting ? "Adding…" : "Add"}

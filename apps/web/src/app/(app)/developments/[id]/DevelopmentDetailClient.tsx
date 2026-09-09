@@ -164,10 +164,11 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a building</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="dev-building-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
             </label>
             <input
+              id="dev-building-name"
               style={inputStyle}
               value={buildingName}
               onChange={(e) => setBuildingName(e.target.value)}
@@ -175,10 +176,10 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="dev-building-storeys" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Storeys
             </label>
-            <input style={inputStyle} value={storeys} onChange={(e) => setStoreys(e.target.value)} />
+            <input id="dev-building-storeys" style={inputStyle} value={storeys} onChange={(e) => setStoreys(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddBuilding} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}
@@ -260,10 +261,11 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
         )}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="handover-override-reason" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Override reason (only needed below {readiness.threshold_pct}%)
             </label>
             <input
+              id="handover-override-reason"
               style={inputStyle}
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}

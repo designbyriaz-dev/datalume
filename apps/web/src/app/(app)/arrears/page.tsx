@@ -154,12 +154,12 @@ export default function ArrearsPage() {
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Portfolio collection rate</h2>
       <div style={{ display: "flex", gap: 12, alignItems: "end", marginBottom: 16 }}>
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period start</label>
-          <input style={inputStyle} type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+          <label htmlFor="arrears-period-start" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period start</label>
+          <input id="arrears-period-start" style={inputStyle} type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
         </div>
         <div>
-          <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period end</label>
-          <input style={inputStyle} type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+          <label htmlFor="arrears-period-end" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period end</label>
+          <input id="arrears-period-end" style={inputStyle} type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
         </div>
         <button style={primaryBtn} onClick={onRecomputeCollectionRate}>
           Recompute

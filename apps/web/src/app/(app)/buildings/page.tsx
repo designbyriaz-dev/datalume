@@ -96,16 +96,16 @@ export default function BuildingsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a building</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="building-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
             </label>
-            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Block A" />
+            <input id="building-name" style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Block A" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="building-development" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Development (optional)
             </label>
-            <select style={inputStyle} value={developmentId} onChange={(e) => setDevelopmentId(e.target.value)}>
+            <select id="building-development" style={inputStyle} value={developmentId} onChange={(e) => setDevelopmentId(e.target.value)}>
               <option value="">— None —</option>
               {developments.map((d) => (
                 <option key={d.id} value={d.id}>

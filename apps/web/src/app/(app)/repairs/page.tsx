@@ -181,10 +181,10 @@ export default function RepairsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Report a repair</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr 1.5fr 1fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="repair-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Property
             </label>
-            <select style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+            <select id="repair-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.address}
@@ -193,22 +193,22 @@ export default function RepairsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="repair-category" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Category
             </label>
-            <input style={inputStyle} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Plumbing" />
+            <input id="repair-category" style={inputStyle} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Plumbing" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="repair-description" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Description
             </label>
-            <input style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <input id="repair-description" style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="repair-priority" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Priority
             </label>
-            <select style={inputStyle} value={priority} onChange={(e) => setPriority(e.target.value as (typeof PRIORITIES)[number])}>
+            <select id="repair-priority" style={inputStyle} value={priority} onChange={(e) => setPriority(e.target.value as (typeof PRIORITIES)[number])}>
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -217,10 +217,10 @@ export default function RepairsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="repair-contractor" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Contractor
             </label>
-            <input style={inputStyle} value={contractor} onChange={(e) => setContractor(e.target.value)} />
+            <input id="repair-contractor" style={inputStyle} value={contractor} onChange={(e) => setContractor(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddRepair} disabled={submitting}>
             {submitting ? "Reporting…" : "Report"}

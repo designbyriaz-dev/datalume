@@ -91,22 +91,22 @@ export default function DevelopmentsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a development</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="development-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
             </label>
-            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Riverside Gardens" />
+            <input id="development-name" style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Riverside Gardens" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="development-address" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Address
             </label>
-            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} />
+            <input id="development-address" style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="development-planning-ref" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Planning ref.
             </label>
-            <input style={inputStyle} value={planningReference} onChange={(e) => setPlanningReference(e.target.value)} />
+            <input id="development-planning-ref" style={inputStyle} value={planningReference} onChange={(e) => setPlanningReference(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAdd} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}

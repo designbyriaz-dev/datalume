@@ -288,8 +288,8 @@ export default function SafetyPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Report a hazard</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1.5fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
-            <select style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+            <label htmlFor="hazard-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
+            <select id="hazard-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.address}
@@ -298,12 +298,12 @@ export default function SafetyPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Hazard type</label>
-            <input style={inputStyle} value={hazardType} onChange={(e) => setHazardType(e.target.value)} placeholder="e.g. DAMP_AND_MOULD" />
+            <label htmlFor="hazard-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Hazard type</label>
+            <input id="hazard-type" style={inputStyle} value={hazardType} onChange={(e) => setHazardType(e.target.value)} placeholder="e.g. DAMP_AND_MOULD" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Severity</label>
-            <select style={inputStyle} value={severity} onChange={(e) => setSeverity(e.target.value as (typeof SEVERITIES)[number])}>
+            <label htmlFor="hazard-severity" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Severity</label>
+            <select id="hazard-severity" style={inputStyle} value={severity} onChange={(e) => setSeverity(e.target.value as (typeof SEVERITIES)[number])}>
               {SEVERITIES.map((s) => (
                 <option key={s} value={s}>
                   {s}

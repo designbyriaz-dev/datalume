@@ -108,10 +108,10 @@ export default function ComponentsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a component</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr 1fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="component-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
             </label>
-            <select style={inputStyle} value={componentTypeId} onChange={(e) => setComponentTypeId(e.target.value)}>
+            <select id="component-type" style={inputStyle} value={componentTypeId} onChange={(e) => setComponentTypeId(e.target.value)}>
               {types.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -120,22 +120,22 @@ export default function ComponentsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="component-manufacturer" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Manufacturer
             </label>
-            <input style={inputStyle} value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} />
+            <input id="component-manufacturer" style={inputStyle} value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="component-model" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Model
             </label>
-            <input style={inputStyle} value={model} onChange={(e) => setModel(e.target.value)} />
+            <input id="component-model" style={inputStyle} value={model} onChange={(e) => setModel(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="component-serial" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Serial number
             </label>
-            <input style={inputStyle} value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
+            <input id="component-serial" style={inputStyle} value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAdd} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}

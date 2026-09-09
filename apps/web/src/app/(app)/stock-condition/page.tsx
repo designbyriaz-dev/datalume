@@ -108,8 +108,8 @@ export default function StockConditionPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Record a survey</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1.5fr 1fr 1fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
-            <select style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+            <label htmlFor="survey-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
+            <select id="survey-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.address}
@@ -118,20 +118,20 @@ export default function StockConditionPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Surveyor</label>
-            <input style={inputStyle} value={surveyor} onChange={(e) => setSurveyor(e.target.value)} placeholder="e.g. Surveyor Ltd" />
+            <label htmlFor="survey-surveyor" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Surveyor</label>
+            <input id="survey-surveyor" style={inputStyle} value={surveyor} onChange={(e) => setSurveyor(e.target.value)} placeholder="e.g. Surveyor Ltd" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Element</label>
-            <input style={inputStyle} value={ratingElement} onChange={(e) => setRatingElement(e.target.value)} placeholder="e.g. roof" />
+            <label htmlFor="survey-element" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Element</label>
+            <input id="survey-element" style={inputStyle} value={ratingElement} onChange={(e) => setRatingElement(e.target.value)} placeholder="e.g. roof" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Rating</label>
-            <input style={inputStyle} value={ratingValue} onChange={(e) => setRatingValue(e.target.value)} placeholder="e.g. GOOD" />
+            <label htmlFor="survey-rating" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Rating</label>
+            <input id="survey-rating" style={inputStyle} value={ratingValue} onChange={(e) => setRatingValue(e.target.value)} placeholder="e.g. GOOD" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Next due</label>
-            <input style={inputStyle} type="date" value={nextSurveyDue} onChange={(e) => setNextSurveyDue(e.target.value)} />
+            <label htmlFor="survey-next-due" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Next due</label>
+            <input id="survey-next-due" style={inputStyle} type="date" value={nextSurveyDue} onChange={(e) => setNextSurveyDue(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddSurvey} disabled={submitting}>
             {submitting ? "Recording…" : "Record"}

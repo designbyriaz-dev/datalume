@@ -273,8 +273,8 @@ export default function RentAndPaymentsPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Record a payment</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1fr 1fr 1.3fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Lease (optional)</label>
-            <select style={inputStyle} value={paymentLeaseId} onChange={(e) => setPaymentLeaseId(e.target.value)}>
+            <label htmlFor="payment-lease" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Lease (optional)</label>
+            <select id="payment-lease" style={inputStyle} value={paymentLeaseId} onChange={(e) => setPaymentLeaseId(e.target.value)}>
               <option value="">Unassigned</option>
               {leases.map((l) => (
                 <option key={l.id} value={l.id}>
@@ -284,16 +284,16 @@ export default function RentAndPaymentsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Amount (£)</label>
-            <input style={inputStyle} type="number" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+            <label htmlFor="payment-amount" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Amount (£)</label>
+            <input id="payment-amount" style={inputStyle} type="number" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Received</label>
-            <input style={inputStyle} type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
+            <label htmlFor="payment-received-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Received</label>
+            <input id="payment-received-date" style={inputStyle} type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Payer reference</label>
-            <input style={inputStyle} value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="e.g. INV-001" />
+            <label htmlFor="payment-payer-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Payer reference</label>
+            <input id="payment-payer-reference" style={inputStyle} value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="e.g. INV-001" />
           </div>
           <button style={primaryBtn} onClick={onRecordPayment} disabled={paymentSubmitting}>
             {paymentSubmitting ? "Recording…" : "Record"}
@@ -305,8 +305,8 @@ export default function RentAndPaymentsPage() {
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Rent obligations</h2>
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Lease</label>
-        <select style={{ ...inputStyle, maxWidth: 300 }} value={selectedLeaseId} onChange={(e) => onSelectLease(e.target.value)}>
+        <label htmlFor="obligations-lease" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Lease</label>
+        <select id="obligations-lease" style={{ ...inputStyle, maxWidth: 300 }} value={selectedLeaseId} onChange={(e) => onSelectLease(e.target.value)}>
           {leases.map((l) => (
             <option key={l.id} value={l.id}>
               {l.lease_reference}
@@ -326,8 +326,8 @@ export default function RentAndPaymentsPage() {
       >
         <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Type</label>
-            <select style={{ ...inputStyle, fontSize: 12 }} value={obligationType} onChange={(e) => setObligationType(e.target.value as (typeof OBLIGATION_TYPES)[number])}>
+            <label htmlFor="obligation-type" style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Type</label>
+            <select id="obligation-type" style={{ ...inputStyle, fontSize: 12 }} value={obligationType} onChange={(e) => setObligationType(e.target.value as (typeof OBLIGATION_TYPES)[number])}>
               {OBLIGATION_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -336,24 +336,24 @@ export default function RentAndPaymentsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Due date</label>
-            <input style={{ ...inputStyle, fontSize: 12 }} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <label htmlFor="obligation-due-date" style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Due date</label>
+            <input id="obligation-due-date" style={{ ...inputStyle, fontSize: 12 }} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period start</label>
-            <input style={{ ...inputStyle, fontSize: 12 }} type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+            <label htmlFor="obligation-period-start" style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period start</label>
+            <input id="obligation-period-start" style={{ ...inputStyle, fontSize: 12 }} type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period end</label>
-            <input style={{ ...inputStyle, fontSize: 12 }} type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+            <label htmlFor="obligation-period-end" style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Period end</label>
+            <input id="obligation-period-end" style={{ ...inputStyle, fontSize: 12 }} type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Amount (£)</label>
-            <input style={{ ...inputStyle, fontSize: 12 }} type="number" step="0.01" value={amountDue} onChange={(e) => setAmountDue(e.target.value)} />
+            <label htmlFor="obligation-amount" style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Amount (£)</label>
+            <input id="obligation-amount" style={{ ...inputStyle, fontSize: 12 }} type="number" step="0.01" value={amountDue} onChange={(e) => setAmountDue(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Invoice ref</label>
-            <input style={{ ...inputStyle, fontSize: 12 }} value={invoiceReference} onChange={(e) => setInvoiceReference(e.target.value)} />
+            <label htmlFor="obligation-invoice-ref" style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Invoice ref</label>
+            <input id="obligation-invoice-ref" style={{ ...inputStyle, fontSize: 12 }} value={invoiceReference} onChange={(e) => setInvoiceReference(e.target.value)} />
           </div>
           <button style={{ ...primaryBtn, padding: "6px 12px", fontSize: 12 }} onClick={onAddObligation} disabled={obligationSubmitting}>
             {obligationSubmitting ? "Adding…" : "Add"}

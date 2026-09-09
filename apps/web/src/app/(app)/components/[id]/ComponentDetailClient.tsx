@@ -303,10 +303,11 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
       >
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="component-spec-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Title
             </label>
             <input
+              id="component-spec-title"
               style={inputStyle}
               value={specTitle}
               onChange={(e) => setSpecTitle(e.target.value)}
@@ -357,10 +358,10 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
       >
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.2fr 1.2fr 1.2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="change-spec" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Specification
             </label>
-            <select style={inputStyle} value={changeSpecId} onChange={(e) => setChangeSpecId(e.target.value)}>
+            <select id="change-spec" style={inputStyle} value={changeSpecId} onChange={(e) => setChangeSpecId(e.target.value)}>
               {specifications
                 .filter((s) => s.status === "ACTIVE")
                 .map((s) => (
@@ -371,20 +372,21 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="change-proposed-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Proposed title
             </label>
             <input
+              id="change-proposed-title"
               style={inputStyle}
               value={changeProposedTitle}
               onChange={(e) => setChangeProposedTitle(e.target.value)}
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="change-reason" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Reason
             </label>
-            <input style={inputStyle} value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
+            <input id="change-reason" style={inputStyle} value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onSubmitChange} disabled={changeSubmitting}>
             {changeSubmitting ? "Submitting…" : "Propose"}
@@ -476,10 +478,10 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
       >
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="child-component-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
             </label>
-            <select style={inputStyle} value={childTypeId} onChange={(e) => setChildTypeId(e.target.value)}>
+            <select id="child-component-type" style={inputStyle} value={childTypeId} onChange={(e) => setChildTypeId(e.target.value)}>
               {types.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}

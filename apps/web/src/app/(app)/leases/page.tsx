@@ -164,8 +164,8 @@ export default function LeasesPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a lease</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1.3fr 1fr 1fr 1fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
-            <select style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+            <label htmlFor="lease-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
+            <select id="lease-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
               {properties.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.address}
@@ -174,8 +174,8 @@ export default function LeasesPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Tenant</label>
-            <select style={inputStyle} value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
+            <label htmlFor="lease-tenant" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Tenant</label>
+            <select id="lease-tenant" style={inputStyle} value={tenantId} onChange={(e) => setTenantId(e.target.value)}>
               {tenants.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -184,20 +184,20 @@ export default function LeasesPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Start</label>
-            <input style={inputStyle} type="date" value={leaseStart} onChange={(e) => setLeaseStart(e.target.value)} />
+            <label htmlFor="lease-start" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Start</label>
+            <input id="lease-start" style={inputStyle} type="date" value={leaseStart} onChange={(e) => setLeaseStart(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Expiry</label>
-            <input style={inputStyle} type="date" value={leaseExpiry} onChange={(e) => setLeaseExpiry(e.target.value)} />
+            <label htmlFor="lease-expiry" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Expiry</label>
+            <input id="lease-expiry" style={inputStyle} type="date" value={leaseExpiry} onChange={(e) => setLeaseExpiry(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Rent (£)</label>
-            <input style={inputStyle} type="number" min="0" step="0.01" value={rentAmount} onChange={(e) => setRentAmount(e.target.value)} />
+            <label htmlFor="lease-rent" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Rent (£)</label>
+            <input id="lease-rent" style={inputStyle} type="number" min="0" step="0.01" value={rentAmount} onChange={(e) => setRentAmount(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Frequency</label>
-            <select style={inputStyle} value={rentFrequency} onChange={(e) => setRentFrequency(e.target.value as (typeof RENT_FREQUENCIES)[number])}>
+            <label htmlFor="lease-frequency" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Frequency</label>
+            <select id="lease-frequency" style={inputStyle} value={rentFrequency} onChange={(e) => setRentFrequency(e.target.value as (typeof RENT_FREQUENCIES)[number])}>
               {RENT_FREQUENCIES.map((f) => (
                 <option key={f} value={f}>
                   {f}

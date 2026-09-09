@@ -1647,12 +1647,14 @@ mention has had since Sprint 2.
   reader gets no accessible name for any sign-in/sign-up field. Fixed
   by making `htmlFor` a required prop and adding matching `id`s on
   both pages; verified via `element.labels` returning the correct
-  label text afterward. The same unassociated-label pattern exists in
-  17 more files across the authenticated app (an inlined label style
-  rather than a shared component) — flagged as a follow-up task rather
-  than fixed here, since retrofitting ~17 pages is a large, separate,
-  mechanical pass and this sprint's remaining time went to the
-  higher-severity findings above.
+  label text afterward. The same unassociated-label pattern was found
+  in 18 more files across the authenticated app (an inlined label
+  style rather than a shared component, plus one dynamically-generated
+  form — `planned-investment/page.tsx`'s per-factor weight inputs,
+  found by a follow-up sweep after the initial 17-file grep missed its
+  slightly different label style) — closed out immediately after this
+  sprint rather than left as a standing gap; see the dedicated note
+  below.
 - **A concurrency smoke-check, explicitly not a load test**: this
   sandbox has no realistic multi-user load generator and the
   smoketest server runs SQLite (single-writer), not the Postgres this
@@ -1667,6 +1669,30 @@ mention has had since Sprint 2.
   (5), the reports audit-event regression (1), request-logging
   behaviour including the Redis-outage regression (6), and the upload
   size limit (3).
+
+**Post-Sprint-24 — closing the label-association follow-up:** all 24
+roadmap sprints were complete, so this picked up the one concrete item
+Sprint 24 itself flagged rather than leaving it as a queued task. Every
+`<label>` across the authenticated app that was a sibling of its
+`<input>`/`<select>` (not nested, not associated) got a matching
+`id`/`htmlFor` pair — 18 files in the end: the 17 found by Sprint 24's
+own grep, plus `planned-investment/page.tsx`, caught by a repo-wide
+re-grep after the fact because its label style (`fontSize: 11,
+marginBottom: 2`, one property literally different) didn't match the
+pattern the first search looked for — worth noting since it's exactly
+the kind of gap a single grep pattern can miss. That file's weight
+inputs are also the one genuinely dynamic case (a `.map()` over factor
+codes rather than a fixed form), fixed with `id={`weight-${w.factor_
+code}`}` so each generated input still gets a unique, stable id. The
+one non-visible-label case (`ask/page.tsx`'s free-text question input,
+which only ever had a placeholder) got `aria-label="Question"` instead
+of a visible label, to avoid a layout change. Verified two ways: a
+repo-wide `grep -rn '<label'` with no `htmlFor` hits left afterward,
+and live in the browser via `element.labels` on `/reports`,
+`/planned-investment` (including three of the five dynamically-id'd
+weight inputs, confirming no id collisions), and `/ask` — all resolved
+to the correct label text. `npm run build`/`lint` both clean; no
+backend changes, so the existing 308 backend tests are unaffected.
 
 ## Not yet done
 
@@ -1703,10 +1729,6 @@ punch list for whoever takes this toward a real pilot:
   and security suites cover the equivalent assertions at the API
   layer, but nothing exercises the actual browser UI end-to-end as an
   automated, repeatable suite.
-- **17 in-app pages have the same unassociated-label bug** Sprint 24
-  fixed on sign-in/sign-up — flagged as its own follow-up task rather
-  than fixed in this sprint; see the task queue.
-
 Specifically flagged as gaps to close early, not deferred to "later":
 
 - **The Reference Engine's first-ever pattern row per org+entity_type

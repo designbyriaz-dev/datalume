@@ -107,28 +107,28 @@ export default function PropertiesPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a property</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr 1.5fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="property-address" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Address
             </label>
-            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} />
+            <input id="property-address" style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="property-postcode" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Postcode
             </label>
-            <input style={inputStyle} value={postcode} onChange={(e) => setPostcode(e.target.value)} />
+            <input id="property-postcode" style={inputStyle} value={postcode} onChange={(e) => setPostcode(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="property-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
             </label>
-            <input style={inputStyle} value={propertyType} onChange={(e) => setPropertyType(e.target.value)} />
+            <input id="property-type" style={inputStyle} value={propertyType} onChange={(e) => setPropertyType(e.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="property-building" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Building (optional)
             </label>
-            <select style={inputStyle} value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+            <select id="property-building" style={inputStyle} value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
               <option value="">— None —</option>
               {buildings.map((b) => (
                 <option key={b.id} value={b.id}>

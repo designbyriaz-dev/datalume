@@ -173,8 +173,8 @@ export default function AskPage() {
       >
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1.5fr", marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Ask about</label>
-            <select style={inputStyle} value={entityType} onChange={(e) => onEntityTypeChange(e.target.value as EntityType)}>
+            <label htmlFor="ask-entity-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Ask about</label>
+            <select id="ask-entity-type" style={inputStyle} value={entityType} onChange={(e) => onEntityTypeChange(e.target.value as EntityType)}>
               {ENTITY_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t.charAt(0).toUpperCase() + t.slice(1)}
@@ -183,8 +183,8 @@ export default function AskPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Record</label>
-            <select style={inputStyle} value={entityId} onChange={(e) => setEntityId(e.target.value)}>
+            <label htmlFor="ask-entity-id" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Record</label>
+            <select id="ask-entity-id" style={inputStyle} value={entityId} onChange={(e) => setEntityId(e.target.value)}>
               {options.length === 0 && <option value="">No records yet</option>}
               {options.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -196,6 +196,7 @@ export default function AskPage() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <input
+            aria-label="Question"
             style={inputStyle}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}

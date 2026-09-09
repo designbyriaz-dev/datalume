@@ -127,8 +127,9 @@ export default function PlannedInvestmentPage() {
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           {weights.map((w) => (
             <div key={w.factor_code}>
-              <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 2 }}>{w.label}</label>
+              <label htmlFor={`weight-${w.factor_code}`} style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 2 }}>{w.label}</label>
               <input
+                id={`weight-${w.factor_code}`}
                 style={{ ...inputStyle, width: 80 }}
                 type="number"
                 step="0.05"

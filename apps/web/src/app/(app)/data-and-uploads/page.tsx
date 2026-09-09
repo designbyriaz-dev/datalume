@@ -243,10 +243,10 @@ export default function DataAndUploadsPage() {
         {!uploadResult && fieldDictionaries && (
           <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
             <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              <label htmlFor="upload-dataset-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                 Dataset type
               </label>
-              <select style={inputStyle} value={datasetType} onChange={(e) => setDatasetType(e.target.value)}>
+              <select id="upload-dataset-type" style={inputStyle} value={datasetType} onChange={(e) => setDatasetType(e.target.value)}>
                 {Object.keys(fieldDictionaries).map((key) => (
                   <option key={key} value={key}>
                     {key}
@@ -255,10 +255,11 @@ export default function DataAndUploadsPage() {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              <label htmlFor="upload-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                 Name
               </label>
               <input
+                id="upload-name"
                 style={inputStyle}
                 value={uploadName}
                 onChange={(e) => setUploadName(e.target.value)}
@@ -266,10 +267,11 @@ export default function DataAndUploadsPage() {
               />
             </div>
             <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              <label htmlFor="upload-csv-file" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                 CSV file
               </label>
               <input
+                id="upload-csv-file"
                 style={inputStyle}
                 type="file"
                 accept=".csv,text/csv"
@@ -444,10 +446,11 @@ export default function DataAndUploadsPage() {
       >
         <div style={{ display: "grid", gap: 12, maxWidth: 480 }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="doc-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Title
             </label>
             <input
+              id="doc-title"
               style={inputStyle}
               value={docTitle}
               onChange={(e) => setDocTitle(e.target.value)}
@@ -455,10 +458,10 @@ export default function DataAndUploadsPage() {
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="doc-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Document type
             </label>
-            <select style={inputStyle} value={docType} onChange={(e) => setDocType(e.target.value)}>
+            <select id="doc-type" style={inputStyle} value={docType} onChange={(e) => setDocType(e.target.value)}>
               {DOCUMENT_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {t}
@@ -467,10 +470,10 @@ export default function DataAndUploadsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+            <label htmlFor="doc-file" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               File
             </label>
-            <input style={inputStyle} type="file" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+            <input id="doc-file" style={inputStyle} type="file" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
           </div>
           {docError && <div style={{ color: "var(--color-critical)", fontSize: 13 }}>{docError}</div>}
           <div>

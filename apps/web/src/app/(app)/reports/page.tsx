@@ -170,8 +170,8 @@ export default function ReportsPage() {
       >
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr", marginBottom: 12 }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Report</label>
-            <select style={inputStyle} value={reportType} onChange={(e) => setReportType(e.target.value as ReportType)}>
+            <label htmlFor="report-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Report</label>
+            <select id="report-type" style={inputStyle} value={reportType} onChange={(e) => setReportType(e.target.value as ReportType)}>
               {REPORT_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
@@ -180,8 +180,8 @@ export default function ReportsPage() {
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Format</label>
-            <select style={inputStyle} value={format} onChange={(e) => setFormat(e.target.value as ReportFormatValue)}>
+            <label htmlFor="report-format" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Format</label>
+            <select id="report-format" style={inputStyle} value={format} onChange={(e) => setFormat(e.target.value as ReportFormatValue)}>
               {REPORT_FORMATS.map((f) => (
                 <option key={f} value={f}>
                   {f}
@@ -194,10 +194,10 @@ export default function ReportsPage() {
         {BOARD_LEVEL_TYPES.includes(reportType) && (
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr", marginBottom: 12 }}>
             <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              <label htmlFor="report-building" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                 Building (optional — narrows scope)
               </label>
-              <select style={inputStyle} value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+              <select id="report-building" style={inputStyle} value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
                 <option value="">Whole portfolio</option>
                 {buildings.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -207,10 +207,10 @@ export default function ReportsPage() {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              <label htmlFor="report-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
                 Property (optional — narrows scope)
               </label>
-              <select style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+              <select id="report-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
                 <option value="">Whole portfolio</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>

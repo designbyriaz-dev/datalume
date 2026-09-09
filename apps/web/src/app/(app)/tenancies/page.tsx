@@ -93,16 +93,16 @@ export default function TenanciesPage() {
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a tenant</h2>
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1.5fr 1fr auto", alignItems: "end" }}>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Name</label>
-            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Acme Retail Ltd" />
+            <label htmlFor="tenant-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Name</label>
+            <input id="tenant-name" style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Acme Retail Ltd" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Email</label>
-            <input style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ops@acme.example" />
+            <label htmlFor="tenant-email" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Email</label>
+            <input id="tenant-email" style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ops@acme.example" />
           </div>
           <div>
-            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Phone</label>
-            <input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <label htmlFor="tenant-phone" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Phone</label>
+            <input id="tenant-phone" style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddTenant} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}
