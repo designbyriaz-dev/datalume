@@ -1203,11 +1203,91 @@ per instruction — "continue with sprint 2, billing later"):
   right status badge — on the property's own detail page, including
   the corrected `not_yet_available` wording.
 
+**Sprint 20 — Rent / Payments / Arrears:**
+
+- **Completes architecture/05-commercial-domain.md §1's schema**:
+  `RentObligation` (what's owed), `PaymentTransaction` (what was
+  received), `PaymentAllocation` (the only join between the two) — kept
+  as three separate tables, never a combined ledger row, because spec
+  §52's exact/possible/partial/overpayment/unallocated matching is
+  inherently many-to-many (one payment can cover several obligations;
+  one obligation can be paid in instalments).
+- **Payment boundary (spec §54) enforced by construction, not just
+  policy**: the endpoint is literally named `POST /payments`, not
+  `/payment-transactions` — matching architecture's own wording, since
+  the point it's making (*record* a payment, never *initiate* one) is
+  the whole reason for the name. There is no charge/transfer endpoint
+  anywhere in this codebase.
+- **`reconciliation.py`: `match_payment` implements spec §52's four
+  ordered rules exactly** — exact reference match → exact amount+lease+
+  due-date-window match → partial-amount candidate → no match →
+  `UNALLOCATED`, with `NEEDS_REVIEW` at any step where a rule finds
+  *more than one* equally-plausible candidate obligation rather than
+  guessing. Only a rule finding exactly one candidate auto-allocates —
+  `MATCHED` for the confident rules, `POSSIBLE_MATCH` for the partial-
+  amount rule specifically, since a partial payment is inherently less
+  certain than an exact one. "Never silently allocate ambiguous money"
+  (spec §52) enforced by the algorithm's own shape, not a comment.
+- **Every payment gets exactly one `PaymentAllocation` row from the
+  first automatic pass**, even when nothing matched (`rent_obligation_id`
+  NULL, status `UNALLOCATED`/`NEEDS_REVIEW`) — the row is itself the
+  "this payment was considered" record, surfacing directly in the
+  `/rent-and-payments` work queue for a RENT_MANAGER to resolve.
+  Resolution updates that row in place with `source_type = MANUAL`
+  (architecture §2's own words), audited the same way every write in
+  this codebase is. Splitting one payment across several obligations is
+  a separate, deliberate manual act (`POST /payments/{id}/allocations`)
+  — the automatic reconciler never does this itself.
+- **`arrears.py` implements §3's `arrears_for_lease`/`collection_rate`
+  pseudocode closely** — both pure, computed at read time, only
+  `MATCHED` allocations count as "collected" (not `POSSIBLE_MATCH`/
+  `NEEDS_REVIEW`/`UNALLOCATED`, which would blur spec §52's "never
+  allocate ambiguous money" into the reporting layer too). Ageing
+  buckets (`CURRENT`/`1-30`/`31-60`/`61-90`/`90+`) are computed per
+  obligation from its own outstanding balance, not its full amount, so
+  a partially-paid obligation only contributes its unpaid remainder.
+- **One deliberate, documented deviation from the purely-computed-at-
+  read-time norm this codebase otherwise follows everywhere**:
+  reconciliation runs *once*, when a payment is recorded, not
+  re-evaluated on every subsequent read — a config change (e.g.
+  widening the due-date window) affects payments recorded after the
+  change, not retroactively. This matches how a real reconciliation
+  workflow behaves (a bank reconciliation, once done, isn't silently
+  redone every time someone views it) and is documented explicitly at
+  the top of `test_rent_payments_arrears.py` and `reconciliation.py`.
+- **`commercial.payments` gets its first real use** — RENT_MANAGER-only,
+  narrower than `commercial.write` (COMMERCIAL_PROPERTY_MANAGER/
+  LEASE_MANAGER/RENT_MANAGER), gating the money-recording endpoints
+  specifically. Same pattern as `operations.compliance` (Sprint 15).
+- `apps/web`: `/rent-and-payments` (obligation register per lease,
+  payment recording with live reconciliation-result feedback, and the
+  needs-attention work queue with inline resolve controls) and
+  `/arrears` (per-lease ageing snapshot, portfolio collection rate)
+  replace their `ComingSoon` stubs.
+- 16 new backend tests (260 total passing): one isolated test per
+  reconciliation rule (including both the confident-match and
+  ambiguous/`NEEDS_REVIEW` branch of rules 1 and 2), the due-date-
+  window config-change test, manual resolution and its "already
+  matched" guard, manual split allocation and its overallocation
+  guard, a full arrears snapshot (overdue + current + overpaid +
+  unallocated in one lease), collection rate, and permission checks
+  (LEASE_MANAGER denied on payments, RENT_MANAGER allowed).
+- Verified end-to-end live: through the real `/rent-and-payments` UI,
+  added a rent obligation, recorded an exactly-matching payment and
+  watched the live reconciliation result ("MATCHED") and the
+  obligation flip to "settled" without a page reload; recorded a
+  second, deliberately unmatchable payment and confirmed it appeared
+  in the needs-attention queue as `UNALLOCATED`. Confirmed the
+  `/arrears` page composed the same lease's snapshot correctly —
+  £0 outstanding, the unallocated payment counted separately, and a
+  correct 100% collection rate for a period with nothing due in it.
+
 ## Not yet done
 
-Sprints 20–24 (rent/payments/arrears, the cross-domain attention
-engine, Ask DataLume, reporting, and hardening) — not started. Full
-order and scope in `architecture/10-roadmap-and-acceptance.md`.
+Sprints 21–24 (the cross-domain attention engine, Ask DataLume,
+reporting, and security/performance/accessibility hardening) — not
+started. Full order and scope in
+`architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

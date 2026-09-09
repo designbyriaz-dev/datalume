@@ -7,7 +7,19 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.commercial.models import Lease, LeaseStatus, OccupancyStatus, RentFrequency, Tenant
+from app.commercial.models import (
+    AllocationStatus,
+    Lease,
+    LeaseStatus,
+    ObligationType,
+    OccupancyStatus,
+    PaymentAllocation,
+    PaymentReconciliationConfig,
+    RentFrequency,
+    RentObligation,
+    RentObligationStatus,
+    Tenant,
+)
 from app.core.provenance import SourceType
 from app.development.models import Property
 from app.identifiers.service import generate_reference
@@ -15,7 +27,7 @@ from app.platform.audit import record_audit_event
 
 
 class TenancyNotFoundError(ValueError):
-    """A given property_id/tenant_id doesn't exist in this
+    """A given property_id/tenant_id/lease_id doesn't exist in this
     organisation — the router maps this to a 404."""
 
 
@@ -188,3 +200,107 @@ def update_occupancy_status(
         after={"occupancy_status": target.value},
     )
     return lease
+
+
+def _get_org_lease(db: Session, organisation_id: uuid.UUID, lease_id: uuid.UUID) -> Lease:
+    lease = db.query(Lease).filter(Lease.id == lease_id, Lease.organisation_id == organisation_id).first()
+    if lease is None:
+        raise TenancyNotFoundError(f"Lease {lease_id} not found")
+    return lease
+
+
+def matched_amount_for_obligation(db: Session, organisation_id: uuid.UUID, rent_obligation_id: uuid.UUID) -> int:
+    """Sum of MATCHED allocation amounts against one obligation — the
+    single source of truth reconciliation.py and arrears.py both read
+    from, so "is this obligation settled" is always computed, never
+    stored (see RentObligationStatus's own docstring)."""
+    rows = (
+        db.query(PaymentAllocation.amount_allocated_pence)
+        .filter(
+            PaymentAllocation.organisation_id == organisation_id,
+            PaymentAllocation.rent_obligation_id == rent_obligation_id,
+            PaymentAllocation.allocation_status == AllocationStatus.MATCHED,
+        )
+        .all()
+    )
+    return sum(row[0] for row in rows)
+
+
+def outstanding_for_obligation(db: Session, organisation_id: uuid.UUID, obligation: RentObligation) -> int:
+    return obligation.amount_due_pence - matched_amount_for_obligation(db, organisation_id, obligation.id)
+
+
+def create_rent_obligation(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    lease_id: uuid.UUID,
+    obligation_type: str,
+    due_date: date,
+    period_start: date,
+    period_end: date,
+    amount_due_pence: int,
+    currency: str,
+    invoice_reference: str | None,
+    actor_user_id: uuid.UUID | None,
+) -> RentObligation:
+    _get_org_lease(db, organisation_id, lease_id)
+
+    obligation = RentObligation(
+        organisation_id=organisation_id,
+        lease_id=lease_id,
+        obligation_type=ObligationType(obligation_type),
+        due_date=due_date,
+        period_start=period_start,
+        period_end=period_end,
+        amount_due_pence=amount_due_pence,
+        currency=currency,
+        invoice_reference=invoice_reference,
+        status=RentObligationStatus.ACTIVE,
+    )
+    db.add(obligation)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="rent_obligation.created",
+        entity_type="rent_obligation",
+        entity_id=str(obligation.id),
+        after={"lease_id": str(lease_id), "obligation_type": obligation_type, "amount_due_pence": amount_due_pence},
+    )
+    return obligation
+
+
+def list_rent_obligations(
+    db: Session, organisation_id: uuid.UUID, *, lease_id: uuid.UUID | None = None, status: str | None = None
+) -> list[RentObligation]:
+    query = db.query(RentObligation).filter(RentObligation.organisation_id == organisation_id)
+    if lease_id is not None:
+        query = query.filter(RentObligation.lease_id == lease_id)
+    if status is not None:
+        query = query.filter(RentObligation.status == RentObligationStatus(status))
+    return query.order_by(RentObligation.due_date.desc()).all()
+
+
+def get_or_create_reconciliation_config(db: Session, organisation_id: uuid.UUID) -> PaymentReconciliationConfig:
+    config = (
+        db.query(PaymentReconciliationConfig)
+        .filter(PaymentReconciliationConfig.organisation_id == organisation_id)
+        .with_for_update()
+        .first()
+    )
+    if config is not None:
+        return config
+    config = PaymentReconciliationConfig(organisation_id=organisation_id)
+    db.add(config)
+    db.flush()
+    return config
+
+
+def set_reconciliation_config(db: Session, organisation_id: uuid.UUID, *, due_date_window_days: int) -> PaymentReconciliationConfig:
+    config = get_or_create_reconciliation_config(db, organisation_id)
+    config.due_date_window_days = due_date_window_days
+    db.flush()
+    return config

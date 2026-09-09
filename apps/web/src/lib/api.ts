@@ -750,6 +750,66 @@ export type ComplianceStatusConfig = {
   never_assessed_grace_days: number;
 };
 
+export type RentObligationOut = {
+  id: string;
+  lease_id: string;
+  obligation_type: string;
+  due_date: string;
+  period_start: string;
+  period_end: string;
+  amount_due_pence: number;
+  currency: string;
+  invoice_reference: string | null;
+  status: string;
+  outstanding_pence: number;
+};
+
+export type PaymentTransactionOut = {
+  id: string;
+  lease_id: string | null;
+  amount_pence: number;
+  currency: string;
+  received_date: string;
+  payer_reference: string | null;
+  method: string | null;
+};
+
+export type PaymentAllocationOut = {
+  id: string;
+  payment_transaction_id: string;
+  rent_obligation_id: string | null;
+  amount_allocated_pence: number;
+  allocation_status: string;
+  source_type: string;
+};
+
+export type CreatePaymentResult = {
+  payment: PaymentTransactionOut;
+  allocation: PaymentAllocationOut;
+};
+
+export type PaymentReconciliationConfig = {
+  due_date_window_days: number;
+};
+
+export type ArrearsSnapshot = {
+  lease_id: string;
+  as_of: string;
+  total_due_pence: number;
+  outstanding_pence: number;
+  ageing_pence: Record<string, number>;
+  credits_pence: number;
+  unallocated_pence: number;
+};
+
+export type CollectionRate = {
+  period_start: string;
+  period_end: string;
+  due_pence: number;
+  collected_pence: number;
+  collection_rate: number;
+};
+
 export type BoardAssuranceDomainSummary = {
   domain_id: string;
   domain_code: string;
@@ -1260,6 +1320,67 @@ export const api = {
       organisationId,
       body: JSON.stringify({ occupancy_status: occupancyStatus }),
     }),
+  listRentObligations: (organisationId: string, filters?: { lease_id?: string; obligation_status?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.lease_id) params.set("lease_id", filters.lease_id);
+    if (filters?.obligation_status) params.set("obligation_status", filters.obligation_status);
+    const qs = params.toString();
+    return request<RentObligationOut[]>(`/api/v1/rent-obligations${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createRentObligation: (
+    organisationId: string,
+    payload: {
+      lease_id: string;
+      obligation_type: string;
+      due_date: string;
+      period_start: string;
+      period_end: string;
+      amount_due_pence: number;
+      currency?: string;
+      invoice_reference?: string;
+    },
+  ) => request<RentObligationOut>("/api/v1/rent-obligations", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  listPayments: (organisationId: string, filters?: { lease_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.lease_id) params.set("lease_id", filters.lease_id);
+    const qs = params.toString();
+    return request<PaymentTransactionOut[]>(`/api/v1/payments${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createPayment: (
+    organisationId: string,
+    payload: { lease_id?: string; amount_pence: number; received_date: string; payer_reference?: string; method?: string },
+  ) => request<CreatePaymentResult>("/api/v1/payments", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  listPaymentAllocations: (organisationId: string, filters?: { allocation_status?: string; lease_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.allocation_status) params.set("allocation_status", filters.allocation_status);
+    if (filters?.lease_id) params.set("lease_id", filters.lease_id);
+    const qs = params.toString();
+    return request<PaymentAllocationOut[]>(`/api/v1/payment-allocations${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  resolvePaymentAllocation: (organisationId: string, allocationId: string, payload: { rent_obligation_id: string; amount_allocated_pence: number }) =>
+    request<PaymentAllocationOut>(`/api/v1/payment-allocations/${allocationId}/resolve`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  createManualAllocation: (organisationId: string, paymentId: string, payload: { rent_obligation_id: string; amount_allocated_pence: number }) =>
+    request<PaymentAllocationOut>(`/api/v1/payments/${paymentId}/allocations`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  getPaymentReconciliationConfig: (organisationId: string) =>
+    request<PaymentReconciliationConfig>("/api/v1/payment-reconciliation-config", { organisationId }),
+  updatePaymentReconciliationConfig: (organisationId: string, dueDateWindowDays: number) =>
+    request<PaymentReconciliationConfig>("/api/v1/payment-reconciliation-config", {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify({ due_date_window_days: dueDateWindowDays }),
+    }),
+  getLeaseArrears: (organisationId: string, leaseId: string, asOf?: string) =>
+    request<ArrearsSnapshot>(`/api/v1/leases/${leaseId}/arrears${asOf ? `?as_of=${asOf}` : ""}`, { organisationId }),
+  getCollectionRate: (organisationId: string, periodStart: string, periodEnd: string) =>
+    request<CollectionRate>(`/api/v1/collection-rate?period_start=${periodStart}&period_end=${periodEnd}`, { organisationId }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

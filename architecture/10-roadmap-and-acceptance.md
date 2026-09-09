@@ -255,7 +255,23 @@ passing (compliance/stock-condition tables exist but aren't composed
 into Property 360 yet — flagged as separate follow-up work, not
 folded into this sprint). See STATUS.md for the full live verification.
 
-Sprints 20–24 are not started; they are ordered and ready to pick up.
+**Sprint 20 (Rent / Payments / Arrears): built** — completes
+architecture §1's schema (RentObligation, PaymentTransaction,
+PaymentAllocation, kept as three tables joined only through
+allocations, never a combined ledger row). `reconciliation.py`
+implements spec §52's four ordered matching rules exactly, with
+NEEDS_REVIEW whenever a rule finds more than one equally-plausible
+candidate — "never silently allocate ambiguous money" enforced by the
+algorithm's shape. `arrears.py` implements §3's arrears/collection-rate
+pseudocode, pure and computed at read time. One documented deviation
+from this codebase's usual "always computed, never one-time" norm:
+reconciliation runs once per payment, not re-evaluated retroactively,
+matching how real reconciliation works. First real use of the
+commercial.payments RBAC permission (RENT_MANAGER-only). See STATUS.md
+for the full live verification, including a config-driven due-date-
+window test in the same style as every other engine sprint.
+
+Sprints 21–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 
