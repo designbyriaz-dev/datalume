@@ -109,13 +109,40 @@ def test_property_360_composes_everything_available(client):
     assert body["defects"][0]["category"] == "Windows"
     assert len(body["repairs"]) == 1
     assert body["repairs"][0]["category"] == "Heating"
+    assert body["leases"] == []
     assert body["handover_record"] is None
     assert len(body["timeline"]) > 0
     assert any(e["action_code"] == "property.created" for e in body["timeline"])
     assert any(e["action_code"] == "component.created" for e in body["timeline"])
     assert any(e["action_code"] == "repair.reported" for e in body["timeline"])
     assert "repairs (Sprint 14)" not in body["not_yet_available"]
-    assert "compliance_and_safety (Sprint 15-17)" in body["not_yet_available"]
+    assert not any("tenancy_and_lease" in item for item in body["not_yet_available"])
+    assert any("compliance_and_safety" in item for item in body["not_yet_available"])
+
+
+def test_property_360_composes_leases(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload(organisation_type="COMMERCIAL_LANDLORD")).json()
+    org_id = signup["organisation_id"]
+    prop = client.post("/api/v1/properties", headers={"X-Organisation-Id": org_id}, json={"address": "Unit 1"}).json()
+    tenant = client.post("/api/v1/tenants", headers={"X-Organisation-Id": org_id}, json={"name": "Acme Retail Ltd"}).json()
+    client.post(
+        "/api/v1/leases",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "property_id": prop["id"],
+            "tenant_id": tenant["id"],
+            "lease_start": "2026-01-01",
+            "lease_expiry": "2031-01-01",
+            "contractual_rent_pence": 250000,
+            "rent_frequency": "MONTHLY",
+        },
+    )
+
+    resp = client.get(f"/api/v1/properties/{prop['id']}/360", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["leases"]) == 1
+    assert body["leases"][0]["tenant_id"] == tenant["id"]
 
 
 def test_property_360_includes_components_attached_via_space(client):

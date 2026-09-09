@@ -1141,9 +1141,71 @@ per instruction — "continue with sprint 2, billing later"):
   the identical score appeared on the `/planned-investment` portfolio
   list.
 
+**Sprint 19 — Tenancies / Commercial:**
+
+- **New `app/commercial/` top-level package** — one per architecture-doc
+  domain, mirroring `app.development` (~architecture/03) and
+  `app.operations` (~architecture/04); this is `app.commercial`'s first
+  sprint, covering architecture/05-commercial-domain.md §1's `Tenant`
+  and `Lease` tables only. `rent_obligations`/`payment_transactions`/
+  `payment_allocations` and the reconciliation/arrears engines (§2-4 of
+  the same architecture doc) are Sprint 20's own explicit split in the
+  roadmap, not this sprint's — the same "one architecture section, two
+  sprints" pattern as Compliance (Sprints 15-17).
+- **`Tenant.contact_details` is a free-form JSON map**, not fixed
+  columns — same non-fabrication stance as `StockConditionSurvey.
+  condition_ratings` (Sprint 18): this build has no authoritative
+  source for exactly which contact fields every org needs.
+- **`Lease.lease_status` is an enforced workflow** (DRAFT → ACTIVE →
+  EXPIRED/TERMINATED/RENEWED, all terminal) — same transition-dict
+  pattern as Repair/Defect/Hazard status. `Lease.occupancy_status`
+  (OCCUPIED/NOTICE_GIVEN/VACANT) is deliberately *not* a workflow — a
+  tenant can go OCCUPIED → NOTICE_GIVEN → OCCUPIED again if notice is
+  withdrawn, so it's freely settable rather than transition-checked.
+  `contractual_rent_pence`/`service_charge_amount_pence` follow this
+  codebase's universal pence-not-float money convention.
+- **Tenant/Lease endpoints are not restricted by organisation type** —
+  the adaptive workspace layout only controls nav visibility and
+  "tenant" → "occupier" terminology for commercial-type orgs; it's a
+  UI decision, not an API capability gate, the same way every other
+  domain's nav slicing has always worked in this codebase.
+- **RBAC first real use**: `commercial.read`/`commercial.write` have
+  existed since Sprint 1 (COMMERCIAL_PROPERTY_MANAGER, LEASE_MANAGER,
+  RENT_MANAGER) but had nothing to gate until now — same "give an old
+  permission its first real use" pattern as Sprints 14/15/17/18.
+- **Property 360's stale `not_yet_available` entry closed**:
+  `"tenancy_and_lease (Sprint 19)"` is now composed for real (a
+  property's leases, sorted newest-first). While fixing it, found —
+  but deliberately left out of this sprint's scope — that two other
+  entries in the same list (`compliance_and_safety`,
+  `stock_condition_and_planned_investment`) are similarly stale: both
+  have had real canonical tables since Sprints 15-18 but still aren't
+  composed into Property 360 itself. Reworded those two entries to be
+  honest about *why* they're still listed (tables exist; composition
+  doesn't) rather than leaving the original, now-misleading wording,
+  and flagged the actual composition work as a separate follow-up task
+  rather than scope-creeping three sprints' worth of View changes into
+  this one.
+- `apps/web`: `/tenancies` (tenant register + add form) and `/leases`
+  (property+tenant pickers, lease register with enforced status-
+  transition buttons and freely-settable occupancy buttons) replace
+  their `ComingSoon` stubs. The Property detail page gained a Leases
+  section composed from the same Property 360 data the backend fix
+  above unlocked.
+- 25 new backend tests (244 total passing): tenant/lease CRUD, lease
+  status transitions (happy path and an illegal skip), occupancy's
+  freely-settable behaviour, list filtering, permission checks
+  (REPAIRS_MANAGER denied, LEASE_MANAGER allowed), cross-org 404, the
+  new `LEASE` reference pattern, and Property 360's lease composition.
+- Verified end-to-end live: created a tenant and a lease through the
+  real `/tenancies`/`/leases` UI, advanced the lease from DRAFT to
+  ACTIVE, and confirmed it appeared correctly composed — with the
+  right status badge — on the property's own detail page, including
+  the corrected `not_yet_available` wording.
+
 ## Not yet done
 
-Sprints 19–24 (tenancies, rent/payments, the cross-domain attention
+Sprints 20–24 (rent/payments/arrears, the cross-domain attention
 engine, Ask DataLume, reporting, and hardening) — not started. Full
 order and scope in `architecture/10-roadmap-and-acceptance.md`.
 

@@ -404,6 +404,41 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         </ul>
       )}
 
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+        Leases · <Link href="/leases" style={{ color: "var(--color-primary)", fontWeight: 400, fontSize: 13 }}>Manage →</Link>
+      </h2>
+      {view.leases.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>None.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", fontSize: 13 }}>
+          {view.leases.map((l) => (
+            <li
+              key={l.id}
+              style={{
+                padding: "6px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {l.lease_reference}
+                </span>
+                {l.lease_start} → {l.lease_expiry} · £{(l.contractual_rent_pence / 100).toFixed(2)} / {l.rent_frequency.toLowerCase()}
+              </span>
+              <span style={{ display: "flex", gap: 4 }}>
+                <StatusBadge
+                  label={l.lease_status}
+                  variant={l.lease_status === "ACTIVE" || l.lease_status === "RENEWED" ? "success" : l.lease_status === "TERMINATED" ? "critical" : "neutral"}
+                />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Data Health</h2>
       {view.data_health_findings.length === 0 ? (
         <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No issues found.</div>

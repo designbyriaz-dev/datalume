@@ -38,6 +38,7 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "DEFECT": "DEF-{sequence:06d}",
     "WARRANTY": "WAR-{sequence:06d}",
     "REPAIR": "REP-{sequence:06d}",
+    "LEASE": "LSE-{sequence:06d}",
 }
 
 

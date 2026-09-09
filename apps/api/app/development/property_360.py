@@ -11,6 +11,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.commercial.models import Lease
+from app.commercial.schemas import LeaseOut
 from app.data_health.rules import run_data_health_checks
 from app.data_health.schemas import FindingOut
 from app.development.composition import build_component_view, changes_for, component_type_names_for, current_specifications, evidence_for
@@ -36,10 +38,15 @@ from app.documents.schemas import DocumentOut
 from app.operations.models import Repair
 from app.platform.audit import AuditEvent
 
+# compliance_and_safety and stock_condition_and_planned_investment were
+# named here as not-yet-available when this list was first written —
+# both now have canonical data (Sprints 15-18) but neither is composed
+# into Property 360 itself yet, which is a real, separately-tracked gap
+# (flagged for follow-up), not something this sprint's own scope covers.
+# tenancy_and_lease is this sprint's own concern and is closed below.
 NOT_YET_AVAILABLE = [
-    "compliance_and_safety (Sprint 15-17)",
-    "stock_condition_and_planned_investment (Sprint 18)",
-    "tenancy_and_lease (Sprint 19)",
+    "compliance_and_safety (Sprint 15-17 tables exist; not yet composed into Property 360)",
+    "stock_condition_and_planned_investment (Sprint 18 tables exist; not yet composed into Property 360)",
     "rent_and_payments (Sprint 20)",
     "attention_signals (Sprint 21)",
     "ask_datalume (Sprint 22)",
@@ -187,6 +194,13 @@ def get_property_360(db: Session, organisation_id: uuid.UUID, prop: Property) ->
         if f.affected_entity_type == "property" and f.affected_entity_id == str(prop.id)
     ]
 
+    leases = (
+        db.query(Lease)
+        .filter(Lease.organisation_id == organisation_id, Lease.property_id == prop.id)
+        .order_by(Lease.lease_start.desc())
+        .all()
+    )
+
     return Property360Out(
         property=property_to_out(db, organisation_id, prop),
         development=development_to_out(db, organisation_id, development) if development else None,
@@ -201,6 +215,7 @@ def get_property_360(db: Session, organisation_id: uuid.UUID, prop: Property) ->
         warranties=warranties_to_out(_warranties_for(db, organisation_id, prop.id, component_ids)),
         defects=_defects_for(db, organisation_id, prop.id, component_ids),
         repairs=repairs,
+        leases=[LeaseOut.model_validate(lease) for lease in leases],
         handover_record=handover_record,
         data_health_findings=data_health_findings,
         timeline=_timeline_for(db, organisation_id, prop.id, component_ids, repair_ids),

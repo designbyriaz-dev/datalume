@@ -478,6 +478,7 @@ export type Property360 = {
   warranties: WarrantyOut[];
   defects: DefectOut[];
   repairs: RepairOut[];
+  leases: LeaseOut[];
   handover_record: HandoverRecordOut | null;
   data_health_findings: DataHealthFinding[];
   timeline: TimelineEvent[];
@@ -720,6 +721,28 @@ export type ComplianceStatusOut = {
   latest_inspection: InspectionOut | null;
   open_action: ComplianceActionOut | null;
   days_to_due: number | null;
+};
+
+export type TenantOut = {
+  id: string;
+  name: string;
+  contact_details: Record<string, string>;
+};
+
+export type LeaseOut = {
+  id: string;
+  property_id: string;
+  tenant_id: string;
+  lease_reference: string;
+  lease_start: string;
+  lease_expiry: string;
+  break_date: string | null;
+  rent_review_date: string | null;
+  contractual_rent_pence: number;
+  rent_frequency: string;
+  service_charge_amount_pence: number | null;
+  occupancy_status: string;
+  lease_status: string;
 };
 
 export type ComplianceStatusConfig = {
@@ -1199,6 +1222,43 @@ export const api = {
       method: "PATCH",
       organisationId,
       body: JSON.stringify(payload),
+    }),
+  listTenants: (organisationId: string) => request<TenantOut[]>("/api/v1/tenants", { organisationId }),
+  createTenant: (organisationId: string, payload: { name: string; contact_details?: Record<string, string> }) =>
+    request<TenantOut>("/api/v1/tenants", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  listLeases: (organisationId: string, filters?: { property_id?: string; tenant_id?: string; lease_status?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    if (filters?.tenant_id) params.set("tenant_id", filters.tenant_id);
+    if (filters?.lease_status) params.set("lease_status", filters.lease_status);
+    const qs = params.toString();
+    return request<LeaseOut[]>(`/api/v1/leases${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createLease: (
+    organisationId: string,
+    payload: {
+      property_id: string;
+      tenant_id: string;
+      lease_start: string;
+      lease_expiry: string;
+      break_date?: string;
+      rent_review_date?: string;
+      contractual_rent_pence: number;
+      rent_frequency: string;
+      service_charge_amount_pence?: number;
+    },
+  ) => request<LeaseOut>("/api/v1/leases", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  updateLeaseStatus: (organisationId: string, leaseId: string, statusValue: string) =>
+    request<LeaseOut>(`/api/v1/leases/${leaseId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ status: statusValue }),
+    }),
+  updateLeaseOccupancy: (organisationId: string, leaseId: string, occupancyStatus: string) =>
+    request<LeaseOut>(`/api/v1/leases/${leaseId}/occupancy`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ occupancy_status: occupancyStatus }),
     }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),

@@ -241,7 +241,21 @@ runner two sprints early. A documented RBAC fix gives ASSET_MANAGER
 sprint is about. See STATUS.md for the full live verification,
 including a hand-checked score against the weighted-average math.
 
-Sprints 19–24 are not started; they are ordered and ready to pick up.
+**Sprint 19 (Tenancies / Commercial): built** — a new `app.commercial`
+top-level package (mirroring `app.development`/`app.operations`) adds
+architecture §1's `Tenant`/`Lease` tables only; `rent_obligations`/
+`payment_transactions`/`payment_allocations` and reconciliation/
+arrears are Sprint 20's own split, not this sprint's. `lease_status` is
+an enforced workflow; `occupancy_status` is deliberately not, since it
+isn't directional. First real use of the `commercial.read`/
+`commercial.write` RBAC permissions carried since Sprint 1. Also closed
+Property 360's stale "tenancy_and_lease" not-yet-available entry (now
+composed for real) and reworded two other entries found stale in
+passing (compliance/stock-condition tables exist but aren't composed
+into Property 360 yet — flagged as separate follow-up work, not
+folded into this sprint). See STATUS.md for the full live verification.
+
+Sprints 20–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

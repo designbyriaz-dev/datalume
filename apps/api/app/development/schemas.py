@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
+from app.commercial.schemas import LeaseOut
 from app.data_health.schemas import FindingOut
 from app.development.models import ComponentStatus, PropertyStatus
 from app.documents.schemas import DocumentOut
@@ -518,16 +519,18 @@ class TimelineEventOut(BaseModel):
 
 class Property360Out(BaseModel):
     """architecture/03-development-domain.md all sections, spec §41.
-    Composes everything spec §41 asks for that has a canonical table as
-    of Sprint 14 — Property Information, Development History, Building/
-    Block, Components (with Golden Thread's own per-component bundle,
+    Composes everything spec §41 asks for that has a canonical table —
+    Property Information, Development History, Building/Block,
+    Components (with Golden Thread's own per-component bundle,
     app/development/composition.py), Golden Thread-equivalent evidence/
     specs/changes at the property's own level, Handover, Warranties,
-    Defects, Repairs, Data Health. Compliance & Safety, Stock Condition,
-    Planned Investment, Tenancy/Lease, Rent & Payments, Attention
-    Signals and Ask DataLume have no canonical data yet — named
-    explicitly in not_yet_available rather than omitted silently, same
-    pattern as Golden Thread's own list."""
+    Defects, Repairs, Leases (Sprint 19), Data Health.
+    Compliance & Safety and Stock Condition/Planned Investment have
+    canonical tables (Sprints 15-18) but aren't composed into this view
+    yet; Rent & Payments, Attention Signals and Ask DataLume have no
+    canonical data yet — all named explicitly in not_yet_available
+    rather than omitted silently, same pattern as Golden Thread's own
+    list."""
 
     property: PropertyOut
     development: DevelopmentOut | None
@@ -540,6 +543,7 @@ class Property360Out(BaseModel):
     warranties: list[WarrantyOut]
     defects: list[DefectOut]
     repairs: list[RepairOut]
+    leases: list[LeaseOut]
     handover_record: HandoverRecordOut | None
     data_health_findings: list[FindingOut]
     timeline: list[TimelineEventOut]
