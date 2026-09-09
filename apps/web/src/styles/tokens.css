@@ -1,0 +1,25 @@
+/* Design tokens — architecture/08-frontend-design.md §2.
+   Single source of truth; components consume these vars, never inline hex. */
+
+:root {
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-accent-cyan: #06b6d4;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-critical: #ef4444;
+  --color-purple-accent: #7c3aed;
+
+  --bg-app: #f8fafc;
+  --bg-card: #ffffff;
+  --border-subtle: #e5e7eb;
+  --text-primary: #0f172a;
+  --text-secondary: #64748b;
+
+  --bg-dark: #0b1220;
+  --text-on-dark: #ffffff;
+  --text-on-dark-muted: #94a3b8;
+
+  --radius-card: 14px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
