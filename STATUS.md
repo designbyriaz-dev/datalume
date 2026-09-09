@@ -996,11 +996,84 @@ per instruction — "continue with sprint 2, billing later"):
   composed into that building's Golden Thread — which is what surfaced
   and let me fix the stale `not_yet_available` gap above.
 
+**Sprint 17 — Compliance Assurance:**
+
+- **`status_engine.py`**: `compliance_status(entity_type, entity_id, requirement)`
+  implements architecture §4's pseudocode close to line-for-line —
+  deterministic, computed fresh on every read from `Inspection`/
+  `ComplianceAction`/`RequirementApplicability` rows, nothing persisted
+  (spec §47: "AI may explain results but never invent status" — there
+  is no write path into a status column because there is no status
+  column). Same "computed at read time" philosophy as Data Health,
+  Handover Readiness, and the repeat-signal engines threaded through
+  every prior sprint.
+- **Two ambiguous pseudocode signals, resolved and documented**: (1)
+  the sketch names both `UNKNOWN` and `MISSING_EVIDENCE` for "latest
+  inspection is None" but gives no second signal to distinguish
+  them — this build reads it as a configurable grace period since
+  applicability began (`ComplianceStatusConfig.never_assessed_grace_days`,
+  default 30 days): within grace = too soon to expect evidence
+  (`UNKNOWN`), past it = a genuine gap (`MISSING_EVIDENCE`). (2)
+  `requires_review(latest)` is read as "last inspection result was
+  UNSATISFACTORY/ADVISORY with no open action currently covering it."
+  Both decisions are documented at the exact branch in
+  `status_engine.py`, the same "make a defensible call, write down
+  why" pattern as Sprint 15's 21-domains decision.
+- **New `ComplianceRequirement.hard_deadline` column** (default
+  `True`) — named directly in architecture §4's own pseudocode to
+  branch `OVERDUE` (statutory, e.g. gas safety) vs `EXPIRED` (soft,
+  e.g. an EPC re-rating nudge) once a next-due-date has passed.
+  Carried forward on `POST .../versions` the same way `cadence` is.
+- **All ten statuses implemented**: `NOT_APPLICABLE`, `UNKNOWN`,
+  `MISSING_EVIDENCE`, `OVERDUE_ACTION`, `OPEN_ACTION`, `OVERDUE`,
+  `EXPIRED`, `DUE_SOON`, `NEEDS_REVIEW`, `CURRENT` — each with its own
+  isolated regression test.
+- **`assurance.py`**: the Board Assurance report (spec item 57) is a
+  read-only rollup — status counts grouped by domain, open/overdue
+  action totals, hazard status/severity counts — over already-computed
+  `compliance_status` values, never a scored or narrated summary of
+  its own. Gated by the existing `reports.board` permission (EXECUTIVE/
+  OWNER/ADMIN only — its first real use since Sprint 1). Optional
+  `building_id`/`property_id` filters give the spec's "property vs
+  portfolio" granularity; documented limitation: `Hazard` has no
+  `building_id` column, so a `building_id` filter narrows the
+  compliance side of the report but leaves the hazard section
+  portfolio-wide rather than silently pretending to filter it.
+- `apps/web`: the Building detail page's existing Compliance
+  requirements section (Sprint 15/16) now shows the real computed
+  status badge (colour-coded: green CURRENT, amber DUE_SOON/
+  NEEDS_REVIEW/OPEN_ACTION/EXPIRED, red OVERDUE/OVERDUE_ACTION/
+  MISSING_EVIDENCE) alongside the existing "Applicable" badge, and
+  refreshes it immediately after recording an inspection or completing
+  an action. `/compliance` gained a "Board Assurance" section — a
+  status-count table grouped by domain plus open/overdue/hazard
+  totals — that quietly renders nothing for a role without
+  `reports.board` rather than erroring.
+- 21 new backend tests (217 total passing): one isolated test per
+  status branch, config-threshold-change tests (raising `due_soon_days`
+  silences a `DUE_SOON` signal; lowering `never_assessed_grace_days`
+  flips `UNKNOWN` to `MISSING_EVIDENCE` — same "config change, no code
+  change" confirmation every prior engine sprint has made), the
+  assurance report's domain/hazard rollup and its `property_id` hazard
+  filter, and permission checks (`REPAIRS_MANAGER` denied on both
+  status-config writes and the assurance report; `EXECUTIVE` allowed
+  on the assurance report).
+- Verified end-to-end live: walked a single requirement through
+  `NOT_APPLICABLE` → `MISSING_EVIDENCE` → `DUE_SOON` via curl against a
+  freshly-seeded org, confirming each transition matched the pseudocode
+  exactly. Separately, through the real Building detail page UI,
+  recorded an inspection and watched the status badge update live from
+  `MISSING EVIDENCE` to `CURRENT` without a page reload (the
+  `InspectionsPanel`'s `onChanged` callback triggering a
+  `listComplianceStatuses` refetch). Confirmed the `/compliance` page's
+  Board Assurance table renders the correct per-domain status count
+  for the same org.
+
 ## Not yet done
 
-Sprints 17–24 (the compliance status engine and board assurance
-report, stock condition, tenancies, and the rest) — not started. Full
-order and scope in `architecture/10-roadmap-and-acceptance.md`.
+Sprints 18–24 (stock condition, tenancies, and the rest) — not
+started. Full order and scope in
+`architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

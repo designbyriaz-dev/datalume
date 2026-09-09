@@ -2,10 +2,13 @@
 §45-46. "FRAMEWORK -> DOMAIN -> REQUIREMENT -> APPLICABILITY -> BUILDING/
 PROPERTY/COMPONENT -> INSPECTION -> EVIDENCE -> ACTION -> DEADLINE ->
 STATUS -> RISK -> ASSURANCE -> AUDIT." Sprint 15 built the first four
-links (Framework/Domain/Requirement/Applicability). Sprint 16 adds
-Inspection and ComplianceAction below — the STATUS engine that reads
-them (deterministic, never LLM-set — spec §47) is still Sprint 17
-(Compliance Assurance), per the roadmap's own split.
+links (Framework/Domain/Requirement/Applicability). Sprint 16 added
+Inspection and ComplianceAction. Sprint 17 (status_engine.py,
+assurance.py) reads all of the above — deterministic, never LLM-set
+(spec §47) — to compute STATUS and roll it up into board ASSURANCE;
+RISK and AUDIT stay out of scope (no risk-scoring concept anywhere in
+this build, and AUDIT is the existing platform-wide AuditEvent log,
+not a compliance-specific table).
 
 `ComplianceFramework`/`ComplianceDomain`/`ComplianceRequirement` all
 reuse the exact global+org-specific catalog pattern `ComponentType`
@@ -19,7 +22,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -84,6 +87,13 @@ class ComplianceRequirement(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     effective_date: Mapped[date] = mapped_column(Date)
     superseded_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Sprint 17's status_engine.py branches OVERDUE (hard_deadline=True)
+    # vs EXPIRED (False) once a requirement's next_due_date has passed —
+    # named directly in architecture §4's own pseudocode. Defaults True:
+    # most of the seeded 21 domains (gas/electrical/fire safety, ...) are
+    # genuine statutory deadlines; a soft one (e.g. an EPC re-rating
+    # nudge) is the exception an org sets explicitly, not the default.
+    hard_deadline: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class RequirementApplicability(Base):
@@ -176,3 +186,31 @@ class ComplianceAction(Base, ProvenanceMixin):
     status: Mapped[ComplianceActionStatus] = mapped_column(Enum(ComplianceActionStatus), default=ComplianceActionStatus.OPEN)
     completed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     evidence_document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+
+
+class ComplianceStatusConfig(Base):
+    """Per-organisation thresholds for status_engine.py's `compliance_status`
+    — a true singleton (one row per org, not per rule_code like
+    RepairRuleConfig/HazardRuleConfig) since the status engine has
+    exactly one set of tunables, not several independently-toggled
+    rules. Lazily seeded with defaults, same pattern as everywhere else
+    a threshold in this codebase is per-org configurable rather than a
+    hard-coded constant.
+
+    `due_soon_days` is architecture §4's own `org_due_soon_threshold()`.
+    `never_assessed_grace_days` resolves a genuine ambiguity in the
+    architecture pseudocode: it names both an UNKNOWN and a
+    MISSING_EVIDENCE outcome for "latest is None" but gives no second
+    signal to actually distinguish them. This build's reading: UNKNOWN
+    means applicability started too recently to reasonably expect
+    evidence yet; MISSING_EVIDENCE means the grace period has passed
+    with still no inspection on record. See status_engine.py for the
+    exact branch.
+    """
+
+    __tablename__ = "compliance_status_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    due_soon_days: Mapped[int] = mapped_column(Integer, default=30)
+    never_assessed_grace_days: Mapped[int] = mapped_column(Integer, default=30)

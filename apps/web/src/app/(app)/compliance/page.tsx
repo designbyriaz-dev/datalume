@@ -3,9 +3,111 @@
 import { useEffect, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type ComplianceDomainOut, type ComplianceRequirementOut } from "@/lib/api";
+import { api, ApiError, type BoardAssuranceReport, type ComplianceDomainOut, type ComplianceRequirementOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
+
+const ASSURANCE_STATUS_ORDER = [
+  "OVERDUE_ACTION",
+  "OVERDUE",
+  "MISSING_EVIDENCE",
+  "OPEN_ACTION",
+  "NEEDS_REVIEW",
+  "DUE_SOON",
+  "EXPIRED",
+  "UNKNOWN",
+  "CURRENT",
+  "NOT_APPLICABLE",
+];
+
+function assuranceStatusVariant(statusCode: string) {
+  if (statusCode === "CURRENT") return "success" as const;
+  if (["OVERDUE", "OVERDUE_ACTION", "MISSING_EVIDENCE"].includes(statusCode)) return "critical" as const;
+  if (["DUE_SOON", "NEEDS_REVIEW", "OPEN_ACTION", "EXPIRED"].includes(statusCode)) return "warning" as const;
+  return "neutral" as const;
+}
+
+function BoardAssurance() {
+  const [report, setReport] = useState<BoardAssuranceReport | null>(null);
+  const [error, setError] = useState<"forbidden" | "other" | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const id = typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
+      if (!id) return;
+      try {
+        setReport(await api.getAssuranceReport(id));
+      } catch (err) {
+        setError(err instanceof ApiError && err.status === 403 ? "forbidden" : "other");
+      }
+    })();
+  }, []);
+
+  if (error === "forbidden") return null; // Board Assurance is reports.board-gated — quietly absent for other roles.
+  if (error === "other") {
+    return <div style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>Couldn&rsquo;t load the Board Assurance report.</div>;
+  }
+  if (!report) return <div style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 24 }}>Loading Board Assurance report…</div>;
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Board Assurance</h2>
+      <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 12 }}>
+        A read-only rollup of computed compliance status, open/overdue actions, and hazard status — never a scored
+        or narrated summary, always a count of what status_engine.py already determined.
+      </p>
+      {report.domains.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>No applicable requirements recorded yet.</div>
+      ) : (
+        <div style={{ overflowX: "auto", marginBottom: 12 }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)" }}>Domain</th>
+                {ASSURANCE_STATUS_ORDER.map((s) => (
+                  <th key={s} style={{ textAlign: "center", padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)" }}>
+                    {s.replace(/_/g, " ")}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {report.domains.map((d) => (
+                <tr key={d.domain_id}>
+                  <td style={{ padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)" }}>{d.domain_name}</td>
+                  {ASSURANCE_STATUS_ORDER.map((s) => {
+                    const count = d.status_counts[s] ?? 0;
+                    return (
+                      <td key={s} style={{ textAlign: "center", padding: "6px 8px", borderBottom: "1px solid var(--border-subtle)" }}>
+                        {count > 0 ? (
+                          <StatusBadge label={String(count)} variant={assuranceStatusVariant(s)} />
+                        ) : (
+                          <span style={{ color: "var(--text-secondary)" }}>—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13 }}>
+        <span>Open actions: <strong>{report.total_open_actions}</strong></span>
+        <span>Overdue actions: <strong>{report.total_overdue_actions}</strong></span>
+        <span>
+          Hazards:{" "}
+          {Object.entries(report.hazard_status_counts).length === 0
+            ? "none"
+            : Object.entries(report.hazard_status_counts)
+                .map(([status, count]) => `${count} ${status.replace(/_/g, " ").toLowerCase()}`)
+                .join(", ")}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export default function CompliancePage() {
   const [domains, setDomains] = useState<ComplianceDomainOut[] | null>(null);
@@ -125,10 +227,12 @@ export default function CompliancePage() {
     <div style={{ maxWidth: 960 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, marginBottom: 4 }}>Compliance</h1>
       <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
-        Framework → Domain → Requirement → Applicability. The 21 domains below are DataLume&rsquo;s seeded starting
-        set, not a claim of exactly 21 universal laws — add your own where you need to. Inspections, actions and the
-        compliance status engine land in Sprints 16-17.
+        Framework → Domain → Requirement → Applicability → Inspection → Action → Status. The 21 domains below are
+        DataLume&rsquo;s seeded starting set, not a claim of exactly 21 universal laws — add your own where you need
+        to.
       </p>
+
+      <BoardAssurance />
 
       <div
         style={{

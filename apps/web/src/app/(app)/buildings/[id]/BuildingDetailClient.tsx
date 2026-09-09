@@ -9,6 +9,7 @@ import {
   type BuildingOut,
   type ComplianceActionOut,
   type ComplianceRequirementOut,
+  type ComplianceStatusOut,
   type DefectOut,
   type FloorOut,
   type GoldenThread,
@@ -18,6 +19,19 @@ import {
   type SpecificationOut,
   type WarrantyOut,
 } from "@/lib/api";
+
+const COMPLIANCE_STATUS_VARIANT: Record<string, "success" | "warning" | "critical" | "neutral"> = {
+  CURRENT: "success",
+  DUE_SOON: "warning",
+  NEEDS_REVIEW: "warning",
+  OPEN_ACTION: "warning",
+  UNKNOWN: "neutral",
+  NOT_APPLICABLE: "neutral",
+  MISSING_EVIDENCE: "critical",
+  OVERDUE: "critical",
+  OVERDUE_ACTION: "critical",
+  EXPIRED: "warning",
+};
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -59,11 +73,13 @@ function InspectionsPanel({
   requirementId,
   entityType,
   entityId,
+  onChanged,
 }: {
   organisationId: string;
   requirementId: string;
   entityType: string;
   entityId: string;
+  onChanged?: () => void;
 }) {
   const [inspections, setInspections] = useState<InspectionOut[] | null>(null);
   const [actions, setActions] = useState<ComplianceActionOut[] | null>(null);
@@ -109,6 +125,7 @@ function InspectionsPanel({
       setNextDueDate("");
       setShowForm(false);
       await refresh();
+      onChanged?.();
     } finally {
       setSubmitting(false);
     }
@@ -117,6 +134,7 @@ function InspectionsPanel({
   async function onCompleteAction(actionId: string) {
     await api.updateComplianceActionStatus(organisationId, actionId, { status: "COMPLETED" });
     await refresh();
+    onChanged?.();
   }
 
   const latest = inspections?.[0];
@@ -221,6 +239,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
 
   const [applicability, setApplicability] = useState<RequirementApplicabilityOut[] | null>(null);
   const [requirements, setRequirements] = useState<ComplianceRequirementOut[] | null>(null);
+  const [complianceStatuses, setComplianceStatuses] = useState<ComplianceStatusOut[]>([]);
   const [applicabilityRequirementId, setApplicabilityRequirementId] = useState("");
   const [applicabilityBasis, setApplicabilityBasis] = useState("");
   const [applicabilitySubmitting, setApplicabilitySubmitting] = useState(false);
@@ -264,6 +283,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     const id = orgId();
     if (!id) return;
     setApplicability(await api.listApplicability(id, { entity_type: "building", entity_id: buildingId }));
+    setComplianceStatuses(await api.listComplianceStatuses(id, "building", buildingId));
   }
 
   useEffect(() => {
@@ -274,18 +294,29 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         return;
       }
       try {
-        const [b, floorList, propertyList, specList, thread, defectList, warrantyList, applicabilityList, requirementList] =
-          await Promise.all([
-            api.getBuilding(id, buildingId),
-            api.listFloors(id, buildingId),
-            api.listProperties(id, { building_id: buildingId }),
-            api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
-            api.getGoldenThread(id, buildingId),
-            api.listDefects(id, { building_id: buildingId }),
-            api.listWarranties(id, { building_id: buildingId }),
-            api.listApplicability(id, { entity_type: "building", entity_id: buildingId }),
-            api.listComplianceRequirements(id),
-          ]);
+        const [
+          b,
+          floorList,
+          propertyList,
+          specList,
+          thread,
+          defectList,
+          warrantyList,
+          applicabilityList,
+          requirementList,
+          statusList,
+        ] = await Promise.all([
+          api.getBuilding(id, buildingId),
+          api.listFloors(id, buildingId),
+          api.listProperties(id, { building_id: buildingId }),
+          api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
+          api.getGoldenThread(id, buildingId),
+          api.listDefects(id, { building_id: buildingId }),
+          api.listWarranties(id, { building_id: buildingId }),
+          api.listApplicability(id, { entity_type: "building", entity_id: buildingId }),
+          api.listComplianceRequirements(id),
+          api.listComplianceStatuses(id, "building", buildingId),
+        ]);
         setBuilding(b);
         setFloors(floorList);
         setProperties(propertyList);
@@ -295,6 +326,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         setWarranties(warrantyList);
         setApplicability(applicabilityList);
         setRequirements(requirementList);
+        setComplianceStatuses(statusList);
         if (requirementList[0]) setApplicabilityRequirementId(requirementList[0].id);
       } catch {
         setLoadError("Couldn't load this building.");
@@ -955,6 +987,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
           {applicability.map((a) => {
             const requirement = requirements.find((r) => r.id === a.requirement_id);
+            const computed = complianceStatuses.find((s) => s.requirement_id === a.requirement_id);
             return (
               <li
                 key={a.id}
@@ -974,6 +1007,12 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                   {a.basis && <span style={{ color: "var(--text-secondary)" }}> ({a.basis})</span>}
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {!a.applicable_to && computed && (
+                    <StatusBadge
+                      label={computed.status.replace(/_/g, " ")}
+                      variant={COMPLIANCE_STATUS_VARIANT[computed.status] ?? "neutral"}
+                    />
+                  )}
                   <StatusBadge
                     label={a.applicable_to ? `Ended ${a.applicable_to}` : "Applicable"}
                     variant={a.applicable_to ? "neutral" : "success"}
@@ -994,6 +1033,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                       requirementId={a.requirement_id}
                       entityType="building"
                       entityId={buildingId}
+                      onChanged={refreshApplicability}
                     />
                   </div>
                 )}

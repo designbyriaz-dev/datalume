@@ -212,7 +212,21 @@ canonical table, which became false the moment this sprint built one —
 now composed in for real, both building- and component-level. See
 STATUS.md for the full live verification.
 
-Sprints 17–24 are not started; they are ordered and ready to pick up.
+**Sprint 17 (Compliance Assurance): built** — `status_engine.py`
+implements architecture §4's `compliance_status` pseudocode close to
+line-for-line (all ten statuses), computed fresh on every read from
+Inspection/ComplianceAction/RequirementApplicability, nothing
+persisted (spec §47: never LLM-set, no write path into a status
+column because there is no status column). Two signals the pseudocode
+names without defining (`UNKNOWN` vs `MISSING_EVIDENCE`, and
+`requires_review`) are resolved with documented, config-driven
+readings rather than guessed. `assurance.py` is the Board Assurance
+report (spec item 57) — a read-only rollup over already-computed
+status, gated by the existing `reports.board` permission's first real
+use. See STATUS.md for the full live verification, including the
+Building detail page's status badge updating live after an inspection.
+
+Sprints 18–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

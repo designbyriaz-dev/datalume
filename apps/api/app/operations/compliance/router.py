@@ -20,12 +20,16 @@ from app.operations.compliance.models import (
     Inspection,
     RequirementApplicability,
 )
+from app.operations.compliance.assurance import get_board_assurance_report
 from app.operations.compliance.schemas import (
+    BoardAssuranceReportOut,
     ComplianceActionOut,
     ComplianceDomainOut,
     ComplianceFrameworkOut,
     ComplianceRequirementDetailOut,
     ComplianceRequirementOut,
+    ComplianceStatusConfigOut,
+    ComplianceStatusOut,
     CreateApplicabilityRequest,
     CreateComplianceActionRequest,
     CreateComplianceDomainRequest,
@@ -36,6 +40,7 @@ from app.operations.compliance.schemas import (
     RequirementApplicabilityOut,
     ReviseComplianceRequirementRequest,
     UpdateComplianceActionStatusRequest,
+    UpdateComplianceStatusConfigRequest,
 )
 from app.operations.compliance.seed import ensure_compliance_catalog_seeded
 from app.operations.compliance.service import (
@@ -51,14 +56,30 @@ from app.operations.compliance.service import (
     create_requirement,
     create_requirement_version,
     end_applicability,
+    get_or_create_status_config,
     list_compliance_actions,
     list_domains,
     list_inspections,
     list_requirements,
+    set_status_config,
     update_compliance_action_status,
 )
+from app.operations.compliance.status_engine import ComplianceStatusResult, compliance_status, list_compliance_statuses_for_entity
 
 router = APIRouter(prefix="/api/v1/compliance", tags=["compliance"])
+
+
+def _status_result_to_out(result: ComplianceStatusResult) -> ComplianceStatusOut:
+    return ComplianceStatusOut(
+        status=result.status.value,
+        requirement_id=result.requirement_id,
+        domain_id=result.domain_id,
+        entity_type=result.entity_type,
+        entity_id=result.entity_id,
+        latest_inspection=InspectionOut.model_validate(result.latest_inspection) if result.latest_inspection else None,
+        open_action=ComplianceActionOut.model_validate(result.open_action) if result.open_action else None,
+        days_to_due=result.days_to_due,
+    )
 
 
 def _get_org_requirement(db: Session, organisation_id: uuid.UUID, requirement_id: uuid.UUID) -> ComplianceRequirement:
@@ -182,6 +203,7 @@ def add_requirement(
             description=payload.description,
             cadence=payload.cadence,
             effective_date=payload.effective_date,
+            hard_deadline=payload.hard_deadline,
             actor_user_id=ctx.user.id,
         )
     except ComplianceNotFoundError as exc:
@@ -236,6 +258,7 @@ def add_requirement_version(
             cadence=payload.cadence,
             effective_date=payload.effective_date,
             actor_user_id=ctx.user.id,
+            hard_deadline=payload.hard_deadline,
         )
     except RequirementAlreadySupersededError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
@@ -426,3 +449,68 @@ def update_action_status_endpoint(
     db.commit()
     db.refresh(action)
     return action
+
+
+@router.get("/status", response_model=ComplianceStatusOut)
+def get_status(
+    entity_type: str,
+    entity_id: uuid.UUID,
+    requirement_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    requirement = _get_org_requirement(db, ctx.organisation_id, requirement_id)
+    result = compliance_status(db, ctx.organisation_id, entity_type=entity_type, entity_id=entity_id, requirement=requirement)
+    return _status_result_to_out(result)
+
+
+@router.get("/statuses", response_model=list[ComplianceStatusOut])
+def get_statuses(
+    entity_type: str,
+    entity_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    results = list_compliance_statuses_for_entity(db, ctx.organisation_id, entity_type, entity_id)
+    return [_status_result_to_out(r) for r in results]
+
+
+@router.get("/status-config", response_model=ComplianceStatusConfigOut)
+def get_status_config(
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    config = get_or_create_status_config(db, ctx.organisation_id)
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.patch("/status-config", response_model=ComplianceStatusConfigOut)
+def update_status_config(
+    payload: UpdateComplianceStatusConfigRequest,
+    ctx: AuthContext = Depends(require_permission("operations.compliance")),
+    db: Session = Depends(get_db),
+):
+    config = set_status_config(
+        db, ctx.organisation_id, due_soon_days=payload.due_soon_days, never_assessed_grace_days=payload.never_assessed_grace_days
+    )
+    db.commit()
+    db.refresh(config)
+    return config
+
+
+@router.get("/assurance-report", response_model=BoardAssuranceReportOut)
+def get_assurance_report(
+    building_id: uuid.UUID | None = None,
+    property_id: uuid.UUID | None = None,
+    ctx: AuthContext = Depends(require_permission("reports.board")),
+    db: Session = Depends(get_db),
+):
+    return get_board_assurance_report(db, ctx.organisation_id, building_id=building_id, property_id=property_id)

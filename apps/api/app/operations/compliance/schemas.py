@@ -37,6 +37,7 @@ class CreateComplianceRequirementRequest(BaseModel):
     description: str | None = None
     cadence: str | None = None
     effective_date: date
+    hard_deadline: bool = True
 
 
 class ReviseComplianceRequirementRequest(BaseModel):
@@ -44,6 +45,7 @@ class ReviseComplianceRequirementRequest(BaseModel):
     description: str | None = None
     cadence: str | None = None
     effective_date: date
+    hard_deadline: bool | None = None
 
 
 class ComplianceRequirementOut(BaseModel):
@@ -57,6 +59,7 @@ class ComplianceRequirementOut(BaseModel):
     version: int
     effective_date: date
     superseded_date: date | None
+    hard_deadline: bool
 
     model_config = {"from_attributes": True}
 
@@ -143,3 +146,54 @@ class ComplianceActionOut(BaseModel):
     evidence_document_id: uuid.UUID | None
 
     model_config = {"from_attributes": True}
+
+
+class ComplianceStatusConfigOut(BaseModel):
+    due_soon_days: int
+    never_assessed_grace_days: int
+
+    model_config = {"from_attributes": True}
+
+
+class UpdateComplianceStatusConfigRequest(BaseModel):
+    due_soon_days: int | None = None
+    never_assessed_grace_days: int | None = None
+
+
+class ComplianceStatusOut(BaseModel):
+    """One deterministic status per (entity, requirement) — architecture
+    §4. Carries the evidence the status was computed from so a caller
+    (UI or, later, Ask DataLume) can explain *why* without recomputing
+    or re-deriving anything itself."""
+
+    status: str
+    requirement_id: uuid.UUID
+    domain_id: uuid.UUID
+    entity_type: str
+    entity_id: str
+    latest_inspection: InspectionOut | None
+    open_action: ComplianceActionOut | None
+    days_to_due: int | None
+
+
+class BoardAssuranceDomainSummaryOut(BaseModel):
+    domain_id: uuid.UUID
+    domain_code: str
+    domain_name: str
+    status_counts: dict[str, int]
+    open_actions: int
+    overdue_actions: int
+
+
+class BoardAssuranceReportOut(BaseModel):
+    """Spec item 57: "a read-only rollup of compliance_status counts +
+    open/overdue compliance_actions + hazard status, grouped by domain
+    and property/portfolio" — a view over status_engine.py's own
+    deterministic output, never a scored or narrated summary of its
+    own."""
+
+    domains: list[BoardAssuranceDomainSummaryOut]
+    total_open_actions: int
+    total_overdue_actions: int
+    hazard_status_counts: dict[str, int]
+    open_hazard_severity_counts: dict[str, int]

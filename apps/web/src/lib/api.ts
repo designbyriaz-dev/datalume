@@ -602,6 +602,7 @@ export type ComplianceRequirementOut = {
   version: number;
   effective_date: string;
   superseded_date: string | null;
+  hard_deadline: boolean;
 };
 
 export type ComplianceRequirementDetail = ComplianceRequirementOut & { versions: ComplianceRequirementOut[] };
@@ -670,6 +671,39 @@ export type RepeatHazardSignal = {
   window_months: number;
   threshold: number;
   hazard_ids: string[];
+};
+
+export type ComplianceStatusOut = {
+  status: string;
+  requirement_id: string;
+  domain_id: string;
+  entity_type: string;
+  entity_id: string;
+  latest_inspection: InspectionOut | null;
+  open_action: ComplianceActionOut | null;
+  days_to_due: number | null;
+};
+
+export type ComplianceStatusConfig = {
+  due_soon_days: number;
+  never_assessed_grace_days: number;
+};
+
+export type BoardAssuranceDomainSummary = {
+  domain_id: string;
+  domain_code: string;
+  domain_name: string;
+  status_counts: Record<string, number>;
+  open_actions: number;
+  overdue_actions: number;
+};
+
+export type BoardAssuranceReport = {
+  domains: BoardAssuranceDomainSummary[];
+  total_open_actions: number;
+  total_overdue_actions: number;
+  hazard_status_counts: Record<string, number>;
+  open_hazard_severity_counts: Record<string, number>;
 };
 
 export const api = {
@@ -898,6 +932,7 @@ export const api = {
       description?: string;
       cadence?: string;
       effective_date: string;
+      hard_deadline?: boolean;
     },
   ) =>
     request<ComplianceRequirementOut>("/api/v1/compliance/requirements", {
@@ -1046,6 +1081,34 @@ export const api = {
       organisationId,
       body: JSON.stringify({ applicable_to: applicableTo }),
     }),
+  getComplianceStatus: (organisationId: string, entityType: string, entityId: string, requirementId: string) =>
+    request<ComplianceStatusOut>(
+      `/api/v1/compliance/status?entity_type=${encodeURIComponent(entityType)}&entity_id=${entityId}&requirement_id=${requirementId}`,
+      { organisationId },
+    ),
+  listComplianceStatuses: (organisationId: string, entityType: string, entityId: string) =>
+    request<ComplianceStatusOut[]>(
+      `/api/v1/compliance/statuses?entity_type=${encodeURIComponent(entityType)}&entity_id=${entityId}`,
+      { organisationId },
+    ),
+  getComplianceStatusConfig: (organisationId: string) =>
+    request<ComplianceStatusConfig>("/api/v1/compliance/status-config", { organisationId }),
+  updateComplianceStatusConfig: (
+    organisationId: string,
+    payload: { due_soon_days?: number; never_assessed_grace_days?: number },
+  ) =>
+    request<ComplianceStatusConfig>("/api/v1/compliance/status-config", {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  getAssuranceReport: (organisationId: string, filters?: { building_id?: string; property_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    const qs = params.toString();
+    return request<BoardAssuranceReport>(`/api/v1/compliance/assurance-report${qs ? `?${qs}` : ""}`, { organisationId });
+  },
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

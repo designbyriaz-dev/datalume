@@ -16,6 +16,7 @@ from app.operations.compliance.models import (
     ComplianceActionStatus,
     ComplianceDomain,
     ComplianceRequirement,
+    ComplianceStatusConfig,
     Inspection,
     InspectionResult,
     RequirementApplicability,
@@ -157,6 +158,7 @@ def create_requirement(
     cadence: str | None,
     effective_date: date,
     actor_user_id: uuid.UUID | None,
+    hard_deadline: bool = True,
 ) -> ComplianceRequirement:
     _get_org_domain(db, organisation_id, domain_id)
     duplicate = (
@@ -184,6 +186,7 @@ def create_requirement(
         cadence=cadence,
         version=1,
         effective_date=effective_date,
+        hard_deadline=hard_deadline,
     )
     db.add(requirement)
     db.flush()
@@ -210,6 +213,7 @@ def create_requirement_version(
     cadence: str | None,
     effective_date: date,
     actor_user_id: uuid.UUID | None,
+    hard_deadline: bool | None = None,
 ) -> ComplianceRequirement:
     """"do not hard-code permanent interpretations of evolving Building
     Regulations" (spec §31) — a new version is a new row, the prior one
@@ -229,6 +233,7 @@ def create_requirement_version(
         cadence=cadence if cadence is not None else previous.cadence,
         version=previous.version + 1,
         effective_date=effective_date,
+        hard_deadline=hard_deadline if hard_deadline is not None else previous.hard_deadline,
     )
     db.add(new_version)
     db.flush()
@@ -497,3 +502,30 @@ def update_compliance_action_status(
         after={"status": target.value},
     )
     return action
+
+
+def get_or_create_status_config(db: Session, organisation_id: uuid.UUID) -> ComplianceStatusConfig:
+    config = (
+        db.query(ComplianceStatusConfig)
+        .filter(ComplianceStatusConfig.organisation_id == organisation_id)
+        .with_for_update()
+        .first()
+    )
+    if config is not None:
+        return config
+    config = ComplianceStatusConfig(organisation_id=organisation_id)
+    db.add(config)
+    db.flush()
+    return config
+
+
+def set_status_config(
+    db: Session, organisation_id: uuid.UUID, *, due_soon_days: int | None, never_assessed_grace_days: int | None
+) -> ComplianceStatusConfig:
+    config = get_or_create_status_config(db, organisation_id)
+    if due_soon_days is not None:
+        config.due_soon_days = due_soon_days
+    if never_assessed_grace_days is not None:
+        config.never_assessed_grace_days = never_assessed_grace_days
+    db.flush()
+    return config
