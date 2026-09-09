@@ -242,3 +242,27 @@ def test_reports_require_an_organisation_header(client):
     client.post("/api/v1/auth/signup", json=_signup_payload())
     resp = client.get("/api/v1/reports")
     assert resp.status_code == 400
+
+
+def test_report_request_and_download_are_audited(client):
+    """Sprint 24 hardening — architecture/09 §1's threat table:
+    "Unauthorised export of tenant data... Report/export endpoints...
+    are themselves audit events." Request and download must each leave
+    a real, queryable AuditEvent row, not just succeed."""
+    import app.core.db as db_module
+    from app.platform.audit import AuditEvent
+
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    job = _request_report(client, org_id, "DEVELOPMENT_SUMMARY", "CSV")
+    _process_pending(client)
+    client.get(f"/api/v1/reports/{job['id']}/download", headers={"X-Organisation-Id": org_id})
+
+    db = db_module.SessionLocal()
+    try:
+        events = db.query(AuditEvent).filter(AuditEvent.entity_id == job["id"]).order_by(AuditEvent.created_at).all()
+    finally:
+        db.close()
+    action_codes = [e.action_code for e in events]
+    assert "report.requested" in action_codes
+    assert "report.downloaded" in action_codes

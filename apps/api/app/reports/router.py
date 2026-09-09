@@ -8,7 +8,16 @@ JSON `/assurance-report` endpoint already restricts to `reports.board`
 same data as a file would be a permission regression through a side
 door, so report creation and download both re-check `reports.board`
 for exactly those two report types, on top of the router-level
-`reports.read` every role already holds."""
+`reports.read` every role already holds.
+
+**Sprint 24 hardening**: architecture/09-security-testing-ops.md §1's
+threat table lists "Unauthorised export of tenant data" with mitigation
+"Report/export endpoints... are themselves audit events" — a real gap
+this module had until now (every other write path in this codebase
+calls record_audit_event; this one didn't). Both the request and the
+download are recorded, since download is the actual export moment
+(the same request-time job could be downloaded, and therefore
+exported, more than once)."""
 
 import uuid
 
@@ -19,6 +28,7 @@ from app.auth.rbac import role_has_permission
 from app.core.db import get_db
 from app.core.tenancy import AuthContext, require_permission
 from app.integrations.storage import get_document_storage
+from app.platform.audit import record_audit_event
 from app.reports.models import ReportJob, ReportJobStatus, ReportType
 from app.reports.render import CONTENT_TYPES, EXTENSIONS
 from app.reports.schemas import CreateReportJobRequest, ReportJobOut
@@ -52,7 +62,7 @@ def request_report(
     db: Session = Depends(get_db),
 ):
     _require_report_type_permission(ctx, payload.report_type)
-    return create_report_job(
+    job = create_report_job(
         db,
         ctx.organisation_id,
         ctx.user.id,
@@ -63,6 +73,17 @@ def request_report(
         period_start=payload.period_start,
         period_end=payload.period_end,
     )
+    record_audit_event(
+        db,
+        organisation_id=ctx.organisation_id,
+        actor_user_id=ctx.user.id,
+        action_code="report.requested",
+        entity_type="report_job",
+        entity_id=str(job.id),
+        after={"report_type": job.report_type.value, "format": job.format.value, "filters": job.filters},
+    )
+    db.commit()
+    return job
 
 
 @router.get("", response_model=list[ReportJobOut])
@@ -94,6 +115,17 @@ def download_report(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Report is not ready yet (status: {job.status.value})")
 
     content = get_document_storage().read(job.storage_key)
+    record_audit_event(
+        db,
+        organisation_id=ctx.organisation_id,
+        actor_user_id=ctx.user.id,
+        action_code="report.downloaded",
+        entity_type="report_job",
+        entity_id=str(job.id),
+        after={"report_type": job.report_type.value, "format": job.format.value},
+    )
+    db.commit()
+
     extension = EXTENSIONS[job.format.value]
     filename = f"{job.report_type.value.lower()}.{extension}"
     return Response(

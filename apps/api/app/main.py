@@ -5,6 +5,8 @@ from app.attention.router import router as attention_router
 from app.auth.router import router as auth_router
 from app.commercial.router import router as commercial_router
 from app.core.config import get_settings
+from app.core.logging import configure_structlog
+from app.core.request_logging import RequestLoggingMiddleware
 from app.data_health.router import router as data_health_router
 from app.documents.router import router as documents_router
 from app.identifiers.router import router as identifiers_router
@@ -31,6 +33,7 @@ from app.operations.repairs_router import router as repairs_router
 from app.operations.stock_condition.router import router as stock_condition_router
 
 settings = get_settings()
+configure_structlog()
 
 app = FastAPI(title=settings.app_name)
 
@@ -41,6 +44,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added after CORS so it becomes the outermost middleware (Starlette
+# wraps in reverse add-order) and observes the full request lifecycle,
+# preflight OPTIONS requests included.
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(auth_router)
 app.include_router(attention_router)

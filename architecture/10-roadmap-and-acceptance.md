@@ -335,8 +335,35 @@ builds its FastAPI client through `app.main`, masking the gap). See
 STATUS.md for the full live verification, including watching a report
 job go PENDING → READY with no manual refresh.
 
-Sprint 24 (security/performance/accessibility hardening) is not
-started; it is ordered and ready to pick up.
+**Sprint 24 (Security / Performance / Accessibility / Pilot Hardening):
+built, honestly scoped** — this sandbox has no Postgres, no real Redis,
+no cloud target and no load-generation infra, so §09's full scope
+("threat model, security tests, a11y audit, load testing, demo data,
+backup drill") was triaged into what's genuinely buildable and
+verifiable here, documented rather than checkbox-claimed. Built: a
+systematic tenant-isolation fuzz suite covering all 15 GET-by-id
+resource types across every domain (spec §75's own wording) — no leak
+found, application-layer isolation confirmed for the first time (RLS
+itself still isn't, no Postgres to run it against); real structured
+JSON logging (organisation_id/request_id/actor_user_id bound via
+structlog contextvars, so every log line during a request carries them
+automatically, not just one summary line); Northstar demo data for
+both named orgs (Housing and Commercial), seeded through the real API
+via TestClient rather than hand-built rows, verified idempotent by
+running it twice. Three real bugs found and fixed, not just documented:
+a missing audit event on report export (architecture's own threat
+table names this explicitly), a Redis outage in the new logging
+middleware taking down entire requests instead of degrading (caught by
+this sprint's own concurrency smoke-check — every request failed until
+fixed), and an unbounded file-upload size across three endpoints (a
+real DoS gap). One real accessibility bug fixed (sign-in/sign-up's
+label-input association); the same pattern across 17 more pages is
+flagged as a follow-up task rather than fixed here. See STATUS.md for
+the full breakdown, including what's explicitly out of scope and why
+(real load testing, a real backup drill, full OTel/Sentry span tracing,
+the Playwright E2E acceptance suite).
+
+All 24 roadmap sprints are now built.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

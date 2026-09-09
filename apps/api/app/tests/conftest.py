@@ -48,11 +48,13 @@ def client(monkeypatch, tmp_path):
             pass
 
     import app.auth.router as auth_router_module
+    import app.core.request_logging as request_logging_module
     import app.core.tenancy as tenancy_module
 
     fake_redis = FakeRedis()
     monkeypatch.setattr(tenancy_module, "redis_client", fake_redis)
     monkeypatch.setattr(auth_router_module, "redis_client", fake_redis)
+    monkeypatch.setattr(request_logging_module, "redis_client", fake_redis)
 
     import app.documents.router as documents_router_module
     import app.ingestion.router as ingestion_router_module

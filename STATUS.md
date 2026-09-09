@@ -1543,11 +1543,169 @@ per instruction — "continue with sprint 2, billing later"):
   organisation with lease/rent data this session's browser account
   wasn't set up as.
 
+**Sprint 24 — Security / Performance / Accessibility / Pilot Hardening:**
+
+This is the roadmap's last sprint, scoped as a genuine hardening pass
+rather than a new feature — architecture/09's own scope ("Full
+threat-model pass, security test suite, a11y audit, load testing,
+Northstar demo data complete, backup drill") is broader than one sprint
+can build for real in this sandboxed environment (no Postgres, no real
+Redis, no cloud target, no load-generation infra), so this sprint
+picked the pieces genuinely buildable and verifiable here, fixed every
+real bug they surfaced, and documents the rest as an honest scope-out
+rather than a checkbox — the same discipline every Stripe/OTel/backup
+mention has had since Sprint 2.
+
+- **Tenant isolation fuzz test suite** (spec §75's own wording,
+  `app/tests/test_security_tenant_isolation.py`): one org creates one
+  instance of all 15 GET-by-id resource types this codebase exposes
+  (spanning every domain — development, operations, compliance,
+  commercial, documents, reports); a second, genuinely separate
+  membership then attempts to read every one of them and must get a
+  clean 404 (never 200, never a 500 that could leak a stack trace).
+  Also verifies the reverse (the owning org still reads its own data
+  through the same URLs — a suite that passed because every route
+  404s unconditionally would be worthless) and a representative
+  write-path IDOR check, a forged-org-header-without-membership check,
+  and a read-only-role-cannot-write sweep across two roles. **Result:
+  every resource type passed on the first run** — no cross-tenant leak
+  found. This directly answers `STATUS.md`'s own standing "treat
+  tenant isolation as unconfirmed" note from earlier sprints, at the
+  *application* layer (query-scoping + membership checks); Postgres
+  RLS itself is still unverified, since this environment has no
+  Postgres to run it against — see the "Not yet done" note below,
+  updated rather than just repeated.
+- **A real audit-event gap, found by re-reading architecture/09 §1's
+  own threat table against the actual code**: "Report/export
+  endpoints... are themselves audit events" — Sprint 23's
+  `reports/router.py` never called `record_audit_event`, unlike every
+  other write path in this codebase. Fixed: both requesting and
+  downloading a report now write an `AuditEvent` row (download is the
+  real export moment, and a report can be downloaded more than once).
+- **Structured JSON logging, for real** (architecture §3): before this
+  sprint only `app/worker/main.py` used `structlog`, with no
+  `structlog.configure(...)` anywhere, so it ran on unconfigured
+  defaults. `app/core/logging.py` configures a real JSON renderer
+  process-wide; `app/core/request_logging.py` is a new middleware
+  binding `request_id`/`organisation_id`/`actor_user_id` via
+  structlog's contextvars so *every* log line emitted anywhere during
+  a request carries them automatically, not just one summary line —
+  and every response now carries a matching `X-Request-Id` header.
+  `actor_user_id` is resolved read-only from the same Redis session
+  store `get_current_user` already uses, without extending the
+  session TTL just because a request happened to be logged.
+- **A real robustness bug, caught by this sprint's own concurrency
+  smoke-check** (below): the new logging middleware's actor-id lookup
+  had no error handling, so a Redis hiccup during that best-effort,
+  logging-only lookup took down the *entire* request with a 500 — not
+  just requests that actually needed Redis for real auth. Every single
+  request failed in the check until this was found. Fixed with a
+  try/except around the lookup (log a warning, continue with
+  `actor_user_id=None`); regression-tested by monkeypatching in a
+  Redis client that always raises and confirming the request still
+  succeeds.
+- **A real DoS gap, found during the threat-model pass**: the same
+  table's "file type/size allow-list" mitigation didn't exist — every
+  upload endpoint (`documents`, `document versions`, CSV `uploads`)
+  read an unbounded request body into memory. `app/core/uploads.py`'s
+  `read_upload_within_limit` (a 25MB default, `max_upload_size_bytes`
+  in settings) now backs all three, returning a clean 413 over the
+  limit. File *type* allow-listing is deliberately not implemented —
+  `UploadFile.content_type` is client-supplied and spoofable, and a
+  real check needs magic-byte sniffing; a check against only the
+  untrusted header would be false confidence, not a mitigation, so
+  it's left as a documented gap rather than a hollow one.
+- **Northstar demo data, for both named orgs**
+  (`scripts/seed_demo.py`, rewritten): seeds Northstar Housing (2
+  developments — one fully built out, one mid-construction — 3
+  buildings, 8 properties, components, a specification with change
+  control, defects in different states, a boiler warranty expiring
+  within 90 days, four repeat Plumbing repairs on one property, a gas
+  safety requirement compliant on one building and missing evidence on
+  two others, a damp & mould hazard, a stale stock condition survey)
+  and Northstar Commercial (3 units, 3 tenants/leases, rent
+  obligations, and payments landing in three different real outcomes —
+  fully reconciled, partially paid and sitting in `POSSIBLE_MATCH`
+  pending human review, and entirely unpaid) — then runs a real
+  attention scan for each org. The old Sprint 1 version's "~12,480
+  properties" placeholder is replaced with a documented, deliberate
+  choice: variety across every engine this build now has (handover
+  readiness, repeat repairs, compliance status, attention signals,
+  arrears/collection rate), not raw row count. Drives the real FastAPI
+  app in-process via `TestClient` rather than hand-reconstructing every
+  service function's kwargs, so every payload is the same shape this
+  codebase's own test suite already verified against the real API.
+  Coarser-grained idempotent (skips an org's domain data entirely if
+  it already has any developments/leases) rather than per-row deduped
+  across ~15 resource types — verified by running it twice against the
+  same database and confirming the second run only reused the existing
+  org/login and skipped domain seeding.
+- **A real accessibility bug, found and fixed**: `components/
+  AuthCard.tsx`'s `FieldLabel` rendered a `<label>` as a sibling of its
+  `<input>`, with no `htmlFor`/`id` pairing — confirmed via
+  `element.labels` returning empty in the browser, meaning a screen
+  reader gets no accessible name for any sign-in/sign-up field. Fixed
+  by making `htmlFor` a required prop and adding matching `id`s on
+  both pages; verified via `element.labels` returning the correct
+  label text afterward. The same unassociated-label pattern exists in
+  17 more files across the authenticated app (an inlined label style
+  rather than a shared component) — flagged as a follow-up task rather
+  than fixed here, since retrofitting ~17 pages is a large, separate,
+  mechanical pass and this sprint's remaining time went to the
+  higher-severity findings above.
+- **A concurrency smoke-check, explicitly not a load test**: this
+  sandbox has no realistic multi-user load generator and the
+  smoketest server runs SQLite (single-writer), not the Postgres this
+  app is architected for — spec §72's real performance requirement is
+  unverified and stays that way until this runs against real infra.
+  What this sprint *could* honestly check: whether the new Sprint
+  23/24 machinery falls over under a modest concurrent burst. 50
+  concurrent `GET /api/v1/properties` requests: 0 errors, p50 55ms,
+  p95 70ms, max 75ms (after the Redis-outage fix above — before it,
+  every single request failed).
+- 15 new backend tests (308 total passing): the tenant isolation suite
+  (5), the reports audit-event regression (1), request-logging
+  behaviour including the Redis-outage regression (6), and the upload
+  size limit (3).
+
 ## Not yet done
 
-Sprint 24 (security/performance/accessibility hardening) — not
-started. Full order and scope in
-`architecture/10-roadmap-and-acceptance.md`.
+Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
+what Sprint 24 itself found couldn't be done for real in this sandbox,
+plus what earlier sprints already flagged — not a "next sprint," a
+punch list for whoever takes this toward a real pilot:
+
+- **RLS is still unverified against real Postgres** — this sprint's
+  tenant isolation suite confirms the *application* layer (query
+  scoping + membership checks) holds for all 15 resource types
+  checked, a stronger result than existed before, but the Postgres
+  Row Level Security policies in `alembic/versions/0001_foundation.py`
+  onward have still never actually run against a live database.
+  Treat RLS itself as the remaining unconfirmed half of architecture
+  01 §1's two-layer tenant isolation.
+- **Real load testing against Postgres-backed infra** — spec §72's
+  actual performance requirement (portfolios in the tens of
+  thousands) is unverified; this sprint's concurrency smoke-check
+  (above) is a much smaller, explicitly-labelled substitute.
+- **A real backup drill** — architecture §5's Postgres snapshot/WAL
+  archiving and object-storage versioning are both infra-managed
+  (Azure-side), not application code to write; there's no real
+  Postgres/cloud storage in this sandbox to actually drill a restore
+  against.
+- **Full OTel/Sentry wiring to a real collector** — architecture §3
+  names both; this sprint built the structured-logging half for real
+  (see above) since it's independently valuable and fully verifiable
+  here, but didn't add span-based tracing, since there's no real
+  collector in this sandbox to send spans to and a half-wired tracer
+  would be worse than a documented gap.
+- **The Playwright E2E acceptance suite** (spec §76-78's 50 New Build
+  steps encoded as scenarios) — not started; the pytest integration
+  and security suites cover the equivalent assertions at the API
+  layer, but nothing exercises the actual browser UI end-to-end as an
+  automated, repeatable suite.
+- **17 in-app pages have the same unassociated-label bug** Sprint 24
+  fixed on sign-in/sign-up — flagged as its own follow-up task rather
+  than fixed in this sprint; see the task queue.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
@@ -1581,8 +1739,12 @@ Specifically flagged as gaps to close early, not deferred to "later":
 - **RLS is unverified against real Postgres.** The policy SQL in
   `alembic/versions/0001_foundation.py` and `0002_billing.py` is written
   correctly per the architecture but has never actually run against a
-  live database. Treat tenant isolation as *unconfirmed* until the
-  security tests in architecture/09 §2 exist and pass against Postgres.
+  live database. Sprint 24 added the security tests architecture/09 §2
+  asks for (`app/tests/test_security_tenant_isolation.py`) and they
+  pass — but against the SQLite test fixture, which has no RLS at all;
+  they confirm the *application*-layer tenant scoping, not the second,
+  Postgres-only layer. Treat RLS itself as still unconfirmed until
+  that same suite (or an equivalent) runs against real Postgres.
 - **Stripe is not wired up.** `StripeBillingProvider` doesn't exist yet;
   `STRIPE_SECRET_KEY` must be set and that class implemented before
   checkout/portal/webhooks do anything real. See
@@ -1614,10 +1776,14 @@ Web: http://localhost:3100. API: http://localhost:8000/docs.
   database; only signed-in pages do.
 - Full browser click-through without Docker/Postgres/Redis: point
   `DATABASE_URL` at a local SQLite file and monkeypatch `redis_client` in
-  `app.core.tenancy` / `app.auth.router` with an in-process fake before
-  starting uvicorn — `app.tests.conftest.py`'s fixture is the reference
-  implementation of both. Import `app.main` (not just `app.core.db`)
-  before calling `Base.metadata.create_all(engine)`, or the model modules
-  never register their tables and `create_all` silently does nothing —
-  this bit the first version of the throwaway script used to verify
-  Sprint 2 end-to-end.
+  `app.core.tenancy` / `app.auth.router` / `app.core.request_logging`
+  (Sprint 24's new logging middleware also holds its own bound
+  reference) with an in-process fake before starting uvicorn —
+  `app.tests.conftest.py`'s fixture is the reference implementation of
+  all three. Import `app.main` (not just `app.core.db`) before calling
+  `Base.metadata.create_all(engine)`, or the model modules never
+  register their tables and `create_all` silently does nothing — this
+  bit the first version of the throwaway script used to verify Sprint 2
+  end-to-end. The same "import app.main first" rule applies to
+  `app/worker/main.py` too as of Sprint 23 — see that module's own
+  docstring for the NoReferencedTableError this caused when it didn't.

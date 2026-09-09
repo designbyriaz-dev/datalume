@@ -34,8 +34,9 @@ export default function SignInPage() {
       </p>
       <AuthTabs active="sign-in" />
       <form onSubmit={onSubmit}>
-        <FieldLabel>Email</FieldLabel>
+        <FieldLabel htmlFor="sign-in-email">Email</FieldLabel>
         <input
+          id="sign-in-email"
           style={darkInputStyle}
           type="email"
           required
@@ -43,8 +44,9 @@ export default function SignInPage() {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@organisation.com"
         />
-        <FieldLabel>Password</FieldLabel>
+        <FieldLabel htmlFor="sign-in-password">Password</FieldLabel>
         <input
+          id="sign-in-password"
           style={darkInputStyle}
           type="password"
           required

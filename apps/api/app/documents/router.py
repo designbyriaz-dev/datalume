@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.uploads import read_upload_within_limit
 from app.documents.models import Document, DocumentStatus
 from app.documents.reference import next_document_reference
 from app.documents.schemas import DocumentDetailOut, DocumentOut
@@ -38,7 +39,7 @@ def upload_document(
     ctx: AuthContext = Depends(require_permission("documents.write")),
     db: Session = Depends(get_db),
 ):
-    content = file.file.read()
+    content = read_upload_within_limit(file)
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File is empty")
 
@@ -97,7 +98,7 @@ def upload_new_version(
             "This is not the current version — upload a new version from the latest one instead",
         )
 
-    content = file.file.read()
+    content = read_upload_within_limit(file)
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File is empty")
 

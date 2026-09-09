@@ -43,9 +43,15 @@ export function AuthTabs({ active }: { active: "sign-in" | "sign-up" }) {
   );
 }
 
-export function FieldLabel({ children }: { children: React.ReactNode }) {
+// htmlFor is required, not optional: this label and its input are
+// separate siblings at every call site (not a nested <label><input/>
+// pair), so without htmlFor matching the input's id, the label and
+// input have zero programmatic association — a screen reader
+// announces the input with no accessible name at all. Caught during
+// Sprint 24's accessibility pass (architecture/09's hardening line).
+export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: "block", fontSize: 13, color: "var(--text-on-dark-muted)", marginBottom: 6 }}>
+    <label htmlFor={htmlFor} style={{ display: "block", fontSize: 13, color: "var(--text-on-dark-muted)", marginBottom: 6 }}>
       {children}
     </label>
   );

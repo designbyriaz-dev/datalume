@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.uploads import read_upload_within_limit
 from app.documents.models import Document, DocumentStatus
 from app.documents.reference import next_document_reference
 from app.ingestion.field_dictionary import FIELD_DICTIONARIES, FieldSpec, get_field_dictionary
@@ -70,7 +71,7 @@ def upload_dataset(
     if dataset_type not in FIELD_DICTIONARIES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown dataset_type: {dataset_type}")
 
-    raw_bytes = file.file.read()
+    raw_bytes = read_upload_within_limit(file)
     try:
         headers, data_rows = parse_csv(raw_bytes)
     except CsvParseError as exc:

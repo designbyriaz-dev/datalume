@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     # for production; architecture 00 §5 / 02 §4.
     local_storage_dir: str = "./storage"
 
+    # Sprint 24 hardening — architecture/09-security-testing-ops.md §1's
+    # threat table lists "file type/size allow-list" as the mitigation
+    # for malicious file upload; before this, every upload endpoint read
+    # an unbounded request body into memory with no cap, a genuine DoS
+    # gap found during this sprint's own threat-model pass. 25MB covers
+    # every real use case here (CSV imports, PDF/certificate evidence
+    # documents) with headroom.
+    max_upload_size_bytes: int = 25 * 1024 * 1024
+
     cors_origins: list[str] = ["http://localhost:3100"]
 
 

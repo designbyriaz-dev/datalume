@@ -44,11 +44,12 @@ export default function SignUpPage() {
       </p>
       <AuthTabs active="sign-up" />
       <form onSubmit={onSubmit}>
-        <FieldLabel>Your name</FieldLabel>
-        <input style={darkInputStyle} required value={name} onChange={(e) => setName(e.target.value)} />
+        <FieldLabel htmlFor="sign-up-name">Your name</FieldLabel>
+        <input id="sign-up-name" style={darkInputStyle} required value={name} onChange={(e) => setName(e.target.value)} />
 
-        <FieldLabel>Work email</FieldLabel>
+        <FieldLabel htmlFor="sign-up-email">Work email</FieldLabel>
         <input
+          id="sign-up-email"
           style={darkInputStyle}
           type="email"
           required
@@ -56,8 +57,9 @@ export default function SignUpPage() {
           onChange={(e) => setEmail(e.target.value)}
         />
 
-        <FieldLabel>Password</FieldLabel>
+        <FieldLabel htmlFor="sign-up-password">Password</FieldLabel>
         <input
+          id="sign-up-password"
           style={darkInputStyle}
           type="password"
           required
@@ -66,16 +68,18 @@ export default function SignUpPage() {
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <FieldLabel>Organisation name</FieldLabel>
+        <FieldLabel htmlFor="sign-up-org-name">Organisation name</FieldLabel>
         <input
+          id="sign-up-org-name"
           style={darkInputStyle}
           required
           value={organisationName}
           onChange={(e) => setOrganisationName(e.target.value)}
         />
 
-        <FieldLabel>What type of organisation are you?</FieldLabel>
+        <FieldLabel htmlFor="sign-up-org-type">What type of organisation are you?</FieldLabel>
         <select
+          id="sign-up-org-type"
           style={darkInputStyle}
           value={organisationType}
           onChange={(e) => setOrganisationType(e.target.value)}
