@@ -15,7 +15,7 @@ supplied.
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,8 @@ from app.development.models import (
     Property,
     PropertyStatus,
     Space,
+    Specification,
+    SpecificationStatus,
 )
 from app.identifiers.models import ExternalReferenceType
 from app.identifiers.service import generate_reference, record_external_reference
@@ -44,6 +46,11 @@ class HierarchyMismatchError(ValueError):
     """Two given hierarchy ids are inconsistent (e.g. a floor_id whose
     building doesn't match the given building_id) — the router maps this
     to a 400."""
+
+
+class UnsupportedEntityTypeError(ValueError):
+    """A specification's related_entity_type isn't one of the five spec
+    §27 names — the router maps this to a 400."""
 
 
 def _get_org_development(db: Session, organisation_id: uuid.UUID, development_id: uuid.UUID) -> Development:
@@ -100,6 +107,29 @@ def _get_org_component(db: Session, organisation_id: uuid.UUID, component_id: uu
     if component is None:
         raise HierarchyNotFoundError(f"Component {component_id} not found")
     return component
+
+
+SPECIFICATION_ENTITY_TYPES = ("development", "building", "property", "space", "component")
+
+
+def _validate_related_entity(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> None:
+    # Existence/ownership check only, same as create_component's
+    # attachment points — a specification doesn't need the entity in any
+    # particular state, just that it's real and belongs to this org.
+    if entity_type == "development":
+        _get_org_development(db, organisation_id, entity_id)
+    elif entity_type == "building":
+        _get_org_building(db, organisation_id, entity_id)
+    elif entity_type == "property":
+        _get_org_property(db, organisation_id, entity_id)
+    elif entity_type == "space":
+        _get_org_space(db, organisation_id, entity_id)
+    elif entity_type == "component":
+        _get_org_component(db, organisation_id, entity_id)
+    else:
+        raise UnsupportedEntityTypeError(
+            f"related_entity_type must be one of {SPECIFICATION_ENTITY_TYPES}, got {entity_type!r}"
+        )
 
 
 def resolve_property_hierarchy(
@@ -519,3 +549,165 @@ def create_component(
         after={"component_reference": component.component_reference, "component_type_id": str(component_type_id)},
     )
     return component
+
+
+def _get_org_specification(db: Session, organisation_id: uuid.UUID, specification_id: uuid.UUID) -> Specification:
+    spec = (
+        db.query(Specification)
+        .filter(Specification.id == specification_id, Specification.organisation_id == organisation_id)
+        .first()
+    )
+    if spec is None:
+        raise HierarchyNotFoundError(f"Specification {specification_id} not found")
+    return spec
+
+
+def create_specification(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    related_entity_type: str,
+    related_entity_id: uuid.UUID,
+    title: str,
+    description: str | None = None,
+    related_component_type: str | None = None,
+    effective_date: date | None = None,
+    source_document_id: uuid.UUID | None = None,
+    source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> Specification:
+    _validate_related_entity(db, organisation_id, related_entity_type, related_entity_id)
+    if source_document_id is not None:
+        # Existence/ownership only — Document itself is untouched by this
+        # link (spec §27's source_document is metadata, not a new file).
+        from app.documents.models import Document
+
+        exists = (
+            db.query(Document.id)
+            .filter(Document.id == source_document_id, Document.organisation_id == organisation_id)
+            .first()
+        )
+        if exists is None:
+            raise HierarchyNotFoundError(f"Document {source_document_id} not found")
+
+    spec_id = uuid.uuid4()
+    spec = Specification(
+        id=spec_id,
+        lineage_id=spec_id,
+        organisation_id=organisation_id,
+        specification_reference=generate_reference(db, organisation_id, "SPECIFICATION"),
+        related_entity_type=related_entity_type,
+        related_entity_id=str(related_entity_id),
+        title=title,
+        description=description,
+        revision="A",
+        status=SpecificationStatus.ACTIVE,
+        effective_date=effective_date,
+        related_component_type=related_component_type,
+        source_document_id=source_document_id,
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(spec)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="specification.created",
+        entity_type="specification",
+        entity_id=str(spec.id),
+        after={
+            "specification_reference": spec.specification_reference,
+            "related_entity_type": related_entity_type,
+            "related_entity_id": str(related_entity_id),
+        },
+    )
+    return spec
+
+
+def create_specification_revision(
+    db: Session,
+    organisation_id: uuid.UUID,
+    previous: Specification,
+    *,
+    revision: str,
+    title: str | None = None,
+    description: str | None = None,
+    related_component_type: str | None = None,
+    effective_date: date | None = None,
+    source_document_id: uuid.UUID | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> Specification:
+    """"A change must NOT simply overwrite the previous specification"
+    (spec §26) — a new row, the old one marked SUPERSEDED, same append-
+    only pattern as Document's upload_new_version."""
+    if previous.status == SpecificationStatus.SUPERSEDED:
+        raise HierarchyMismatchError(
+            "This is not the current revision — create a new revision from the latest one instead"
+        )
+
+    new_id = uuid.uuid4()
+    new_version = Specification(
+        id=new_id,
+        lineage_id=previous.lineage_id,
+        organisation_id=organisation_id,
+        specification_reference=previous.specification_reference,
+        related_entity_type=previous.related_entity_type,
+        related_entity_id=previous.related_entity_id,
+        title=title if title is not None else previous.title,
+        description=description if description is not None else previous.description,
+        revision=revision,
+        status=SpecificationStatus.ACTIVE,
+        effective_date=effective_date,
+        related_component_type=(
+            related_component_type if related_component_type is not None else previous.related_component_type
+        ),
+        source_document_id=source_document_id if source_document_id is not None else previous.source_document_id,
+        source_type=SourceType.MANUAL,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(new_version)
+    db.flush()
+
+    previous.status = SpecificationStatus.SUPERSEDED
+    previous.superseded_date = effective_date or date.today()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="specification.new_revision",
+        entity_type="specification",
+        entity_id=str(new_version.id),
+        before={"superseded_specification_id": str(previous.id)},
+        after={"revision": revision},
+    )
+    return new_version
+
+
+def approve_specification(
+    db: Session, organisation_id: uuid.UUID, specification: Specification, *, actor_user_id: uuid.UUID
+) -> Specification:
+    specification.approved_by = actor_user_id
+    specification.approved_at = datetime.now(timezone.utc)
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="specification.approved",
+        entity_type="specification",
+        entity_id=str(specification.id),
+        after={"approved_by": str(actor_user_id)},
+    )
+    return specification

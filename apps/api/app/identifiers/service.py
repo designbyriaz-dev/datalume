@@ -33,6 +33,7 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "PROPERTY": "PROP-{sequence:06d}",
     "DOCUMENT": "DOC-{sequence:06d}",
     "COMPONENT": "COMP-{sequence:06d}",
+    "SPECIFICATION": "SPEC-{sequence:06d}",
 }
 
 

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.provenance import SourceType
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.development.golden_thread import get_golden_thread
 from app.development.models import Building, Development, Floor, Property
 from app.development.presenters import building_to_out, buildings_to_out, development_to_out, developments_to_out
 from app.development.schemas import (
@@ -23,6 +24,7 @@ from app.development.schemas import (
     DevelopmentOut,
     FloorOut,
     FloorSummary,
+    GoldenThreadOut,
 )
 from app.development.service import (
     HierarchyNotFoundError,
@@ -225,6 +227,18 @@ def get_building(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
     building = _get_org_building(db, ctx.organisation_id, building_id)
     return building_to_out(db, ctx.organisation_id, building)
+
+
+@router.get("/api/v1/buildings/{building_id}/golden-thread", response_model=GoldenThreadOut)
+def get_building_golden_thread(
+    building_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    building = _get_org_building(db, ctx.organisation_id, building_id)
+    return get_golden_thread(db, ctx.organisation_id, building)
 
 
 # --- Floors ---------------------------------------------------------------

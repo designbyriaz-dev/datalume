@@ -17,9 +17,9 @@ Development/Building/Floor are new consumers this sprint.
 
 import enum
 import uuid
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -215,3 +215,51 @@ class Component(Base, ProvenanceMixin):
     expected_life_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
     indicative_replacement_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[ComponentStatus] = mapped_column(Enum(ComponentStatus), default=ComponentStatus.ACTIVE)
+
+
+class SpecificationStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class Specification(Base, ProvenanceMixin):
+    """architecture/03-development-domain.md §4 — spec §27. Attaches to a
+    development, building, property, space, or component via a plain
+    polymorphic (related_entity_type, related_entity_id) pair, same
+    pattern as Document (app/documents/models.py) rather than five
+    nullable FK columns, since exactly one of those five is ever set for
+    a specification (unlike Component, which can genuinely attach at
+    several levels at once).
+
+    Versioning mirrors Document's append-only model exactly: a new
+    revision is a NEW row sharing lineage_id and specification_reference
+    with row 1, never an in-place edit — the prior row is only ever
+    marked SUPERSEDED with superseded_date set (see
+    app/development/service.py.create_specification_revision). "A change
+    must NOT simply overwrite the previous specification" (spec §26).
+
+    approved_by/approved_at stay NULL until a real approval action is
+    taken (app/development/service.py.approve_specification) — never
+    defaulted to the creator, same reasoning as Component's serial number
+    living outside the write-path-constrained columns: an unapproved
+    specification must not be mistakable for an approved one.
+    """
+
+    __tablename__ = "specifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    lineage_id: Mapped[uuid.UUID] = mapped_column()
+    specification_reference: Mapped[str] = mapped_column(String(32))
+    related_entity_type: Mapped[str] = mapped_column(String(64))
+    related_entity_id: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revision: Mapped[str] = mapped_column(String(32), default="A")
+    status: Mapped[SpecificationStatus] = mapped_column(Enum(SpecificationStatus), default=SpecificationStatus.ACTIVE)
+    effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    superseded_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    related_component_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

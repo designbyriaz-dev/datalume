@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type BuildingOut, type FloorOut, type PropertyOut } from "@/lib/api";
+import {
+  api,
+  type BuildingOut,
+  type FloorOut,
+  type GoldenThread,
+  type PropertyOut,
+  type SpecificationOut,
+} from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -13,16 +20,27 @@ function statusVariant(status: string) {
   return "neutral" as const;
 }
 
+function specStatusVariant(status: string) {
+  return status === "SUPERSEDED" ? ("neutral" as const) : ("success" as const);
+}
+
 export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   const [building, setBuilding] = useState<BuildingOut | null>(null);
   const [floors, setFloors] = useState<FloorOut[] | null>(null);
   const [properties, setProperties] = useState<PropertyOut[] | null>(null);
+  const [specifications, setSpecifications] = useState<SpecificationOut[] | null>(null);
+  const [goldenThread, setGoldenThread] = useState<GoldenThread | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [floorName, setFloorName] = useState("");
   const [levelIndex, setLevelIndex] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const [specTitle, setSpecTitle] = useState("");
+  const [specDescription, setSpecDescription] = useState("");
+  const [specSubmitting, setSpecSubmitting] = useState(false);
+  const [specFormError, setSpecFormError] = useState<string | null>(null);
 
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
@@ -34,6 +52,18 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     setFloors(await api.listFloors(id, buildingId));
   }
 
+  async function refreshSpecifications() {
+    const id = orgId();
+    if (!id) return;
+    setSpecifications(await api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }));
+  }
+
+  async function refreshGoldenThread() {
+    const id = orgId();
+    if (!id) return;
+    setGoldenThread(await api.getGoldenThread(id, buildingId));
+  }
+
   useEffect(() => {
     (async () => {
       const id = orgId();
@@ -42,14 +72,18 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         return;
       }
       try {
-        const [b, floorList, propertyList] = await Promise.all([
+        const [b, floorList, propertyList, specList, thread] = await Promise.all([
           api.getBuilding(id, buildingId),
           api.listFloors(id, buildingId),
           api.listProperties(id, { building_id: buildingId }),
+          api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
+          api.getGoldenThread(id, buildingId),
         ]);
         setBuilding(b);
         setFloors(floorList);
         setProperties(propertyList);
+        setSpecifications(specList);
+        setGoldenThread(thread);
       } catch {
         setLoadError("Couldn't load this building.");
       }
@@ -80,16 +114,48 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     }
   }
 
+  async function onAddSpecification() {
+    const id = orgId();
+    if (!id || !specTitle.trim()) {
+      setSpecFormError("Give the specification a title first.");
+      return;
+    }
+    setSpecSubmitting(true);
+    setSpecFormError(null);
+    try {
+      await api.createSpecification(id, {
+        related_entity_type: "building",
+        related_entity_id: buildingId,
+        title: specTitle.trim(),
+        description: specDescription.trim() || undefined,
+      });
+      setSpecTitle("");
+      setSpecDescription("");
+      await Promise.all([refreshSpecifications(), refreshGoldenThread()]);
+    } catch {
+      setSpecFormError("Couldn't add that specification.");
+    } finally {
+      setSpecSubmitting(false);
+    }
+  }
+
+  async function onApproveSpecification(specificationId: string) {
+    const id = orgId();
+    if (!id) return;
+    await api.approveSpecification(id, specificationId);
+    await refreshSpecifications();
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!building || !floors || !properties) {
+  if (!building || !floors || !properties || !specifications) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: 860 }}>
       <Link href="/buildings" style={{ fontSize: 13, color: "var(--color-primary)" }}>
         ← Buildings
       </Link>
@@ -164,9 +230,9 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Properties on this building</h2>
       {properties.length === 0 ? (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>None yet.</div>
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>None yet.</div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
           {properties.map((p) => (
             <li key={p.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>
               <Link href={`/properties/${p.id}`} style={{ color: "var(--color-primary)" }}>
@@ -176,6 +242,139 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             </li>
           ))}
         </ul>
+      )}
+
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a specification</h2>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 2fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Title
+            </label>
+            <input
+              style={inputStyle}
+              value={specTitle}
+              onChange={(e) => setSpecTitle(e.target.value)}
+              placeholder="e.g. External wall insulation system"
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Description
+            </label>
+            <input style={inputStyle} value={specDescription} onChange={(e) => setSpecDescription(e.target.value)} />
+          </div>
+          <button style={primaryBtn} onClick={onAddSpecification} disabled={specSubmitting}>
+            {specSubmitting ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {specFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{specFormError}</div>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Specifications</h2>
+      {specifications.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No specifications yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {specifications.map((s) => (
+            <li
+              key={s.id}
+              style={{
+                padding: "10px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {s.specification_reference}
+                </span>
+                {s.title}{" "}
+                <span style={{ color: "var(--text-secondary)" }}>rev {s.revision}</span>
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusBadge label={s.status} variant={specStatusVariant(s.status)} />
+                {s.approved_by ? (
+                  <StatusBadge label="Approved" variant="success" />
+                ) : (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => onApproveSpecification(s.id)}
+                  >
+                    Approve
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Golden Thread</h2>
+      <p style={{ color: "var(--text-secondary)", fontSize: 13, marginBottom: 16 }}>
+        Everything DataLume can currently trace for this building — design, components, responsible parties,
+        evidence and approvals. Storing this information does not by itself satisfy every legal Golden Thread
+        obligation.
+      </p>
+      {!goldenThread ? (
+        <div style={{ color: "var(--text-secondary)" }}>Loading…</div>
+      ) : (
+        <div style={{ marginBottom: 24 }}>
+          {goldenThread.components.length === 0 ? (
+            <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 12 }}>
+              No components linked to this building yet.
+            </div>
+          ) : (
+            goldenThread.components.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "var(--radius-card)",
+                  padding: 16,
+                  marginBottom: 12,
+                  fontSize: 13,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <Link href={`/components/${c.id}`} style={{ color: "var(--color-primary)", fontWeight: 700 }}>
+                    {c.component_reference} — {c.component_type_name}
+                  </Link>
+                  <StatusBadge label={c.status} variant={c.status === "ACTIVE" ? "success" : "neutral"} />
+                </div>
+                <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>
+                  Specifications: {c.specifications.length === 0 ? "none" : c.specifications.map((s) => s.title).join(", ")}
+                </div>
+                <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>
+                  Evidence: {c.evidence.length === 0 ? "none" : c.evidence.map((d) => d.title).join(", ")}
+                </div>
+                <div style={{ color: "var(--text-secondary)" }}>
+                  Responsible party:{" "}
+                  {c.responsible_party.created_by_name ?? c.responsible_party.source_type}
+                  {c.responsible_party.contractor_reference ? ` · ${c.responsible_party.contractor_reference}` : ""}
+                </div>
+              </div>
+            ))
+          )}
+          <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+            Not yet available: {goldenThread.not_yet_available.join(", ")}
+          </div>
+        </div>
       )}
     </div>
   );

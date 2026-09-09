@@ -96,7 +96,22 @@ unmatched CSV type names auto-creating an org-specific custom type. See
 STATUS.md for two real bugs the test suite caught (singular/plural type
 matching, catalog-seeding order) and the live browser/curl verification.
 
-Sprints 9–24 are not started; they are ordered and ready to pick up.
+**Sprint 9 (Specifications / Documents / Golden Thread): built** —
+`Specification` (spec §27), attaching polymorphically to development/
+building/property/space/component, with Document's exact append-only
+versioning pattern (new row per revision, prior row marked SUPERSEDED,
+never edited in place). Golden Thread (`GET
+/api/v1/buildings/{id}/golden-thread`, spec §29) is a pure read-
+composition over Specification/Component/Document/ExternalReference —
+no new table — covering every link in the BUILDING → SPECIFICATION →
+COMPONENT → RESPONSIBLE PARTY → EVIDENCE → APPROVAL chain that has a
+canonical table today; inspection/change-control/handover are named
+explicitly in the response as not yet available rather than omitted
+silently, since those land in Sprints 16, 10 and 12. See STATUS.md for
+the live browser/curl verification, including confirming a specification
+revision resets approval rather than carrying it forward.
+
+Sprints 10–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

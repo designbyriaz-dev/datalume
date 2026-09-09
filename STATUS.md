@@ -417,11 +417,75 @@ per instruction — "continue with sprint 2, billing later"):
   sequence (`COMP-000003`, `COMP-000004`) with correct provenance
   (`FILE_UPLOAD` vs `MANUAL`, `source_dataset_id`).
 
+**Sprint 9 — Specifications / Documents / Golden Thread:**
+
+- `app/development/`: `Specification` model — spec §27. Attaches to a
+  development, building, property, space, or component via a plain
+  polymorphic (`related_entity_type`, `related_entity_id`) pair, same
+  pattern as `Document` rather than five nullable FK columns, since
+  exactly one of the five is ever set for a given specification. Versions
+  use Document's exact append-only pattern: a new revision is a new row
+  sharing `lineage_id` and `specification_reference` with the first
+  version, and the prior row is only ever marked `SUPERSEDED` (with
+  `superseded_date` set), never edited in place — spec §26: "A change
+  must NOT simply overwrite the previous specification." Approving a
+  specification (`approved_by`/`approved_at`) does not carry forward to
+  a new revision — a changed specification is unapproved again until
+  someone approves the new text, confirmed live (see below).
+  `related_entity_type` is validated against the five spec-named types
+  (`UnsupportedEntityTypeError` → 400), unlike Document's genuinely
+  open-ended field.
+- **Golden Thread** (`app/development/golden_thread.py`) — spec §29,
+  built exactly as architecture 03 §4 specifies: "not a new table — a
+  read-composition across existing tables, expressed as one service
+  function." `GET /api/v1/buildings/{id}/golden-thread` composes, for a
+  building and every component attached to it (directly, or via a
+  property under that building): current specifications, evidence
+  (`Document` rows), external references/approvals (Sprint 7's engine),
+  and a responsible party derived from provenance (creator, source type)
+  plus any `CONTRACTOR_REFERENCE` external reference — no new
+  responsible-party table needed, since provenance and external
+  references already carry that information. Three links from spec §29's
+  full chain have no canonical table yet — inspection (Sprint 16), change
+  control (Sprint 10), handover (Sprint 12) — the response names them
+  explicitly in `not_yet_available` rather than silently omitting them,
+  and both the API and UI carry spec §29's explicit constraint that
+  storing this information does not by itself satisfy every legal Golden
+  Thread obligation.
+- `apps/web`: no new nav item or standalone register page — a
+  specification is something you look at *in the context of* the
+  building or component it belongs to, so "Add a specification" +
+  "Specifications" (list, status, approve) were added directly to the
+  existing Building and Component detail pages, and "Golden Thread" as a
+  new read-only section on the Building detail page. This also avoided
+  needing an org-wide "list all spaces" endpoint that doesn't exist yet
+  (Space is a valid attachment type at the API level, just not
+  surfaced in either detail page's quick-add form).
+- 13 new backend tests (104 total passing) — no bugs found by the suite
+  this sprint (Sprint 9 didn't have Sprint 8's kind of matching-logic
+  surface area to get wrong); the migration's DDL was checked with
+  `alembic upgrade head --sql` (offline mode, no live Postgres needed)
+  and confirmed `specificationstatus` is created once and the shared
+  `sourcetype` enum is reused, not re-declared, continuing the check
+  from Sprint 6.
+- Verified end-to-end live: added and approved a building-level
+  specification (`SPEC-000001`) through the UI, added a component to
+  that building and a component-level specification through the UI,
+  then over real HTTP with `curl`: uploaded evidence linked to the
+  component, confirmed it appeared in the Golden Thread response
+  alongside the component's specification and its `responsible_party`
+  resolved to the signed-up user, and created a revision (`rev B`) of
+  the building specification — confirming the prior revision flipped to
+  `SUPERSEDED` with `superseded_date` set, the reference stayed
+  `SPEC-000001` across both rows, and the new revision's `approved_by`
+  came back `null` even though the revision it superseded had been
+  approved.
+
 ## Not yet done
 
-Sprints 9–24 (specifications/documents/golden thread, construction
-evidence, defects/warranties, handover, Property 360, repairs,
-compliance, and the rest) — not started. Full order and scope in
+Sprints 10–24 (construction evidence, change control, defects/
+warranties, handover, Property 360, repairs, compliance, and the rest)
+— not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

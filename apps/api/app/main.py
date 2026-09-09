@@ -14,6 +14,7 @@ import app.development.importers  # noqa: F401  (registers IMPORTERS["PROPERTIES
 from app.development.components_router import router as components_router
 from app.development.hierarchy_router import router as development_hierarchy_router
 from app.development.router import router as development_router
+from app.development.specifications_router import router as specifications_router
 
 settings = get_settings()
 
@@ -35,6 +36,7 @@ app.include_router(documents_router)
 app.include_router(development_router)
 app.include_router(development_hierarchy_router)
 app.include_router(components_router)
+app.include_router(specifications_router)
 app.include_router(data_health_router)
 app.include_router(identifiers_router)
 

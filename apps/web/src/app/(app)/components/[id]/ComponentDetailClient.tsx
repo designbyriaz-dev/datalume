@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type ComponentOut, type ComponentType } from "@/lib/api";
+import { api, type ComponentOut, type ComponentType, type SpecificationOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -12,6 +12,10 @@ function statusVariant(status: string) {
   if (status === "ACTIVE") return "success" as const;
   if (status === "DISPOSED") return "critical" as const;
   return "neutral" as const;
+}
+
+function specStatusVariant(status: string) {
+  return status === "SUPERSEDED" ? ("neutral" as const) : ("success" as const);
 }
 
 function orgId(): string | null {
@@ -22,16 +26,27 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
   const [component, setComponent] = useState<ComponentOut | null>(null);
   const [children, setChildren] = useState<ComponentOut[] | null>(null);
   const [types, setTypes] = useState<ComponentType[]>([]);
+  const [specifications, setSpecifications] = useState<SpecificationOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [childTypeId, setChildTypeId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [specTitle, setSpecTitle] = useState("");
+  const [specSubmitting, setSpecSubmitting] = useState(false);
+  const [specFormError, setSpecFormError] = useState<string | null>(null);
+
   async function refreshChildren() {
     const id = orgId();
     if (!id) return;
     setChildren(await api.listComponentChildren(id, componentId));
+  }
+
+  async function refreshSpecifications() {
+    const id = orgId();
+    if (!id) return;
+    setSpecifications(await api.listSpecifications(id, { related_entity_type: "component", related_entity_id: componentId }));
   }
 
   useEffect(() => {
@@ -42,14 +57,16 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         return;
       }
       try {
-        const [comp, childList, typeList] = await Promise.all([
+        const [comp, childList, typeList, specList] = await Promise.all([
           api.getComponent(id, componentId),
           api.listComponentChildren(id, componentId),
           api.listComponentTypes(id),
+          api.listSpecifications(id, { related_entity_type: "component", related_entity_id: componentId }),
         ]);
         setComponent(comp);
         setChildren(childList);
         setTypes(typeList);
+        setSpecifications(specList);
         if (typeList[0]) setChildTypeId(typeList[0].id);
       } catch {
         setLoadError("Couldn't load this component.");
@@ -72,11 +89,34 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
     }
   }
 
+  async function onAddSpecification() {
+    const id = orgId();
+    if (!id || !specTitle.trim()) {
+      setSpecFormError("Give the specification a title first.");
+      return;
+    }
+    setSpecSubmitting(true);
+    setSpecFormError(null);
+    try {
+      await api.createSpecification(id, {
+        related_entity_type: "component",
+        related_entity_id: componentId,
+        title: specTitle.trim(),
+      });
+      setSpecTitle("");
+      await refreshSpecifications();
+    } catch {
+      setSpecFormError("Couldn't add that specification.");
+    } finally {
+      setSpecSubmitting(false);
+    }
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!component || !children) {
+  if (!component || !children || !specifications) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -137,6 +177,60 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
           </div>
         </div>
       </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Specifications</h2>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Title
+            </label>
+            <input
+              style={inputStyle}
+              value={specTitle}
+              onChange={(e) => setSpecTitle(e.target.value)}
+              placeholder="e.g. Boiler installation specification"
+            />
+          </div>
+          <button style={primaryBtn} onClick={onAddSpecification} disabled={specSubmitting}>
+            {specSubmitting ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {specFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{specFormError}</div>
+        )}
+      </div>
+      {specifications.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No specifications yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {specifications.map((s) => (
+            <li
+              key={s.id}
+              style={{
+                padding: "10px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+                display: "flex",
+                justifyContent: "space-between",
+              }}
+            >
+              <span>
+                {s.title} <span style={{ color: "var(--text-secondary)" }}>rev {s.revision}</span>
+              </span>
+              <StatusBadge label={s.status} variant={specStatusVariant(s.status)} />
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Child components</h2>
       <div

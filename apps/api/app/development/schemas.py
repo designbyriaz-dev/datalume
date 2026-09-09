@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 from app.development.models import ComponentStatus, PropertyStatus
+from app.documents.schemas import DocumentOut
 
 
 class CreateDevelopmentRequest(BaseModel):
@@ -206,3 +207,95 @@ class ComponentOut(BaseModel):
     source_dataset_id: uuid.UUID | None
     original_reference: str | None
     created_at: datetime
+
+
+class CreateSpecificationRequest(BaseModel):
+    related_entity_type: str
+    related_entity_id: uuid.UUID
+    title: str
+    description: str | None = None
+    related_component_type: str | None = None
+    effective_date: date | None = None
+    source_document_id: uuid.UUID | None = None
+
+
+class ReviseSpecificationRequest(BaseModel):
+    revision: str
+    title: str | None = None
+    description: str | None = None
+    related_component_type: str | None = None
+    effective_date: date | None = None
+    source_document_id: uuid.UUID | None = None
+
+
+class SpecificationOut(BaseModel):
+    id: uuid.UUID
+    lineage_id: uuid.UUID
+    specification_reference: str
+    related_entity_type: str
+    related_entity_id: str
+    title: str
+    description: str | None
+    revision: str
+    status: str
+    effective_date: date | None
+    superseded_date: date | None
+    related_component_type: str | None
+    source_document_id: uuid.UUID | None
+    approved_by: uuid.UUID | None
+    approved_at: datetime | None
+    source_type: str
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SpecificationDetailOut(SpecificationOut):
+    versions: list[SpecificationOut]
+
+
+class GoldenThreadResponsiblePartyOut(BaseModel):
+    """architecture/03-development-domain.md §4: "responsible_party (from
+    provenance/import metadata + contractor refs)" — there is no separate
+    responsible-party table, this is composed from two things that already
+    exist: who/how the record was created, and any CONTRACTOR_REFERENCE
+    external reference recorded against it."""
+
+    created_by_name: str | None
+    created_by_email: str | None
+    source_type: str
+    source_system: str | None
+    contractor_reference: str | None
+
+
+class GoldenThreadComponentOut(BaseModel):
+    id: uuid.UUID
+    component_reference: str
+    component_type_name: str
+    status: str
+    specifications: list[SpecificationOut]
+    responsible_party: GoldenThreadResponsiblePartyOut
+    evidence: list[DocumentOut]
+    external_references: dict[str, str]
+
+
+class GoldenThreadOut(BaseModel):
+    """The composed BUILDING -> DESIGN/SPECIFICATION -> COMPONENT ->
+    RESPONSIBLE PARTY -> EVIDENCE -> ... chain from spec §29, built from
+    existing tables only (architecture/03-development-domain.md §4:
+    "compose, don't duplicate"). `not_yet_available` names the links in
+    that chain with no canonical table yet — inspection (Sprint 16),
+    change control (Sprint 10), handover (Sprint 12) — so the UI can be
+    honest about what this view does and doesn't cover yet, per spec
+    §29's explicit constraint that storing this information does not by
+    itself satisfy every legal Golden Thread obligation."""
+
+    building_id: uuid.UUID
+    building_reference: str
+    building_name: str
+    specifications: list[SpecificationOut]
+    evidence: list[DocumentOut]
+    external_references: dict[str, str]
+    components: list[GoldenThreadComponentOut]
+    not_yet_available: list[str]

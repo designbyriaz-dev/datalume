@@ -288,6 +288,59 @@ export type ComponentOut = {
   created_at: string;
 };
 
+export type SpecificationOut = {
+  id: string;
+  lineage_id: string;
+  specification_reference: string;
+  related_entity_type: string;
+  related_entity_id: string;
+  title: string;
+  description: string | null;
+  revision: string;
+  status: "ACTIVE" | "SUPERSEDED";
+  effective_date: string | null;
+  superseded_date: string | null;
+  related_component_type: string | null;
+  source_document_id: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  source_type: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type SpecificationDetail = SpecificationOut & { versions: SpecificationOut[] };
+
+export type GoldenThreadResponsibleParty = {
+  created_by_name: string | null;
+  created_by_email: string | null;
+  source_type: string;
+  source_system: string | null;
+  contractor_reference: string | null;
+};
+
+export type GoldenThreadComponent = {
+  id: string;
+  component_reference: string;
+  component_type_name: string;
+  status: string;
+  specifications: SpecificationOut[];
+  responsible_party: GoldenThreadResponsibleParty;
+  evidence: DocumentOut[];
+  external_references: Record<string, string>;
+};
+
+export type GoldenThread = {
+  building_id: string;
+  building_reference: string;
+  building_name: string;
+  specifications: SpecificationOut[];
+  evidence: DocumentOut[];
+  external_references: Record<string, string>;
+  components: GoldenThreadComponent[];
+  not_yet_available: string[];
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -497,6 +550,59 @@ export const api = {
     request<ComponentOut>(`/api/v1/components/${componentId}`, { organisationId }),
   listComponentChildren: (organisationId: string, componentId: string) =>
     request<ComponentOut[]>(`/api/v1/components/${componentId}/children`, { organisationId }),
+  createSpecification: (
+    organisationId: string,
+    payload: {
+      related_entity_type: string;
+      related_entity_id: string;
+      title: string;
+      description?: string;
+      related_component_type?: string;
+      effective_date?: string;
+      source_document_id?: string;
+    },
+  ) =>
+    request<SpecificationOut>("/api/v1/specifications", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  reviseSpecification: (
+    organisationId: string,
+    specificationId: string,
+    payload: {
+      revision: string;
+      title?: string;
+      description?: string;
+      related_component_type?: string;
+      effective_date?: string;
+      source_document_id?: string;
+    },
+  ) =>
+    request<SpecificationOut>(`/api/v1/specifications/${specificationId}/versions`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  approveSpecification: (organisationId: string, specificationId: string) =>
+    request<SpecificationOut>(`/api/v1/specifications/${specificationId}/approve`, {
+      method: "POST",
+      organisationId,
+    }),
+  listSpecifications: (
+    organisationId: string,
+    filters?: { related_entity_type?: string; related_entity_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.related_entity_type) params.set("related_entity_type", filters.related_entity_type);
+    if (filters?.related_entity_id) params.set("related_entity_id", filters.related_entity_id);
+    const qs = params.toString();
+    return request<SpecificationOut[]>(`/api/v1/specifications${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  getSpecification: (organisationId: string, specificationId: string) =>
+    request<SpecificationDetail>(`/api/v1/specifications/${specificationId}`, { organisationId }),
+  getGoldenThread: (organisationId: string, buildingId: string) =>
+    request<GoldenThread>(`/api/v1/buildings/${buildingId}/golden-thread`, { organisationId }),
 };
 
 export const ORGANISATION_TYPES = [
