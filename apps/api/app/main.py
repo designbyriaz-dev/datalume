@@ -10,6 +10,7 @@ from app.organisations.router import router as organisations_router
 from app.platform.router import router as billing_router
 
 import app.development.importers  # noqa: F401  (registers IMPORTERS["PROPERTIES"] as a side effect)
+from app.development.hierarchy_router import router as development_hierarchy_router
 from app.development.router import router as development_router
 
 settings = get_settings()
@@ -30,6 +31,7 @@ app.include_router(billing_router)
 app.include_router(ingestion_router)
 app.include_router(documents_router)
 app.include_router(development_router)
+app.include_router(development_hierarchy_router)
 app.include_router(data_health_router)
 
 

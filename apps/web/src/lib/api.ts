@@ -143,6 +143,9 @@ export type PropertyOut = {
   uprn: string | null;
   property_type: string | null;
   status: string;
+  development_id: string | null;
+  building_id: string | null;
+  floor_id: string | null;
   source_type: string;
   source_dataset_id: string | null;
   original_reference: string | null;
@@ -151,11 +154,75 @@ export type PropertyOut = {
 
 export type SpaceOut = {
   id: string;
-  property_id: string;
+  property_id: string | null;
+  building_id: string | null;
   name: string;
   space_type: string | null;
   source_type: string;
   created_at: string;
+};
+
+export type DevelopmentOut = {
+  id: string;
+  development_reference: string;
+  name: string;
+  description: string | null;
+  address: string | null;
+  postcode: string | null;
+  status: string;
+  planning_reference: string | null;
+  building_control_reference: string | null;
+  bsr_reference: string | null;
+  source_type: string;
+  created_at: string;
+};
+
+export type BuildingOut = {
+  id: string;
+  building_reference: string;
+  development_id: string | null;
+  name: string;
+  building_type: string | null;
+  address: string | null;
+  storeys: number | null;
+  status: string;
+  building_control_reference: string | null;
+  bsr_reference: string | null;
+  source_type: string;
+  created_at: string;
+};
+
+export type FloorOut = {
+  id: string;
+  building_id: string;
+  name: string;
+  level_index: number | null;
+  created_at: string;
+};
+
+export type FloorSummary = {
+  id: string;
+  name: string;
+  level_index: number | null;
+  property_count: number;
+};
+
+export type BuildingHierarchy = {
+  id: string;
+  building_reference: string;
+  name: string;
+  status: string;
+  floors: FloorSummary[];
+  unfloored_property_count: number;
+};
+
+export type DevelopmentHierarchy = {
+  id: string;
+  development_reference: string;
+  name: string;
+  status: string;
+  buildings: BuildingHierarchy[];
+  unbuilt_property_count: number;
 };
 
 export type DataHealthCheck = {
@@ -266,13 +333,29 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, "Download failed");
     return res.blob();
   },
-  listProperties: (organisationId: string) =>
-    request<PropertyOut[]>("/api/v1/properties", { organisationId }),
+  listProperties: (
+    organisationId: string,
+    filters?: { development_id?: string; building_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.development_id) params.set("development_id", filters.development_id);
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    const qs = params.toString();
+    return request<PropertyOut[]>(`/api/v1/properties${qs ? `?${qs}` : ""}`, { organisationId });
+  },
   getProperty: (organisationId: string, propertyId: string) =>
     request<PropertyOut>(`/api/v1/properties/${propertyId}`, { organisationId }),
   createProperty: (
     organisationId: string,
-    payload: { address: string; postcode?: string; uprn?: string; property_type?: string },
+    payload: {
+      address: string;
+      postcode?: string;
+      uprn?: string;
+      property_type?: string;
+      development_id?: string;
+      building_id?: string;
+      floor_id?: string;
+    },
   ) =>
     request<PropertyOut>("/api/v1/properties", {
       method: "POST",
@@ -289,6 +372,45 @@ export const api = {
     }),
   dataHealth: (organisationId: string) =>
     request<DataHealth>("/api/v1/data-health", { organisationId }),
+  listDevelopments: (organisationId: string) =>
+    request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
+  getDevelopment: (organisationId: string, developmentId: string) =>
+    request<DevelopmentOut>(`/api/v1/developments/${developmentId}`, { organisationId }),
+  getDevelopmentHierarchy: (organisationId: string, developmentId: string) =>
+    request<DevelopmentHierarchy>(`/api/v1/developments/${developmentId}/hierarchy`, { organisationId }),
+  createDevelopment: (
+    organisationId: string,
+    payload: { name: string; address?: string; planning_reference?: string },
+  ) =>
+    request<DevelopmentOut>("/api/v1/developments", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listBuildings: (organisationId: string, developmentId?: string) =>
+    request<BuildingOut[]>(
+      `/api/v1/buildings${developmentId ? `?development_id=${developmentId}` : ""}`,
+      { organisationId },
+    ),
+  getBuilding: (organisationId: string, buildingId: string) =>
+    request<BuildingOut>(`/api/v1/buildings/${buildingId}`, { organisationId }),
+  createBuilding: (
+    organisationId: string,
+    payload: { name: string; development_id?: string; building_type?: string; storeys?: number },
+  ) =>
+    request<BuildingOut>("/api/v1/buildings", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listFloors: (organisationId: string, buildingId: string) =>
+    request<FloorOut[]>(`/api/v1/floors?building_id=${buildingId}`, { organisationId }),
+  createFloor: (organisationId: string, payload: { building_id: string; name: string; level_index?: number }) =>
+    request<FloorOut>("/api/v1/floors", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
 };
 
 export const ORGANISATION_TYPES = [

@@ -258,19 +258,75 @@ per instruction — "continue with sprint 2, billing later"):
   additionally verified via curl against the live server to directly
   observe the full provenance chain in the response JSON.
 
+**Sprint 6 — Development Hierarchy:**
+
+- `app/development/models.py` adds `Development`, `Building`, `Floor`
+  and wires them into `Property`/`Space` (Sprint 5): `Property` gets
+  nullable `development_id`/`building_id`/`floor_id`; `Space` gets a
+  nullable `building_id` alongside its now-nullable `property_id`, with
+  a `CHECK` constraint requiring at least one parent. Every level except
+  Property stays optional — a standalone property (no development
+  context) is still exactly as valid as a fully-drilled-down one, same
+  design principle as Sprint 5, just extended up the tree.
+- `resolve_property_hierarchy` (`app/development/service.py`) is the one
+  genuinely non-trivial piece: a property can be linked at any level, and
+  the levels must agree with each other. Given a `floor_id`, its
+  `building_id` is derived (never trusted from the caller); given a
+  `building_id`, its `development_id` is derived the same way.
+  Contradictory input (a `floor_id` that belongs to a different
+  `building_id` than the one also supplied) is a 400
+  (`HierarchyMismatchError`); an id that doesn't exist in the org is a
+  404 (`HierarchyNotFoundError`). `create_building`/`create_floor` reuse
+  the same two exceptions for their own parent-existence checks.
+  `create_development`/`create_building`/`create_floor` follow the
+  established reference-generator pattern (`DEV-000001`, `BLD-000001`,
+  same "not concurrency-safe, Sprint 7 fixes it properly" caveat as
+  documents/properties); floors are identified by name, not a generated
+  code, matching how they're actually referred to.
+  `GET /api/v1/developments/{id}/hierarchy` composes the full tree
+  (buildings → floors, with a property count at every level including
+  properties linked partway down — e.g. to a building but no floor yet)
+  — this is the "hierarchy queries" item from the roadmap row.
+- No CSV import path for developments/buildings/floors this sprint —
+  `IMPORTERS` only has `PROPERTIES` still. Manual entry only, via
+  `app/development/hierarchy_router.py`.
+- `apps/web`: `/developments` (list + add), `/developments/[id]`
+  (hierarchy tree + add building), `/buildings` (list + add, optional
+  development link), `/buildings/[id]` (floors + properties on that
+  building + add floor). `/properties`'s add form gained an optional
+  Building dropdown, and the property detail page now shows a linked
+  Building with a working link back. Two more Next.js 16 async-params
+  dynamic routes, same thin-wrapper pattern as `/properties/[id]`
+  (Sprint 5). Factored the repeated form/button inline styles used
+  across properties/developments/buildings into
+  `src/components/formStyles.ts` once a fourth page needed them.
+- 12 new backend tests (67 total passing). Verified end-to-end in the
+  browser building the full chain by hand — created a development,
+  added a building under it, added a floor, then added a property linked
+  to the building (not the floor) via the Properties page's new
+  dropdown — and confirmed the hierarchy view on the development page
+  correctly read "1 floor · 1 property (1 unassigned to a floor)",
+  matching the exact state created. The property detail page's Building
+  link was also confirmed to resolve to the right building.
+
 ## Not yet done
 
-Sprints 6–24 (development hierarchy, every remaining domain model, Ask
-DataLume, reporting, hardening) — not started. Full order and scope in
-`architecture/10-roadmap-and-acceptance.md`.
+Sprints 7–24 (identifiers & asset coding, every remaining domain model,
+Ask DataLume, reporting, hardening) — not started. Full order and scope
+in `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **Document and property references aren't concurrency-safe.**
-  `next_document_reference`/`next_property_reference` are `COUNT`-based
-  numbers — two simultaneous creates for the same org could theoretically
-  collide. Real fix is the Sprint 7 Reference Engine (row-locked
-  counters), not a patch here.
+- **Document, property, development and building references aren't
+  concurrency-safe.** All four reference generators are `COUNT`-based —
+  two simultaneous creates for the same org could theoretically collide.
+  Real fix is the Sprint 7 Reference Engine (row-locked counters), not a
+  patch here.
+- **No CSV import for developments, buildings or floors.** Only
+  `PROPERTIES` has a field dictionary and a registered importer; adding
+  the others is straightforward (same pattern as
+  `app/development/importers.py`) but wasn't needed for this sprint's
+  stated scope.
 - **The ingestion pipeline has no background job queue yet.**
   VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
   for the small CSVs used in testing; will not hold up against the

@@ -3,28 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
-import { api, type PropertyOut } from "@/lib/api";
+import { inputStyle, primaryBtn } from "@/components/formStyles";
+import { api, type BuildingOut, type PropertyOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "8px 10px",
-  borderRadius: 6,
-  border: "1px solid var(--border-subtle)",
-  fontSize: 13,
-};
-
-const primaryBtn: React.CSSProperties = {
-  padding: "8px 16px",
-  borderRadius: 6,
-  border: "none",
-  background: "var(--color-primary)",
-  color: "#fff",
-  fontWeight: 600,
-  fontSize: 13,
-  cursor: "pointer",
-};
 
 function statusVariant(status: string) {
   if (status === "OPERATIONAL" || status === "OCCUPIED") return "success" as const;
@@ -34,11 +16,13 @@ function statusVariant(status: string) {
 
 export default function PropertiesPage() {
   const [properties, setProperties] = useState<PropertyOut[] | null>(null);
+  const [buildings, setBuildings] = useState<BuildingOut[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [address, setAddress] = useState("");
   const [postcode, setPostcode] = useState("");
   const [propertyType, setPropertyType] = useState("");
+  const [buildingId, setBuildingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -60,7 +44,9 @@ export default function PropertiesPage() {
         return;
       }
       try {
-        setProperties(await api.listProperties(id));
+        const [propertyList, buildingList] = await Promise.all([api.listProperties(id), api.listBuildings(id)]);
+        setProperties(propertyList);
+        setBuildings(buildingList);
       } catch {
         setLoadError("Couldn't load properties.");
       }
@@ -80,10 +66,12 @@ export default function PropertiesPage() {
         address: address.trim(),
         postcode: postcode.trim() || undefined,
         property_type: propertyType.trim() || undefined,
+        building_id: buildingId || undefined,
       });
       setAddress("");
       setPostcode("");
       setPropertyType("");
+      setBuildingId("");
       await refresh();
     } catch {
       setFormError("Couldn't add that property.");
@@ -117,7 +105,7 @@ export default function PropertiesPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a property</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr 1.5fr auto", alignItems: "end" }}>
           <div>
             <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Address
@@ -135,6 +123,19 @@ export default function PropertiesPage() {
               Type
             </label>
             <input style={inputStyle} value={propertyType} onChange={(e) => setPropertyType(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Building (optional)
+            </label>
+            <select style={inputStyle} value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+              <option value="">— None —</option>
+              {buildings.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
           </div>
           <button style={primaryBtn} onClick={onAddProperty} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}

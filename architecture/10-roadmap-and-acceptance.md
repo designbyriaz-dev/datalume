@@ -65,7 +65,16 @@ and a Data Health rule registry v1 (4 rules, unweighted-mean score,
 fully transparent per-check breakdown). See STATUS.md for what's
 simplified (reference generation, synchronous recompute) and why.
 
-Sprints 6–24 are not started; they are ordered and ready to pick up.
+**Sprint 6 (Development Hierarchy): built** — Development/Building/Floor,
+wired into Property/Space from Sprint 5 with every level except Property
+staying optional; `resolve_property_hierarchy` derives and cross-checks
+parent ids (a floor's building, a building's development) rather than
+trusting the caller; the composed hierarchy-tree query
+(`GET /developments/{id}/hierarchy`) satisfies the roadmap's "hierarchy
+queries" item. No CSV import for this domain yet — manual entry only.
+See STATUS.md.
+
+Sprints 7–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

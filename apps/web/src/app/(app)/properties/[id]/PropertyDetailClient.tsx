@@ -3,28 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
-import { api, type PropertyOut, type SpaceOut } from "@/lib/api";
+import { inputStyle, primaryBtn } from "@/components/formStyles";
+import { api, type BuildingOut, type PropertyOut, type SpaceOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "8px 10px",
-  borderRadius: 6,
-  border: "1px solid var(--border-subtle)",
-  fontSize: 13,
-};
-
-const primaryBtn: React.CSSProperties = {
-  padding: "8px 16px",
-  borderRadius: 6,
-  border: "none",
-  background: "var(--color-primary)",
-  color: "#fff",
-  fontWeight: 600,
-  fontSize: 13,
-  cursor: "pointer",
-};
 
 function statusVariant(status: string) {
   if (status === "OPERATIONAL" || status === "OCCUPIED") return "success" as const;
@@ -35,6 +17,7 @@ function statusVariant(status: string) {
 export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
   const [property, setProperty] = useState<PropertyOut | null>(null);
   const [spaces, setSpaces] = useState<SpaceOut[] | null>(null);
+  const [building, setBuilding] = useState<BuildingOut | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [spaceName, setSpaceName] = useState("");
@@ -66,6 +49,9 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         ]);
         setProperty(prop);
         setSpaces(spaceList);
+        if (prop.building_id) {
+          setBuilding(await api.getBuilding(id, prop.building_id));
+        }
       } catch {
         setLoadError("Couldn't load this property.");
       }
@@ -141,6 +127,18 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         <div>
           <div style={{ color: "var(--text-secondary)", marginBottom: 2 }}>Type</div>
           <div>{property.property_type ?? "—"}</div>
+        </div>
+        <div>
+          <div style={{ color: "var(--text-secondary)", marginBottom: 2 }}>Building</div>
+          <div>
+            {building ? (
+              <Link href={`/buildings/${building.id}`} style={{ color: "var(--color-primary)" }}>
+                {building.name}
+              </Link>
+            ) : (
+              "—"
+            )}
+          </div>
         </div>
         <div>
           <div style={{ color: "var(--text-secondary)", marginBottom: 2 }}>Source</div>
