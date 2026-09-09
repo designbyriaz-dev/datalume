@@ -335,3 +335,114 @@ class GoldenThreadOut(BaseModel):
     external_references: dict[str, str]
     components: list[GoldenThreadComponentOut]
     not_yet_available: list[str]
+
+
+class CreateDefectRequest(BaseModel):
+    category: str
+    description: str
+    reported_date: date
+    severity: str = "MEDIUM"
+    contractor: str | None = None
+    responsible_party: str | None = None
+    target_date: date | None = None
+    estimated_cost_pence: int | None = None
+    warranty_related: bool = False
+    development_id: uuid.UUID | None = None
+    building_id: uuid.UUID | None = None
+    property_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
+
+
+class UpdateDefectStatusRequest(BaseModel):
+    status: str
+    completion_date: date | None = None
+    actual_cost_pence: int | None = None
+
+
+class DefectOut(BaseModel):
+    id: uuid.UUID
+    defect_reference: str
+    development_id: uuid.UUID | None
+    building_id: uuid.UUID | None
+    property_id: uuid.UUID | None
+    component_id: uuid.UUID | None
+    category: str
+    description: str
+    severity: str
+    reported_date: date
+    contractor: str | None
+    responsible_party: str | None
+    target_date: date | None
+    completion_date: date | None
+    status: str
+    estimated_cost_pence: int | None
+    actual_cost_pence: int | None
+    warranty_related: bool
+    source_type: str
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DefectsByKeyOut(BaseModel):
+    key: str
+    count: int
+
+
+class DefectsIntelligenceOut(BaseModel):
+    """architecture 03 §8 / spec §35 — a fixed set of aggregate reads
+    over the defect register, not a scored/weighted engine like Data
+    Health (Sprint 5) or Component Lifecycle: the spec's own examples
+    ("Block A has 42 defects. 18 relate to Contractor X...") are plain
+    counts and averages, so that's what this composes — every number
+    here is directly re-derivable from GET /api/v1/defects, nothing is
+    stored separately."""
+
+    total_count: int
+    open_count: int
+    overdue_count: int
+    warranty_related_count: int
+    by_contractor: list[DefectsByKeyOut]
+    by_category: list[DefectsByKeyOut]
+    by_component_type: list[DefectsByKeyOut]
+    repeat_categories: list[DefectsByKeyOut]
+    total_estimated_cost_pence: int
+    total_actual_cost_pence: int
+    average_resolution_days: float | None
+
+
+class CreateWarrantyRequest(BaseModel):
+    provider: str
+    warranty_type: str
+    start_date: date
+    expiry_date: date
+    terms_reference: str | None = None
+    document_id: uuid.UUID | None = None
+    development_id: uuid.UUID | None = None
+    building_id: uuid.UUID | None = None
+    property_id: uuid.UUID | None = None
+    component_id: uuid.UUID | None = None
+
+
+class WarrantyOut(BaseModel):
+    id: uuid.UUID
+    warranty_reference: str
+    provider: str
+    development_id: uuid.UUID | None
+    building_id: uuid.UUID | None
+    property_id: uuid.UUID | None
+    component_id: uuid.UUID | None
+    warranty_type: str
+    start_date: date
+    expiry_date: date
+    terms_reference: str | None
+    document_id: uuid.UUID | None
+    status: str
+    is_expired: bool
+    days_until_expiry: int
+    source_type: str
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

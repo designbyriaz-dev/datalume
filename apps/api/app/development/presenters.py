@@ -10,11 +10,12 @@ per row.
 """
 
 import uuid
+from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.development.models import Building, ChangeControl, Component, ComponentType, Development, Property
-from app.development.schemas import BuildingOut, ChangeControlOut, ComponentOut, DevelopmentOut, PropertyOut
+from app.development.models import Building, ChangeControl, Component, ComponentType, Development, Property, Warranty
+from app.development.schemas import BuildingOut, ChangeControlOut, ComponentOut, DevelopmentOut, PropertyOut, WarrantyOut
 from app.identifiers.service import get_external_references, get_external_references_bulk
 
 
@@ -254,3 +255,31 @@ def changes_to_out(db: Session, organisation_id: uuid.UUID, changes: list[Change
         )
         for c in changes
     ]
+
+
+def warranty_to_out(warranty: Warranty) -> WarrantyOut:
+    days_until_expiry = (warranty.expiry_date - date.today()).days
+    return WarrantyOut(
+        id=warranty.id,
+        warranty_reference=warranty.warranty_reference,
+        provider=warranty.provider,
+        development_id=warranty.development_id,
+        building_id=warranty.building_id,
+        property_id=warranty.property_id,
+        component_id=warranty.component_id,
+        warranty_type=warranty.warranty_type,
+        start_date=warranty.start_date,
+        expiry_date=warranty.expiry_date,
+        terms_reference=warranty.terms_reference,
+        document_id=warranty.document_id,
+        status=warranty.status.value,
+        is_expired=days_until_expiry < 0,
+        days_until_expiry=days_until_expiry,
+        source_type=warranty.source_type.value,
+        created_by=warranty.created_by,
+        created_at=warranty.created_at,
+    )
+
+
+def warranties_to_out(warranties: list[Warranty]) -> list[WarrantyOut]:
+    return [warranty_to_out(w) for w in warranties]

@@ -363,6 +363,67 @@ export type GoldenThread = {
   not_yet_available: string[];
 };
 
+export type DefectOut = {
+  id: string;
+  defect_reference: string;
+  development_id: string | null;
+  building_id: string | null;
+  property_id: string | null;
+  component_id: string | null;
+  category: string;
+  description: string;
+  severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  reported_date: string;
+  contractor: string | null;
+  responsible_party: string | null;
+  target_date: string | null;
+  completion_date: string | null;
+  status: "OPEN" | "ASSIGNED" | "IN_PROGRESS" | "READY_FOR_INSPECTION" | "COMPLETED" | "REJECTED" | "CLOSED";
+  estimated_cost_pence: number | null;
+  actual_cost_pence: number | null;
+  warranty_related: boolean;
+  source_type: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type DefectsByKey = { key: string; count: number };
+
+export type DefectsIntelligence = {
+  total_count: number;
+  open_count: number;
+  overdue_count: number;
+  warranty_related_count: number;
+  by_contractor: DefectsByKey[];
+  by_category: DefectsByKey[];
+  by_component_type: DefectsByKey[];
+  repeat_categories: DefectsByKey[];
+  total_estimated_cost_pence: number;
+  total_actual_cost_pence: number;
+  average_resolution_days: number | null;
+};
+
+export type WarrantyOut = {
+  id: string;
+  warranty_reference: string;
+  provider: string;
+  development_id: string | null;
+  building_id: string | null;
+  property_id: string | null;
+  component_id: string | null;
+  warranty_type: string;
+  start_date: string;
+  expiry_date: string;
+  terms_reference: string | null;
+  document_id: string | null;
+  status: "ACTIVE" | "VOID";
+  is_expired: boolean;
+  days_until_expiry: number;
+  source_type: string;
+  created_by: string | null;
+  created_at: string;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -676,6 +737,83 @@ export const api = {
       method: "POST",
       organisationId,
     }),
+  createDefect: (
+    organisationId: string,
+    payload: {
+      category: string;
+      description: string;
+      reported_date: string;
+      severity?: string;
+      contractor?: string;
+      target_date?: string;
+      estimated_cost_pence?: number;
+      warranty_related?: boolean;
+      development_id?: string;
+      building_id?: string;
+      property_id?: string;
+      component_id?: string;
+    },
+  ) =>
+    request<DefectOut>("/api/v1/defects", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  updateDefectStatus: (
+    organisationId: string,
+    defectId: string,
+    payload: { status: string; completion_date?: string; actual_cost_pence?: number },
+  ) =>
+    request<DefectOut>(`/api/v1/defects/${defectId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listDefects: (
+    organisationId: string,
+    filters?: { building_id?: string; property_id?: string; component_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    if (filters?.component_id) params.set("component_id", filters.component_id);
+    const qs = params.toString();
+    return request<DefectOut[]>(`/api/v1/defects${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  defectsIntelligence: (organisationId: string, filters?: { building_id?: string; development_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    if (filters?.development_id) params.set("development_id", filters.development_id);
+    const qs = params.toString();
+    return request<DefectsIntelligence>(`/api/v1/defects/intelligence${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createWarranty: (
+    organisationId: string,
+    payload: {
+      provider: string;
+      warranty_type: string;
+      start_date: string;
+      expiry_date: string;
+      terms_reference?: string;
+      document_id?: string;
+      development_id?: string;
+      building_id?: string;
+      property_id?: string;
+      component_id?: string;
+    },
+  ) =>
+    request<WarrantyOut>("/api/v1/warranties", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  voidWarranty: (organisationId: string, warrantyId: string) =>
+    request<WarrantyOut>(`/api/v1/warranties/${warrantyId}/void`, { method: "POST", organisationId }),
+  listWarranties: (
+    organisationId: string,
+    filters?: { building_id?: string; property_id?: string; component_id?: string; expiring_within_days?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    if (filters?.component_id) params.set("component_id", filters.component_id);
+    if (filters?.expiring_within_days !== undefined)
+      params.set("expiring_within_days", String(filters.expiring_within_days));
+    const qs = params.toString();
+    return request<WarrantyOut[]>(`/api/v1/warranties${qs ? `?${qs}` : ""}`, { organisationId });
+  },
 };
 
 export const ORGANISATION_TYPES = [

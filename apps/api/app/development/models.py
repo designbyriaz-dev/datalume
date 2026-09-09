@@ -19,7 +19,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -329,3 +329,103 @@ class ChangeControl(Base, ProvenanceMixin):
     implemented_specification_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("specifications.id"), nullable=True
     )
+
+
+class DefectSeverity(str, enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class DefectStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    ASSIGNED = "ASSIGNED"
+    IN_PROGRESS = "IN_PROGRESS"
+    READY_FOR_INSPECTION = "READY_FOR_INSPECTION"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+    CLOSED = "CLOSED"
+
+
+class Defect(Base, ProvenanceMixin):
+    """DEFECT & SNAGGING REGISTER — spec §34. Attaches like Component
+    (app/development/models.py.Component), not like Specification: any
+    combination of development/building/property/component, independent
+    and non-cross-validated, since a defect can genuinely be reported
+    at whichever level it was actually observed at (spec §24's same
+    reasoning — "not a strict single-parent tree").
+
+    `evidence` from the spec's conceptual field list isn't a column —
+    photos/reports attach the same way Construction Evidence does
+    (Sprint 10): a Document with related_entity_type="defect".
+
+    estimated_cost/actual_cost are stored in pence (integer), never a
+    float — same reasoning as Plan pricing (app/platform/billing.py).
+    """
+
+    __tablename__ = "defects"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    defect_reference: Mapped[str] = mapped_column(String(32))
+    development_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("developments.id"), nullable=True)
+    building_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("buildings.id"), nullable=True)
+    property_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("properties.id"), nullable=True)
+    component_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("components.id"), nullable=True)
+    category: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text)
+    severity: Mapped[DefectSeverity] = mapped_column(Enum(DefectSeverity), default=DefectSeverity.MEDIUM)
+    reported_date: Mapped[date] = mapped_column(Date)
+    contractor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    responsible_party: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    completion_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[DefectStatus] = mapped_column(Enum(DefectStatus), default=DefectStatus.OPEN)
+    estimated_cost_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_cost_pence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    warranty_related: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class WarrantyStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    VOID = "VOID"
+
+
+class Warranty(Base, ProvenanceMixin):
+    """WARRANTY REGISTER — spec §36. Same independent, non-cross-
+    validated attachment pattern as Defect/Component.
+
+    status only ever tracks ACTIVE/VOID, set by an explicit action
+    (app/development/service.py.void_warranty) — "EXPIRED" is
+    deliberately not a stored status a job has to keep in sync. It's
+    computed from expiry_date at read time (WarrantyOut.is_expired,
+    days_until_expiry), same "deterministic, computed at read time"
+    approach as Component.indicative_replacement_date and Data Health's
+    score — never a value that can go stale between writes.
+
+    "Generate configurable alerts before expiry" (spec §36) is served by
+    GET /api/v1/warranties?expiring_within_days=N — the caller/UI
+    controls the window, since there's no notification/email
+    infrastructure in this codebase to push an alert through (same
+    honest-scoping reasoning as StripeBillingProvider being deferred in
+    Sprint 2: nothing here fabricates a delivery mechanism that isn't
+    actually wired to anything).
+    """
+
+    __tablename__ = "warranties"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    warranty_reference: Mapped[str] = mapped_column(String(32))
+    provider: Mapped[str] = mapped_column(String(255))
+    development_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("developments.id"), nullable=True)
+    building_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("buildings.id"), nullable=True)
+    property_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("properties.id"), nullable=True)
+    component_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("components.id"), nullable=True)
+    warranty_type: Mapped[str] = mapped_column(String(128))
+    start_date: Mapped[date] = mapped_column(Date)
+    expiry_date: Mapped[date] = mapped_column(Date)
+    terms_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+    status: Mapped[WarrantyStatus] = mapped_column(Enum(WarrantyStatus), default=WarrantyStatus.ACTIVE)

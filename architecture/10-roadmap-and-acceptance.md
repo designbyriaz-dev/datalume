@@ -126,7 +126,17 @@ now-superseded specification id disappeared from the UI after
 implementation — fixed by filtering on the stable related-entity
 location instead) and the full browser/curl verification.
 
-Sprints 11–24 are not started; they are ordered and ready to pick up.
+**Sprint 11 (Defects / Warranties): built** — `Defect` (spec §34) with a
+real seven-state workflow and validated transitions, attaching like
+Component rather than Specification's single polymorphic pair. `Warranty`
+(spec §36) computes expiry status at read time instead of storing it, and
+"configurable alerts before expiry" is a query parameter rather than a
+fabricated notification channel this codebase has no infrastructure to
+back. Defects Intelligence (spec §35) is a fixed set of aggregate reads,
+not a scored engine — the spec's own examples are plain counts. See
+STATUS.md for the full live browser/curl verification.
+
+Sprints 12–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

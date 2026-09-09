@@ -144,6 +144,8 @@ def test_list_reference_patterns_shows_every_known_type(client):
         "COMPONENT",
         "SPECIFICATION",
         "CHANGE_CONTROL",
+        "DEFECT",
+        "WARRANTY",
     }
 
 

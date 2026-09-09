@@ -558,10 +558,73 @@ per instruction — "continue with sprint 2, billing later"):
   current-only view, and confirmed a separate change's `reject` path and
   the `approve`-after-`reject` 400 guard over curl.
 
+**Sprint 11 — Defects / Warranties:**
+
+- `app/development/`: `Defect` (spec §34) attaches like `Component` —
+  independent, non-cross-validated development/building/property/
+  component FKs — rather than Specification's single polymorphic pair,
+  since a defect genuinely can be reported at whichever level it was
+  actually observed at. A real seven-state workflow (`OPEN → ASSIGNED →
+  IN_PROGRESS → READY_FOR_INSPECTION → COMPLETED → CLOSED`, plus
+  `REJECTED`, and a failed inspection routes back to `IN_PROGRESS`
+  rather than forcing a new defect for the same snag) — validated
+  transitions, same rigor as Change Control's status machine (Sprint
+  10). `estimated_cost_pence`/`actual_cost_pence` are integers, never
+  floats — same reasoning as Plan pricing
+  (`app/platform/billing.py`). The spec's `evidence` field isn't a
+  column: photos/reports attach the same way Construction Evidence does
+  (Sprint 10), a `Document` with `related_entity_type="defect"`.
+- `Warranty` (spec §36): same independent multi-attachment shape as
+  Defect. Status only ever tracks `ACTIVE`/`VOID`, set by an explicit
+  action (`void_warranty`) — "EXPIRED" is deliberately never a stored
+  status a background job would have to keep in sync. `is_expired` and
+  `days_until_expiry` are computed from `expiry_date` at read time
+  instead, same "deterministic, computed at read time" approach as
+  Component's `indicative_replacement_date` and Data Health's score.
+  "Generate configurable alerts before expiry" (spec §36) is served by
+  `GET /api/v1/warranties?expiring_within_days=N` — the caller/UI
+  controls the window; there's no email/notification infrastructure in
+  this codebase to push an alert through, same honest-scoping reasoning
+  as `StripeBillingProvider` staying deferred since Sprint 2.
+- **Defects Intelligence** (spec §35, `app/development/
+  defects_intelligence.py`): a fixed set of aggregate reads — open/
+  overdue/warranty-related counts, by-contractor, by-category, by-
+  component-type, repeat-category detection (a category counts as
+  "repeat" when it recurs at the *same* property/building/component,
+  matching spec §35's own example: "7 properties have repeat
+  water-ingress defects"), total cost, average resolution time — every
+  number directly re-derivable from `GET /api/v1/defects`. Deliberately
+  not a scored/weighted registry like Data Health (Sprint 5) or
+  Component Lifecycle: the spec's own examples are plain counts, so
+  that's what this composes.
+- `apps/web`: "Report a defect"/"Defects" and "Add a warranty"/
+  "Warranties" sections added to the Building detail page, next to
+  Specifications/Change Control/Golden Thread — no new nav item, same
+  reasoning as Sprint 9/10 (these are naturally viewed in the context of
+  the building they belong to, and Build 1's nav config has no slot
+  reserved for them). Defect status transition buttons are generated
+  from the same allowed-next-states the backend enforces, so the UI
+  never offers a transition the API would reject.
+- 17 new backend tests (131 total passing) — no bugs found by the test
+  suite; migration DDL checked offline (both new enums created once,
+  `sourcetype` reused rather than re-declared, continuing the check from
+  Sprints 6 and 9-10).
+- Verified end-to-end live: reported a defect against a building through
+  the UI (`DEF-000001`), drove it through
+  `ASSIGNED → IN_PROGRESS → READY_FOR_INSPECTION → COMPLETED` (confirming
+  `completion_date` defaulted correctly and `actual_cost_pence` was
+  recorded) and confirmed the UI only ever offered the buttons the
+  backend's transition table allows; added a warranty (`WAR-000001`)
+  through the UI and confirmed `days_until_expiry` renders live, then
+  voided it and confirmed the terminal `VOID` badge with the action
+  removed; confirmed `GET /api/v1/defects/intelligence` matched the
+  actual defect over curl, and that `expiring_within_days` correctly
+  excluded a warranty over a decade from expiry.
+
 ## Not yet done
 
-Sprints 11–24 (defects/warranties, handover, Property 360, repairs,
-compliance, and the rest) — not started. Full order and scope in
+Sprints 12–24 (handover, Property 360, repairs, compliance, and the
+rest) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

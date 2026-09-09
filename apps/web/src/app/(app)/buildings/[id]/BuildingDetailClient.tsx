@@ -7,13 +7,27 @@ import { inputStyle, primaryBtn } from "@/components/formStyles";
 import {
   api,
   type BuildingOut,
+  type DefectOut,
   type FloorOut,
   type GoldenThread,
   type PropertyOut,
   type SpecificationOut,
+  type WarrantyOut,
 } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
+
+const DEFECT_SEVERITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+
+const DEFECT_TRANSITIONS: Record<string, string[]> = {
+  OPEN: ["ASSIGNED", "REJECTED"],
+  ASSIGNED: ["IN_PROGRESS", "REJECTED"],
+  IN_PROGRESS: ["READY_FOR_INSPECTION", "REJECTED"],
+  READY_FOR_INSPECTION: ["COMPLETED", "IN_PROGRESS"],
+  COMPLETED: ["CLOSED"],
+  REJECTED: ["CLOSED"],
+  CLOSED: [],
+};
 
 function statusVariant(status: string) {
   if (status === "OPERATIONAL" || status === "COMPLETED") return "success" as const;
@@ -24,12 +38,26 @@ function specStatusVariant(status: string) {
   return status === "SUPERSEDED" ? ("neutral" as const) : ("success" as const);
 }
 
+function defectStatusVariant(status: string) {
+  if (status === "COMPLETED" || status === "CLOSED") return "success" as const;
+  if (status === "REJECTED") return "critical" as const;
+  return "neutral" as const;
+}
+
+function defectSeverityVariant(severity: string) {
+  if (severity === "CRITICAL" || severity === "HIGH") return "critical" as const;
+  if (severity === "MEDIUM") return "warning" as const;
+  return "neutral" as const;
+}
+
 export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   const [building, setBuilding] = useState<BuildingOut | null>(null);
   const [floors, setFloors] = useState<FloorOut[] | null>(null);
   const [properties, setProperties] = useState<PropertyOut[] | null>(null);
   const [specifications, setSpecifications] = useState<SpecificationOut[] | null>(null);
   const [goldenThread, setGoldenThread] = useState<GoldenThread | null>(null);
+  const [defects, setDefects] = useState<DefectOut[] | null>(null);
+  const [warranties, setWarranties] = useState<WarrantyOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [floorName, setFloorName] = useState("");
@@ -41,6 +69,18 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   const [specDescription, setSpecDescription] = useState("");
   const [specSubmitting, setSpecSubmitting] = useState(false);
   const [specFormError, setSpecFormError] = useState<string | null>(null);
+
+  const [defectCategory, setDefectCategory] = useState("");
+  const [defectDescription, setDefectDescription] = useState("");
+  const [defectSeverity, setDefectSeverity] = useState<(typeof DEFECT_SEVERITIES)[number]>("MEDIUM");
+  const [defectSubmitting, setDefectSubmitting] = useState(false);
+  const [defectFormError, setDefectFormError] = useState<string | null>(null);
+
+  const [warrantyProvider, setWarrantyProvider] = useState("");
+  const [warrantyType, setWarrantyType] = useState("");
+  const [warrantyExpiryDate, setWarrantyExpiryDate] = useState("");
+  const [warrantySubmitting, setWarrantySubmitting] = useState(false);
+  const [warrantyFormError, setWarrantyFormError] = useState<string | null>(null);
 
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
@@ -64,6 +104,18 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     setGoldenThread(await api.getGoldenThread(id, buildingId));
   }
 
+  async function refreshDefects() {
+    const id = orgId();
+    if (!id) return;
+    setDefects(await api.listDefects(id, { building_id: buildingId }));
+  }
+
+  async function refreshWarranties() {
+    const id = orgId();
+    if (!id) return;
+    setWarranties(await api.listWarranties(id, { building_id: buildingId }));
+  }
+
   useEffect(() => {
     (async () => {
       const id = orgId();
@@ -72,18 +124,22 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         return;
       }
       try {
-        const [b, floorList, propertyList, specList, thread] = await Promise.all([
+        const [b, floorList, propertyList, specList, thread, defectList, warrantyList] = await Promise.all([
           api.getBuilding(id, buildingId),
           api.listFloors(id, buildingId),
           api.listProperties(id, { building_id: buildingId }),
           api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
           api.getGoldenThread(id, buildingId),
+          api.listDefects(id, { building_id: buildingId }),
+          api.listWarranties(id, { building_id: buildingId }),
         ]);
         setBuilding(b);
         setFloors(floorList);
         setProperties(propertyList);
         setSpecifications(specList);
         setGoldenThread(thread);
+        setDefects(defectList);
+        setWarranties(warrantyList);
       } catch {
         setLoadError("Couldn't load this building.");
       }
@@ -146,11 +202,78 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     await refreshSpecifications();
   }
 
+  async function onAddDefect() {
+    const id = orgId();
+    if (!id || !defectCategory.trim() || !defectDescription.trim()) {
+      setDefectFormError("Give the defect a category and description first.");
+      return;
+    }
+    setDefectSubmitting(true);
+    setDefectFormError(null);
+    try {
+      await api.createDefect(id, {
+        category: defectCategory.trim(),
+        description: defectDescription.trim(),
+        reported_date: new Date().toISOString().slice(0, 10),
+        severity: defectSeverity,
+        building_id: buildingId,
+      });
+      setDefectCategory("");
+      setDefectDescription("");
+      await refreshDefects();
+    } catch {
+      setDefectFormError("Couldn't add that defect.");
+    } finally {
+      setDefectSubmitting(false);
+    }
+  }
+
+  async function onDefectStatusChange(defectId: string, nextStatus: string) {
+    const id = orgId();
+    if (!id) return;
+    await api.updateDefectStatus(id, defectId, { status: nextStatus });
+    await refreshDefects();
+  }
+
+  async function onAddWarranty() {
+    const id = orgId();
+    if (!id || !warrantyProvider.trim() || !warrantyType.trim() || !warrantyExpiryDate) {
+      setWarrantyFormError("Give the warranty a provider, type, and expiry date.");
+      return;
+    }
+    setWarrantySubmitting(true);
+    setWarrantyFormError(null);
+    try {
+      await api.createWarranty(id, {
+        provider: warrantyProvider.trim(),
+        warranty_type: warrantyType.trim(),
+        start_date: new Date().toISOString().slice(0, 10),
+        expiry_date: warrantyExpiryDate,
+        building_id: buildingId,
+      });
+      setWarrantyProvider("");
+      setWarrantyType("");
+      setWarrantyExpiryDate("");
+      await refreshWarranties();
+    } catch {
+      setWarrantyFormError("Couldn't add that warranty.");
+    } finally {
+      setWarrantySubmitting(false);
+    }
+  }
+
+  async function onVoidWarranty(warrantyId: string) {
+    const id = orgId();
+    if (!id) return;
+    await api.voidWarranty(id, warrantyId);
+    await refreshWarranties();
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!building || !floors || !properties || !specifications) {
+  if (!building || !floors || !properties || !specifications || !defects || !warranties) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -381,6 +504,194 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
             Not yet available: {goldenThread.not_yet_available.join(", ")}
           </div>
         </div>
+      )}
+
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Report a defect</h2>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1.5fr 1fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Category
+            </label>
+            <input
+              style={inputStyle}
+              value={defectCategory}
+              onChange={(e) => setDefectCategory(e.target.value)}
+              placeholder="e.g. Windows"
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Description
+            </label>
+            <input
+              style={inputStyle}
+              value={defectDescription}
+              onChange={(e) => setDefectDescription(e.target.value)}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Severity
+            </label>
+            <select
+              style={inputStyle}
+              value={defectSeverity}
+              onChange={(e) => setDefectSeverity(e.target.value as (typeof DEFECT_SEVERITIES)[number])}
+            >
+              {DEFECT_SEVERITIES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button style={primaryBtn} onClick={onAddDefect} disabled={defectSubmitting}>
+            {defectSubmitting ? "Reporting…" : "Report"}
+          </button>
+        </div>
+        {defectFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{defectFormError}</div>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Defects</h2>
+      {defects.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No defects reported.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {defects.map((d) => (
+            <li key={d.id} style={{ padding: "12px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span>
+                  <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                    {d.defect_reference}
+                  </span>
+                  {d.category}
+                </span>
+                <span style={{ display: "flex", gap: 6 }}>
+                  <StatusBadge label={d.severity} variant={defectSeverityVariant(d.severity)} />
+                  <StatusBadge label={d.status} variant={defectStatusVariant(d.status)} />
+                </span>
+              </div>
+              <div style={{ color: "var(--text-secondary)", marginBottom: 8 }}>{d.description}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {(DEFECT_TRANSITIONS[d.status] ?? []).map((next) => (
+                  <button
+                    key={next}
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => onDefectStatusChange(d.id, next)}
+                  >
+                    {next.replace(/_/g, " ").toLowerCase()}
+                  </button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a warranty</h2>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.2fr 1.2fr 1fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Provider
+            </label>
+            <input style={inputStyle} value={warrantyProvider} onChange={(e) => setWarrantyProvider(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Type
+            </label>
+            <input
+              style={inputStyle}
+              value={warrantyType}
+              onChange={(e) => setWarrantyType(e.target.value)}
+              placeholder="e.g. Structural warranty"
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Expiry date
+            </label>
+            <input
+              style={inputStyle}
+              type="date"
+              value={warrantyExpiryDate}
+              onChange={(e) => setWarrantyExpiryDate(e.target.value)}
+            />
+          </div>
+          <button style={primaryBtn} onClick={onAddWarranty} disabled={warrantySubmitting}>
+            {warrantySubmitting ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {warrantyFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{warrantyFormError}</div>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Warranties</h2>
+      {warranties.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>No warranties yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {warranties.map((w) => (
+            <li
+              key={w.id}
+              style={{
+                padding: "10px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {w.warranty_reference}
+                </span>
+                {w.provider} — {w.warranty_type}{" "}
+                <span style={{ color: "var(--text-secondary)" }}>
+                  (expires {w.expiry_date}
+                  {w.is_expired ? ", expired" : `, ${w.days_until_expiry}d left`})
+                </span>
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusBadge
+                  label={w.status === "VOID" ? "VOID" : w.is_expired ? "EXPIRED" : "ACTIVE"}
+                  variant={w.status === "VOID" ? "critical" : w.is_expired ? "warning" : "success"}
+                />
+                {w.status === "ACTIVE" && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--text-secondary)" }}
+                    onClick={() => onVoidWarranty(w.id)}
+                  >
+                    Void
+                  </button>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

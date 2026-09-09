@@ -26,6 +26,9 @@ from app.development.models import (
     ChangeControlStatus,
     Component,
     ComponentStatus,
+    Defect,
+    DefectSeverity,
+    DefectStatus,
     Development,
     Floor,
     Property,
@@ -33,6 +36,8 @@ from app.development.models import (
     Space,
     Specification,
     SpecificationStatus,
+    Warranty,
+    WarrantyStatus,
 )
 from app.identifiers.models import ExternalReferenceType
 from app.identifiers.service import generate_reference, get_external_references, record_external_reference
@@ -53,6 +58,11 @@ class HierarchyMismatchError(ValueError):
 class UnsupportedEntityTypeError(ValueError):
     """A specification's related_entity_type isn't one of the five spec
     §27 names — the router maps this to a 400."""
+
+
+class InvalidDefectTransitionError(ValueError):
+    """The requested status transition isn't allowed from a defect's
+    current status — the router maps this to a 400."""
 
 
 class InvalidChangeControlTransitionError(ValueError):
@@ -959,3 +969,235 @@ def get_change_control_external_approval_reference(
     return get_external_references(db, organisation_id, "change_control", change.id).get(
         ExternalReferenceType.EXTERNAL_APPROVAL_REFERENCE.value
     )
+
+
+DEFECT_TRANSITIONS: dict[DefectStatus, tuple[DefectStatus, ...]] = {
+    DefectStatus.OPEN: (DefectStatus.ASSIGNED, DefectStatus.REJECTED),
+    DefectStatus.ASSIGNED: (DefectStatus.IN_PROGRESS, DefectStatus.REJECTED),
+    DefectStatus.IN_PROGRESS: (DefectStatus.READY_FOR_INSPECTION, DefectStatus.REJECTED),
+    # A failed inspection sends work back to IN_PROGRESS rather than
+    # forcing a new defect to be raised for the same snag.
+    DefectStatus.READY_FOR_INSPECTION: (DefectStatus.COMPLETED, DefectStatus.IN_PROGRESS),
+    DefectStatus.COMPLETED: (DefectStatus.CLOSED,),
+    DefectStatus.REJECTED: (DefectStatus.CLOSED,),
+    DefectStatus.CLOSED: (),
+}
+
+
+def _get_org_defect(db: Session, organisation_id: uuid.UUID, defect_id: uuid.UUID) -> Defect:
+    defect = db.query(Defect).filter(Defect.id == defect_id, Defect.organisation_id == organisation_id).first()
+    if defect is None:
+        raise HierarchyNotFoundError(f"Defect {defect_id} not found")
+    return defect
+
+
+def create_defect(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    category: str,
+    description: str,
+    reported_date: date,
+    severity: str = "MEDIUM",
+    contractor: str | None = None,
+    responsible_party: str | None = None,
+    target_date: date | None = None,
+    estimated_cost_pence: int | None = None,
+    warranty_related: bool = False,
+    development_id: uuid.UUID | None = None,
+    building_id: uuid.UUID | None = None,
+    property_id: uuid.UUID | None = None,
+    component_id: uuid.UUID | None = None,
+    source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> Defect:
+    # Existence/ownership checks only, independent and non-cross-
+    # validated — same reasoning as create_component's attachment
+    # points (spec §24).
+    if development_id is not None:
+        _get_org_development(db, organisation_id, development_id)
+    if building_id is not None:
+        _get_org_building(db, organisation_id, building_id)
+    if property_id is not None:
+        _get_org_property(db, organisation_id, property_id)
+    if component_id is not None:
+        _get_org_component(db, organisation_id, component_id)
+
+    defect = Defect(
+        organisation_id=organisation_id,
+        defect_reference=generate_reference(db, organisation_id, "DEFECT"),
+        development_id=development_id,
+        building_id=building_id,
+        property_id=property_id,
+        component_id=component_id,
+        category=category,
+        description=description,
+        severity=DefectSeverity(severity),
+        reported_date=reported_date,
+        contractor=contractor,
+        responsible_party=responsible_party,
+        target_date=target_date,
+        status=DefectStatus.OPEN,
+        estimated_cost_pence=estimated_cost_pence,
+        warranty_related=warranty_related,
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(defect)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="defect.reported",
+        entity_type="defect",
+        entity_id=str(defect.id),
+        after={"defect_reference": defect.defect_reference, "category": category, "severity": severity},
+    )
+    return defect
+
+
+def update_defect_status(
+    db: Session,
+    organisation_id: uuid.UUID,
+    defect: Defect,
+    *,
+    new_status: str,
+    completion_date: date | None = None,
+    actual_cost_pence: int | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> Defect:
+    target = DefectStatus(new_status)
+    allowed = DEFECT_TRANSITIONS.get(defect.status, ())
+    if target not in allowed:
+        raise InvalidDefectTransitionError(f"Cannot move a defect from {defect.status.value} to {target.value}")
+
+    previous_status = defect.status
+    defect.status = target
+    if target == DefectStatus.COMPLETED:
+        defect.completion_date = completion_date or date.today()
+    if actual_cost_pence is not None:
+        defect.actual_cost_pence = actual_cost_pence
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="defect.status_changed",
+        entity_type="defect",
+        entity_id=str(defect.id),
+        before={"status": previous_status.value},
+        after={"status": target.value},
+    )
+    return defect
+
+
+def _get_org_warranty(db: Session, organisation_id: uuid.UUID, warranty_id: uuid.UUID) -> Warranty:
+    warranty = (
+        db.query(Warranty).filter(Warranty.id == warranty_id, Warranty.organisation_id == organisation_id).first()
+    )
+    if warranty is None:
+        raise HierarchyNotFoundError(f"Warranty {warranty_id} not found")
+    return warranty
+
+
+def create_warranty(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    provider: str,
+    warranty_type: str,
+    start_date: date,
+    expiry_date: date,
+    terms_reference: str | None = None,
+    document_id: uuid.UUID | None = None,
+    development_id: uuid.UUID | None = None,
+    building_id: uuid.UUID | None = None,
+    property_id: uuid.UUID | None = None,
+    component_id: uuid.UUID | None = None,
+    source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> Warranty:
+    if development_id is not None:
+        _get_org_development(db, organisation_id, development_id)
+    if building_id is not None:
+        _get_org_building(db, organisation_id, building_id)
+    if property_id is not None:
+        _get_org_property(db, organisation_id, property_id)
+    if component_id is not None:
+        _get_org_component(db, organisation_id, component_id)
+    if document_id is not None:
+        from app.documents.models import Document
+
+        exists = (
+            db.query(Document.id)
+            .filter(Document.id == document_id, Document.organisation_id == organisation_id)
+            .first()
+        )
+        if exists is None:
+            raise HierarchyNotFoundError(f"Document {document_id} not found")
+
+    if expiry_date <= start_date:
+        raise HierarchyMismatchError("A warranty's expiry_date must be after its start_date")
+
+    warranty = Warranty(
+        organisation_id=organisation_id,
+        warranty_reference=generate_reference(db, organisation_id, "WARRANTY"),
+        provider=provider,
+        development_id=development_id,
+        building_id=building_id,
+        property_id=property_id,
+        component_id=component_id,
+        warranty_type=warranty_type,
+        start_date=start_date,
+        expiry_date=expiry_date,
+        terms_reference=terms_reference,
+        document_id=document_id,
+        status=WarrantyStatus.ACTIVE,
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(warranty)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="warranty.created",
+        entity_type="warranty",
+        entity_id=str(warranty.id),
+        after={"warranty_reference": warranty.warranty_reference, "provider": provider, "expiry_date": str(expiry_date)},
+    )
+    return warranty
+
+
+def void_warranty(
+    db: Session, organisation_id: uuid.UUID, warranty: Warranty, *, actor_user_id: uuid.UUID | None = None
+) -> Warranty:
+    warranty.status = WarrantyStatus.VOID
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="warranty.voided",
+        entity_type="warranty",
+        entity_id=str(warranty.id),
+        after={"status": "VOID"},
+    )
+    return warranty
