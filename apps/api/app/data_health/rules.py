@@ -17,12 +17,14 @@ one function each, as their domain models land.
 
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import date
 
 from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
 from app.development.models import Property
 from app.identifiers.service import get_external_references_bulk
+from app.operations.stock_condition.models import StockConditionSurvey
 
 
 @dataclass
@@ -122,11 +124,69 @@ def check_duplicate_properties(db: Session, organisation_id) -> CheckResult:
     return CheckResult("DUPLICATE_PROPERTIES", len(properties), len(findings), findings)
 
 
+def check_missing_stock_condition_survey(db: Session, organisation_id) -> CheckResult:
+    """architecture/04-operations-domain.md §6: a stock condition
+    survey "feeds... Data Health (missing/stale surveys)" — Sprint 18's
+    own instruction, closed here."""
+    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
+    surveyed_property_ids = {
+        row[0]
+        for row in db.query(StockConditionSurvey.property_id)
+        .filter(StockConditionSurvey.organisation_id == organisation_id)
+        .distinct()
+    }
+    findings = [
+        Finding(
+            "MISSING_STOCK_CONDITION_SURVEY",
+            FindingSeverity.MEDIUM,
+            "property",
+            str(p.id),
+            f"{p.property_reference} has no stock condition survey recorded.",
+        )
+        for p in properties
+        if p.id not in surveyed_property_ids
+    ]
+    return CheckResult("MISSING_STOCK_CONDITION_SURVEY", len(properties), len(findings), findings)
+
+
+def check_stale_stock_condition_survey(db: Session, organisation_id) -> CheckResult:
+    """Applies only to properties with at least one survey on record —
+    a property with none is check_missing_stock_condition_survey's
+    concern, not this one's, so it isn't double-counted as failing two
+    checks for the same underlying gap."""
+    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
+    surveys = (
+        db.query(StockConditionSurvey)
+        .filter(StockConditionSurvey.organisation_id == organisation_id)
+        .order_by(StockConditionSurvey.survey_date.desc())
+        .all()
+    )
+    latest_by_property = {}
+    for s in surveys:
+        latest_by_property.setdefault(s.property_id, s)
+
+    applicable = [p for p in properties if p.id in latest_by_property]
+    findings = [
+        Finding(
+            "STALE_STOCK_CONDITION_SURVEY",
+            FindingSeverity.MEDIUM,
+            "property",
+            str(p.id),
+            f"{p.property_reference}'s stock condition survey was due {latest_by_property[p.id].next_survey_due}.",
+        )
+        for p in applicable
+        if latest_by_property[p.id].next_survey_due is not None and latest_by_property[p.id].next_survey_due < date.today()
+    ]
+    return CheckResult("STALE_STOCK_CONDITION_SURVEY", len(applicable), len(findings), findings)
+
+
 RULES = [
     check_missing_property_type,
     check_missing_uprn,
     check_missing_postcode,
     check_duplicate_properties,
+    check_missing_stock_condition_survey,
+    check_stale_stock_condition_survey,
 ]
 
 

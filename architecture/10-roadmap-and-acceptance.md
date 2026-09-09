@@ -226,7 +226,22 @@ status, gated by the existing `reports.board` permission's first real
 use. See STATUS.md for the full live verification, including the
 Building detail page's status badge updating live after an inspection.
 
-Sprints 18–24 are not started; they are ordered and ready to pick up.
+**Sprint 18 (Stock Condition / Planned Investment): built** —
+`StockConditionSurvey` (architecture §6) feeds two new Data Health
+checks (missing/stale surveys). `planned_investment.py` implements
+architecture §6's `investment_priority` scoring pseudocode: five
+weighted, independently-explainable factors (spec §40: "do not use age
+alone"), computed at read time rather than via the pseudocode's
+nightly-job framing — this build has no job/worker infrastructure
+until Sprint 21 introduces one, so this follows every other scoring
+engine already built (Data Health, Handover Readiness, repeat-repair/
+hazard, Sprint 17's compliance_status) instead of building a job
+runner two sprints early. A documented RBAC fix gives ASSET_MANAGER
+`operations.write`, which it needs to actually record the surveys this
+sprint is about. See STATUS.md for the full live verification,
+including a hand-checked score against the weighted-average math.
+
+Sprints 19–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

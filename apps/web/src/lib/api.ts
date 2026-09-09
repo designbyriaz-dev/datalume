@@ -673,6 +673,44 @@ export type RepeatHazardSignal = {
   hazard_ids: string[];
 };
 
+export type StockConditionSurveyOut = {
+  id: string;
+  property_id: string;
+  survey_date: string;
+  surveyor: string;
+  condition_ratings: Record<string, string>;
+  next_survey_due: string | null;
+  document_id: string | null;
+};
+
+export type PlannedInvestmentFactorOut = {
+  factor_code: string;
+  label: string;
+  weight: number;
+  applicable: boolean;
+  value: number | null;
+  detail: string;
+};
+
+export type PlannedInvestmentScoreOut = {
+  component_id: string;
+  component_reference: string;
+  component_type_name: string;
+  priority_score: number;
+  factors: PlannedInvestmentFactorOut[];
+};
+
+export type PlannedInvestmentWeightOut = {
+  factor_code: string;
+  label: string;
+  weight: number;
+};
+
+export type PlannedInvestmentConfig = {
+  repair_frequency_window_months: number;
+  repair_frequency_threshold: number;
+};
+
 export type ComplianceStatusOut = {
   status: string;
   requirement_id: string;
@@ -1109,6 +1147,59 @@ export const api = {
     const qs = params.toString();
     return request<BoardAssuranceReport>(`/api/v1/compliance/assurance-report${qs ? `?${qs}` : ""}`, { organisationId });
   },
+  listStockConditionSurveys: (organisationId: string, filters?: { property_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    const qs = params.toString();
+    return request<StockConditionSurveyOut[]>(`/api/v1/stock-condition-surveys${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createStockConditionSurvey: (
+    organisationId: string,
+    payload: {
+      property_id: string;
+      survey_date: string;
+      surveyor: string;
+      condition_ratings?: Record<string, string>;
+      next_survey_due?: string;
+    },
+  ) =>
+    request<StockConditionSurveyOut>("/api/v1/stock-condition-surveys", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  getComponentPlannedInvestment: (organisationId: string, componentId: string) =>
+    request<PlannedInvestmentScoreOut>(`/api/v1/components/${componentId}/planned-investment`, { organisationId }),
+  listPlannedInvestment: (
+    organisationId: string,
+    filters?: { development_id?: string; building_id?: string; property_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.development_id) params.set("development_id", filters.development_id);
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    const qs = params.toString();
+    return request<PlannedInvestmentScoreOut[]>(`/api/v1/planned-investment${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  listPlannedInvestmentWeights: (organisationId: string) =>
+    request<PlannedInvestmentWeightOut[]>("/api/v1/planned-investment-weights", { organisationId }),
+  updatePlannedInvestmentWeight: (organisationId: string, factorCode: string, weight: number) =>
+    request<PlannedInvestmentWeightOut>(`/api/v1/planned-investment-weights/${factorCode}`, {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify({ weight }),
+    }),
+  getPlannedInvestmentConfig: (organisationId: string) =>
+    request<PlannedInvestmentConfig>("/api/v1/planned-investment-config", { organisationId }),
+  updatePlannedInvestmentConfig: (
+    organisationId: string,
+    payload: { repair_frequency_window_months?: number; repair_frequency_threshold?: number },
+  ) =>
+    request<PlannedInvestmentConfig>("/api/v1/planned-investment-config", {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

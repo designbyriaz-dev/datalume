@@ -576,3 +576,49 @@ class PortfolioSummaryOut(BaseModel):
     overdue_defects_count: int
     warranties_expiring_within_90_days_count: int
     development_readiness: list[DevelopmentReadinessSummaryOut]
+
+
+class PlannedInvestmentFactorOut(BaseModel):
+    """One contributing factor to a component's investment_priority
+    score — spec §40: "do not use age alone," so every factor and its
+    own weight/value is always returned, not folded silently into one
+    number. `applicable=False` means this factor had nothing to go on
+    (e.g. no inspection ever recorded) and was excluded from the
+    weighted average rather than scored as if it were a good sign."""
+
+    factor_code: str
+    label: str
+    weight: float
+    applicable: bool
+    value: float | None
+    detail: str
+
+
+class PlannedInvestmentScoreOut(BaseModel):
+    component_id: uuid.UUID
+    component_reference: str
+    component_type_name: str
+    priority_score: float
+    factors: list[PlannedInvestmentFactorOut]
+
+
+class PlannedInvestmentWeightOut(BaseModel):
+    factor_code: str
+    label: str
+    weight: float
+
+
+class UpdatePlannedInvestmentWeightRequest(BaseModel):
+    weight: float
+
+
+class PlannedInvestmentConfigOut(BaseModel):
+    repair_frequency_window_months: int
+    repair_frequency_threshold: int
+
+    model_config = {"from_attributes": True}
+
+
+class UpdatePlannedInvestmentConfigRequest(BaseModel):
+    repair_frequency_window_months: int | None = None
+    repair_frequency_threshold: int | None = None

@@ -34,7 +34,14 @@ def test_data_health_flags_missing_fields(client):
 
     body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
     check_codes_with_findings = {f["check_code"] for f in body["findings"]}
-    assert check_codes_with_findings == {"MISSING_UPRN", "MISSING_POSTCODE", "MISSING_PROPERTY_TYPE"}
+    # Neither property has a stock condition survey recorded, so both are
+    # missing one — that check fires alongside the field-completeness ones.
+    assert check_codes_with_findings == {
+        "MISSING_UPRN",
+        "MISSING_POSTCODE",
+        "MISSING_PROPERTY_TYPE",
+        "MISSING_STOCK_CONDITION_SURVEY",
+    }
     assert body["score_pct"] < 100.0
 
     missing_type_check = next(c for c in body["checks"] if c["check_code"] == "MISSING_PROPERTY_TYPE")
@@ -64,13 +71,18 @@ def test_data_health_is_scoped_per_organisation(client):
         "/api/v1/auth/signup",
         json=_signup_payload(email="other@example.com", organisation_name="Other Org"),
     ).json()
-    _add_property(
+    prop_b = _add_property(
         client,
         signup_b["organisation_id"],
         address="1 Org B Close",
         postcode="SW1A 1AA",
         uprn="1",
         property_type="House",
+    )
+    client.post(
+        "/api/v1/stock-condition-surveys",
+        headers={"X-Organisation-Id": signup_b["organisation_id"]},
+        json={"property_id": prop_b["id"], "survey_date": "2026-01-01", "surveyor": "Surveyor Ltd"},
     )
 
     body_b = client.get("/api/v1/data-health", headers={"X-Organisation-Id": signup_b["organisation_id"]}).json()
@@ -91,7 +103,8 @@ def test_data_health_recompute_clears_stale_findings(client):
     prop = _add_property(client, org_id, address="1 Fixable Close")
 
     first = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
-    assert len(first["findings"]) == 3  # missing uprn, postcode, property_type
+    # missing uprn, postcode, property_type, stock condition survey
+    assert len(first["findings"]) == 4
 
     # UPRN lives in app.identifiers.models.ExternalReference since Sprint 7 —
     # record it through the real endpoint rather than a column assignment.
@@ -99,6 +112,11 @@ def test_data_health_recompute_clears_stale_findings(client):
         "/api/v1/external-references",
         headers={"X-Organisation-Id": org_id},
         json={"entity_type": "property", "entity_id": prop["id"], "reference_type": "UPRN", "value": "999"},
+    )
+    client.post(
+        "/api/v1/stock-condition-surveys",
+        headers={"X-Organisation-Id": org_id},
+        json={"property_id": prop["id"], "survey_date": "2026-01-01", "surveyor": "Surveyor Ltd"},
     )
 
     import app.core.db as db_module

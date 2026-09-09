@@ -16,6 +16,7 @@ from app.development.components_router import router as components_router
 from app.development.defects_router import router as defects_router
 from app.development.handover_router import router as handover_router
 from app.development.hierarchy_router import router as development_hierarchy_router
+from app.development.planned_investment_router import router as planned_investment_router
 from app.development.portfolio_router import router as portfolio_router
 from app.development.router import router as development_router
 from app.development.specifications_router import router as specifications_router
@@ -23,6 +24,7 @@ from app.development.warranties_router import router as warranties_router
 from app.operations.compliance.router import router as compliance_router
 from app.operations.hazards.router import router as hazards_router
 from app.operations.repairs_router import router as repairs_router
+from app.operations.stock_condition.router import router as stock_condition_router
 
 settings = get_settings()
 
@@ -53,6 +55,8 @@ app.include_router(portfolio_router)
 app.include_router(repairs_router)
 app.include_router(compliance_router)
 app.include_router(hazards_router)
+app.include_router(stock_condition_router)
+app.include_router(planned_investment_router)
 app.include_router(data_health_router)
 app.include_router(identifiers_router)
 

@@ -23,7 +23,12 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "identifiers.write", "reports.read",
     },
     "ASSET_MANAGER": {
-        "development.read", "development.write", "operations.read", "documents.write",
+        # operations.write added in Sprint 18 (Stock Condition / Planned
+        # Investment) — the role this whole domain is named for
+        # previously had only operations.read, which meant it couldn't
+        # record the stock condition surveys that domain is actually
+        # about. Every other permission here is unchanged from Sprint 1.
+        "development.read", "development.write", "operations.read", "operations.write", "documents.write",
         "identifiers.write", "reports.read",
     },
     "REPAIRS_MANAGER": {"operations.read", "operations.write", "documents.write", "reports.read"},

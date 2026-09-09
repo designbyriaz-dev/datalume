@@ -4,7 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type ChangeControlOut, type ComponentOut, type ComponentType, type SpecificationOut } from "@/lib/api";
+import {
+  api,
+  type ChangeControlOut,
+  type ComponentOut,
+  type ComponentType,
+  type PlannedInvestmentScoreOut,
+  type SpecificationOut,
+} from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -34,6 +41,8 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
   const [types, setTypes] = useState<ComponentType[]>([]);
   const [specifications, setSpecifications] = useState<SpecificationOut[] | null>(null);
   const [changes, setChanges] = useState<ChangeControlOut[] | null>(null);
+  const [plannedInvestment, setPlannedInvestment] = useState<PlannedInvestmentScoreOut | null>(null);
+  const [investmentExpanded, setInvestmentExpanded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [childTypeId, setChildTypeId] = useState("");
@@ -85,18 +94,20 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         return;
       }
       try {
-        const [comp, childList, typeList, specList, changeList] = await Promise.all([
+        const [comp, childList, typeList, specList, changeList, investment] = await Promise.all([
           api.getComponent(id, componentId),
           api.listComponentChildren(id, componentId),
           api.listComponentTypes(id),
           api.listSpecifications(id, { related_entity_type: "component", related_entity_id: componentId }),
           api.listChangeControl(id, { related_entity_type: "component", related_entity_id: componentId }),
+          api.getComponentPlannedInvestment(id, componentId),
         ]);
         setComponent(comp);
         setChildren(childList);
         setTypes(typeList);
         setSpecifications(specList);
         setChanges(changeList);
+        setPlannedInvestment(investment);
         if (typeList[0]) setChildTypeId(typeList[0].id);
         if (specList[0]) setChangeSpecId(specList[0].id);
       } catch {
@@ -246,6 +257,39 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
           </div>
         </div>
       </div>
+
+      {plannedInvestment && (
+        <div
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: "var(--radius-card)",
+            padding: 16,
+            marginBottom: 24,
+            fontSize: 13,
+          }}
+        >
+          <div
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+            onClick={() => setInvestmentExpanded((v) => !v)}
+          >
+            <span style={{ fontWeight: 700 }}>Planned investment priority</span>
+            <StatusBadge
+              label={plannedInvestment.priority_score.toFixed(0)}
+              variant={plannedInvestment.priority_score >= 70 ? "critical" : plannedInvestment.priority_score >= 40 ? "warning" : "success"}
+            />
+          </div>
+          {investmentExpanded && (
+            <ul style={{ listStyle: "none", padding: 0, margin: "10px 0 0", color: "var(--text-secondary)" }}>
+              {plannedInvestment.factors.map((f) => (
+                <li key={f.factor_code} style={{ padding: "3px 0" }}>
+                  <strong>{f.label}</strong> (weight {f.weight}): {f.applicable ? f.detail : "not applicable — excluded"}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Specifications</h2>
       <div

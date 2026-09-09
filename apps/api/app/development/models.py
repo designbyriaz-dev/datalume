@@ -448,6 +448,38 @@ class HandoverReadinessCheckWeight(Base):
     weight: Mapped[float] = mapped_column(Float)
 
 
+class PlannedInvestmentWeight(Base):
+    """Per-organisation weight for one factor in
+    app/development/planned_investment.py's investment_priority score —
+    exact same lazy-seeded, one-row-per-(org, code) pattern as
+    HandoverReadinessCheckWeight above. spec §40: "do not use age
+    alone" — weights are how an org can de-emphasise (never zero out
+    entirely by code, only by weight) any one factor, age_ratio
+    included."""
+
+    __tablename__ = "planned_investment_weights"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    factor_code: Mapped[str] = mapped_column(String(64))
+    weight: Mapped[float] = mapped_column(Float)
+
+
+class PlannedInvestmentConfig(Base):
+    """Per-organisation singleton for the one planned-investment
+    tunable that isn't a factor weight: how many repairs within how
+    many months counts as a "high" REPAIR_FREQUENCY signal (the ratio
+    is min(repair_count / repair_frequency_threshold, 1.0)). Same
+    singleton-per-org pattern as ComplianceStatusConfig (Sprint 17)."""
+
+    __tablename__ = "planned_investment_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    repair_frequency_window_months: Mapped[int] = mapped_column(Integer, default=18)
+    repair_frequency_threshold: Mapped[int] = mapped_column(Integer, default=3)
+
+
 class HandoverRecord(Base, ProvenanceMixin):
     """The permanent evidence a handover happened and what was known at
     the time — architecture/03-development-domain.md §9. One row per

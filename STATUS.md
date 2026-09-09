@@ -1069,11 +1069,83 @@ per instruction — "continue with sprint 2, billing later"):
   Board Assurance table renders the correct per-domain status count
   for the same org.
 
+**Sprint 18 — Stock Condition / Planned Investment:**
+
+- **New `app/operations/stock_condition/` subpackage**: `StockConditionSurvey`
+  (architecture/04-operations-domain.md §6) — property-level periodic
+  surveys with a free-form `condition_ratings` JSON map ({element:
+  rating}), not a fixed set of columns or an assumed survey
+  methodology. Feeds Data Health directly: two new checks
+  (`MISSING_STOCK_CONDITION_SURVEY`, `STALE_STOCK_CONDITION_SURVEY`)
+  registered in the existing rule registry (Sprint 5), closing
+  architecture's own "feeds Data Health (missing/stale surveys)"
+  instruction.
+- **`app/development/planned_investment.py`**: `investment_priority`
+  implements architecture §6's scoring pseudocode — five weighted,
+  independently-explainable factors (spec §40: "do not use age
+  alone"): AGE_RATIO, CONDITION_SIGNAL, REPAIR_FREQUENCY,
+  FAILURE_PATTERN, COMPLIANCE_LINKED. Every factor's own value, weight,
+  applicability, and a human-readable detail string is always returned,
+  never folded silently into one number — same shape as Handover
+  Readiness's checks (Sprint 12). A factor with nothing to go on (no
+  installation date; no inspection ever recorded) is excluded from the
+  weighted average rather than scored as a false pass, the same
+  renormalisation Handover Readiness uses.
+- **Deliberate deviation from the pseudocode's "nightly job + upsert"
+  framing**: architecture's own sketch frames this as a scheduled
+  `worker/jobs/component_lifecycle.py` job that persists a
+  `planned_investment_signal` row. This build has no job/worker
+  infrastructure — the roadmap's own Sprint 21 is explicitly where a
+  "nightly scan job" first appears. Rather than build a job runner two
+  sprints early for one engine, this follows every other scoring engine
+  in the codebase (Data Health, Handover Readiness, repeat-repair/
+  repeat-hazard, Sprint 17's compliance_status): computed fresh on
+  every read, nothing persisted. Documented explicitly in
+  `planned_investment.py`'s own docstring.
+- **CONDITION_SIGNAL reuses Sprint 16's Inspection table** (component-
+  level, any requirement) rather than trying to derive a per-component
+  signal from `StockConditionSurvey.condition_ratings` — that JSONB
+  blob has no documented mapping from its free-form element keys onto
+  individual components, and inventing one would be exactly the kind
+  of unfounded interpretation this codebase avoids elsewhere. The
+  survey's real, documented job is feeding Data Health, not Planned
+  Investment's per-component score — architecture's own words: "one
+  more input signal, not a separate scoring system."
+- **RBAC fix**: `ASSET_MANAGER` gained `operations.write` — the role
+  this whole sprint's domain is named for previously had only
+  `operations.read`, meaning it couldn't record the stock condition
+  surveys that domain is actually about. A targeted, documented
+  correction (regression-tested), not a broad autonomous change.
+- `apps/web`: `/stock-condition` (survey register + record form) and
+  `/planned-investment` (portfolio list ranked by score, expandable
+  per-component factor breakdown, live-editable factor weights) replace
+  their `ComingSoon` stubs. The Component detail page gained a Planned
+  Investment section with the same expandable factor breakdown.
+- 21 new backend tests (232 total passing): survey CRUD and its two
+  Data Health checks, isolated tests per scoring factor (age-only,
+  condition, repair frequency + failure pattern together, compliance-
+  linked), a weight-change test confirming a raised weight increases
+  its contribution, portfolio-list sorting/filtering, the
+  ASSET_MANAGER RBAC fix, and permission checks. Two existing Data
+  Health tests updated for the new checks' effect on their fixture
+  properties (a property with no survey now genuinely has one more
+  finding than before this sprint).
+- Verified end-to-end live: via curl, created a boiler component aged
+  exactly to its expected life (15/15 years) with no other signals and
+  confirmed the returned score (46.6) matched hand-calculated weighted
+  math exactly — `(0.35 × 0.999) / 0.75 × 100`. Through the real UI,
+  recorded a stock condition survey on `/stock-condition` and watched
+  it appear in the register with its condition rating; loaded a
+  component aged 8/15 years on its own detail page and confirmed the
+  same factor-by-factor breakdown rendered correctly, then confirmed
+  the identical score appeared on the `/planned-investment` portfolio
+  list.
+
 ## Not yet done
 
-Sprints 18–24 (stock condition, tenancies, and the rest) — not
-started. Full order and scope in
-`architecture/10-roadmap-and-acceptance.md`.
+Sprints 19–24 (tenancies, rent/payments, the cross-domain attention
+engine, Ask DataLume, reporting, and hardening) — not started. Full
+order and scope in `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

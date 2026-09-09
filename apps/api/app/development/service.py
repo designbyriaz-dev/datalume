@@ -33,6 +33,8 @@ from app.development.models import (
     Floor,
     HandoverReadinessCheckWeight,
     HandoverRecord,
+    PlannedInvestmentConfig,
+    PlannedInvestmentWeight,
     Property,
     PropertyStatus,
     Space,
@@ -1254,6 +1256,78 @@ def set_handover_readiness_weight(
     row.weight = weight
     db.flush()
     return row
+
+
+def get_or_create_planned_investment_weight(
+    db: Session, organisation_id: uuid.UUID, factor_code: str, default_weight: float
+) -> PlannedInvestmentWeight:
+    weight = (
+        db.query(PlannedInvestmentWeight)
+        .filter(
+            PlannedInvestmentWeight.organisation_id == organisation_id,
+            PlannedInvestmentWeight.factor_code == factor_code,
+        )
+        .with_for_update()
+        .first()
+    )
+    if weight is not None:
+        return weight
+    weight = PlannedInvestmentWeight(organisation_id=organisation_id, factor_code=factor_code, weight=default_weight)
+    db.add(weight)
+    db.flush()
+    return weight
+
+
+def list_planned_investment_weights(db: Session, organisation_id: uuid.UUID) -> list[PlannedInvestmentWeight]:
+    from app.development.planned_investment import DEFAULT_FACTOR_WEIGHTS
+
+    for code, default in DEFAULT_FACTOR_WEIGHTS.items():
+        get_or_create_planned_investment_weight(db, organisation_id, code, default)
+    return db.query(PlannedInvestmentWeight).filter(PlannedInvestmentWeight.organisation_id == organisation_id).all()
+
+
+def set_planned_investment_weight(
+    db: Session, organisation_id: uuid.UUID, factor_code: str, weight: float
+) -> PlannedInvestmentWeight:
+    from app.development.planned_investment import DEFAULT_FACTOR_WEIGHTS
+
+    if factor_code not in DEFAULT_FACTOR_WEIGHTS:
+        raise HierarchyNotFoundError(f"Unknown planned investment factor_code: {factor_code}")
+    row = get_or_create_planned_investment_weight(db, organisation_id, factor_code, DEFAULT_FACTOR_WEIGHTS[factor_code])
+    row.weight = weight
+    db.flush()
+    return row
+
+
+def get_or_create_planned_investment_config(db: Session, organisation_id: uuid.UUID) -> PlannedInvestmentConfig:
+    config = (
+        db.query(PlannedInvestmentConfig)
+        .filter(PlannedInvestmentConfig.organisation_id == organisation_id)
+        .with_for_update()
+        .first()
+    )
+    if config is not None:
+        return config
+    config = PlannedInvestmentConfig(organisation_id=organisation_id)
+    db.add(config)
+    db.flush()
+    return config
+
+
+def set_planned_investment_config(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    repair_frequency_window_months: int | None,
+    repair_frequency_threshold: int | None,
+) -> PlannedInvestmentConfig:
+    config = get_or_create_planned_investment_config(db, organisation_id)
+    if repair_frequency_window_months is not None:
+        config.repair_frequency_window_months = repair_frequency_window_months
+    if repair_frequency_threshold is not None:
+        config.repair_frequency_threshold = repair_frequency_threshold
+    db.flush()
+    return config
 
 
 HANDOVER_READINESS_THRESHOLD_PCT = 100.0
