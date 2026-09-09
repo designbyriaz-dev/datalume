@@ -183,7 +183,22 @@ closing the gap Sprint 13 had explicitly flagged. See STATUS.md for the
 live verification, including confirming a rule-config change silences a
 triggered signal immediately.
 
-Sprints 15–24 are not started; they are ordered and ready to pick up.
+**Sprint 15 (Compliance Foundation): built** — the first four links in
+spec §45-46's chain (FRAMEWORK → DOMAIN → REQUIREMENT → APPLICABILITY),
+in a new `app/operations/compliance/` subpackage; inspections/actions
+(Sprint 16) and the status engine (Sprint 17) are deliberately out of
+scope. Reuses the global+org-specific catalog pattern from
+`ComponentType` (Sprint 8) — `organisation_id` nullable, non-standard
+RLS. Seeds only the 21 domain names (a stable taxonomy spec §45 names),
+not requirement content, so as not to fabricate regulatory
+interpretations (spec §31/§47). Requirement versions are grouped by
+`(domain_id, code)` rather than a `lineage_id` column, append-only like
+Specification (Sprint 9). First real use of the `operations.compliance`
+RBAC permission. A duplicate-requirement-code gap was found during live
+verification and fixed, with a regression test. See STATUS.md for the
+full live verification narrative.
+
+Sprints 16–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

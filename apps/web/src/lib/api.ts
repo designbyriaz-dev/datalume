@@ -573,6 +573,47 @@ export type RepairRuleConfig = {
   min_installed_base: number | null;
 };
 
+export type ComplianceFrameworkOut = {
+  id: string;
+  organisation_id: string | null;
+  name: string;
+  version: number;
+};
+
+export type ComplianceDomainOut = {
+  id: string;
+  organisation_id: string | null;
+  framework_id: string;
+  code: string;
+  name: string;
+  description: string | null;
+};
+
+export type ComplianceRequirementOut = {
+  id: string;
+  organisation_id: string | null;
+  domain_id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  cadence: string | null;
+  version: number;
+  effective_date: string;
+  superseded_date: string | null;
+};
+
+export type ComplianceRequirementDetail = ComplianceRequirementOut & { versions: ComplianceRequirementOut[] };
+
+export type RequirementApplicabilityOut = {
+  id: string;
+  requirement_id: string;
+  entity_type: string;
+  entity_id: string;
+  applicable_from: string;
+  applicable_to: string | null;
+  basis: string | null;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -767,6 +808,80 @@ export const api = {
       method: "PATCH",
       organisationId,
       body: JSON.stringify(updates),
+    }),
+  listComplianceFrameworks: (organisationId: string) =>
+    request<ComplianceFrameworkOut[]>("/api/v1/compliance/frameworks", { organisationId }),
+  listComplianceDomains: (organisationId: string) =>
+    request<ComplianceDomainOut[]>("/api/v1/compliance/domains", { organisationId }),
+  createComplianceDomain: (organisationId: string, payload: { code: string; name: string; description?: string }) =>
+    request<ComplianceDomainOut>("/api/v1/compliance/domains", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listComplianceRequirements: (
+    organisationId: string,
+    filters?: { domain_id?: string; current_only?: boolean },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.domain_id) params.set("domain_id", filters.domain_id);
+    if (filters?.current_only !== undefined) params.set("current_only", String(filters.current_only));
+    const qs = params.toString();
+    return request<ComplianceRequirementOut[]>(`/api/v1/compliance/requirements${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  getComplianceRequirement: (organisationId: string, requirementId: string) =>
+    request<ComplianceRequirementDetail>(`/api/v1/compliance/requirements/${requirementId}`, { organisationId }),
+  createComplianceRequirement: (
+    organisationId: string,
+    payload: {
+      domain_id: string;
+      code: string;
+      title: string;
+      description?: string;
+      cadence?: string;
+      effective_date: string;
+    },
+  ) =>
+    request<ComplianceRequirementOut>("/api/v1/compliance/requirements", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  reviseComplianceRequirement: (
+    organisationId: string,
+    requirementId: string,
+    payload: { title?: string; description?: string; cadence?: string; effective_date: string },
+  ) =>
+    request<ComplianceRequirementOut>(`/api/v1/compliance/requirements/${requirementId}/versions`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  createApplicability: (
+    organisationId: string,
+    payload: { requirement_id: string; entity_type: string; entity_id: string; applicable_from: string; basis?: string },
+  ) =>
+    request<RequirementApplicabilityOut>("/api/v1/compliance/applicability", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listApplicability: (
+    organisationId: string,
+    filters?: { entity_type?: string; entity_id?: string; requirement_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.entity_type) params.set("entity_type", filters.entity_type);
+    if (filters?.entity_id) params.set("entity_id", filters.entity_id);
+    if (filters?.requirement_id) params.set("requirement_id", filters.requirement_id);
+    const qs = params.toString();
+    return request<RequirementApplicabilityOut[]>(`/api/v1/compliance/applicability${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  endApplicability: (organisationId: string, applicabilityId: string, applicableTo: string) =>
+    request<RequirementApplicabilityOut>(`/api/v1/compliance/applicability/${applicabilityId}/end`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ applicable_to: applicableTo }),
     }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),

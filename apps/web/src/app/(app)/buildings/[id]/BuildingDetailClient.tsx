@@ -7,10 +7,12 @@ import { inputStyle, primaryBtn } from "@/components/formStyles";
 import {
   api,
   type BuildingOut,
+  type ComplianceRequirementOut,
   type DefectOut,
   type FloorOut,
   type GoldenThread,
   type PropertyOut,
+  type RequirementApplicabilityOut,
   type SpecificationOut,
   type WarrantyOut,
 } from "@/lib/api";
@@ -82,6 +84,13 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   const [warrantySubmitting, setWarrantySubmitting] = useState(false);
   const [warrantyFormError, setWarrantyFormError] = useState<string | null>(null);
 
+  const [applicability, setApplicability] = useState<RequirementApplicabilityOut[] | null>(null);
+  const [requirements, setRequirements] = useState<ComplianceRequirementOut[] | null>(null);
+  const [applicabilityRequirementId, setApplicabilityRequirementId] = useState("");
+  const [applicabilityBasis, setApplicabilityBasis] = useState("");
+  const [applicabilitySubmitting, setApplicabilitySubmitting] = useState(false);
+  const [applicabilityFormError, setApplicabilityFormError] = useState<string | null>(null);
+
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
   }
@@ -116,6 +125,12 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     setWarranties(await api.listWarranties(id, { building_id: buildingId }));
   }
 
+  async function refreshApplicability() {
+    const id = orgId();
+    if (!id) return;
+    setApplicability(await api.listApplicability(id, { entity_type: "building", entity_id: buildingId }));
+  }
+
   useEffect(() => {
     (async () => {
       const id = orgId();
@@ -124,15 +139,18 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         return;
       }
       try {
-        const [b, floorList, propertyList, specList, thread, defectList, warrantyList] = await Promise.all([
-          api.getBuilding(id, buildingId),
-          api.listFloors(id, buildingId),
-          api.listProperties(id, { building_id: buildingId }),
-          api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
-          api.getGoldenThread(id, buildingId),
-          api.listDefects(id, { building_id: buildingId }),
-          api.listWarranties(id, { building_id: buildingId }),
-        ]);
+        const [b, floorList, propertyList, specList, thread, defectList, warrantyList, applicabilityList, requirementList] =
+          await Promise.all([
+            api.getBuilding(id, buildingId),
+            api.listFloors(id, buildingId),
+            api.listProperties(id, { building_id: buildingId }),
+            api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
+            api.getGoldenThread(id, buildingId),
+            api.listDefects(id, { building_id: buildingId }),
+            api.listWarranties(id, { building_id: buildingId }),
+            api.listApplicability(id, { entity_type: "building", entity_id: buildingId }),
+            api.listComplianceRequirements(id),
+          ]);
         setBuilding(b);
         setFloors(floorList);
         setProperties(propertyList);
@@ -140,6 +158,9 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         setGoldenThread(thread);
         setDefects(defectList);
         setWarranties(warrantyList);
+        setApplicability(applicabilityList);
+        setRequirements(requirementList);
+        if (requirementList[0]) setApplicabilityRequirementId(requirementList[0].id);
       } catch {
         setLoadError("Couldn't load this building.");
       }
@@ -269,11 +290,43 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     await refreshWarranties();
   }
 
+  async function onAddApplicability() {
+    const id = orgId();
+    if (!id || !applicabilityRequirementId) {
+      setApplicabilityFormError("Add a compliance requirement first (see the Compliance page).");
+      return;
+    }
+    setApplicabilitySubmitting(true);
+    setApplicabilityFormError(null);
+    try {
+      await api.createApplicability(id, {
+        requirement_id: applicabilityRequirementId,
+        entity_type: "building",
+        entity_id: buildingId,
+        applicable_from: new Date().toISOString().slice(0, 10),
+        basis: applicabilityBasis.trim() || undefined,
+      });
+      setApplicabilityBasis("");
+      await refreshApplicability();
+    } catch {
+      setApplicabilityFormError("Couldn't add that.");
+    } finally {
+      setApplicabilitySubmitting(false);
+    }
+  }
+
+  async function onEndApplicability(applicabilityId: string) {
+    const id = orgId();
+    if (!id) return;
+    await api.endApplicability(id, applicabilityId, new Date().toISOString().slice(0, 10));
+    await refreshApplicability();
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!building || !floors || !properties || !specifications || !defects || !warranties) {
+  if (!building || !floors || !properties || !specifications || !defects || !warranties || !applicability || !requirements) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -691,6 +744,102 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
               </span>
             </li>
           ))}
+        </ul>
+      )}
+
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a compliance requirement</h2>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Requirement
+            </label>
+            <select
+              style={inputStyle}
+              value={applicabilityRequirementId}
+              onChange={(e) => setApplicabilityRequirementId(e.target.value)}
+            >
+              {requirements.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.code} — {r.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Basis
+            </label>
+            <input
+              style={inputStyle}
+              value={applicabilityBasis}
+              onChange={(e) => setApplicabilityBasis(e.target.value)}
+              placeholder="e.g. Communal gas installation present"
+            />
+          </div>
+          <button style={primaryBtn} onClick={onAddApplicability} disabled={applicabilitySubmitting}>
+            {applicabilitySubmitting ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {requirements.length === 0 && (
+          <div style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 10 }}>
+            No compliance requirements defined yet — add one on the Compliance page first.
+          </div>
+        )}
+        {applicabilityFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{applicabilityFormError}</div>
+        )}
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Compliance requirements</h2>
+      {applicability.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>None applied to this building yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {applicability.map((a) => {
+            const requirement = requirements.find((r) => r.id === a.requirement_id);
+            return (
+              <li
+                key={a.id}
+                style={{
+                  padding: "10px 0",
+                  borderTop: "1px solid var(--border-subtle)",
+                  fontSize: 13,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                }}
+              >
+                <span>
+                  {requirement ? `${requirement.code} — ${requirement.title}` : a.requirement_id.slice(0, 8)}
+                  {a.basis && <span style={{ color: "var(--text-secondary)" }}> ({a.basis})</span>}
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusBadge
+                    label={a.applicable_to ? `Ended ${a.applicable_to}` : "Applicable"}
+                    variant={a.applicable_to ? "neutral" : "success"}
+                  />
+                  {!a.applicable_to && (
+                    <button
+                      style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--text-secondary)" }}
+                      onClick={() => onEndApplicability(a.id)}
+                    >
+                      End
+                    </button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

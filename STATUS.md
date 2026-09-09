@@ -822,10 +822,95 @@ per instruction — "continue with sprint 2, billing later"):
   that raising `REPEAT_REPAIRS_PER_PROPERTY`'s threshold via the config
   endpoint immediately silenced the signal for the same underlying data.
 
+**Sprint 15 — Compliance Foundation:**
+
+- **New domain package**: `app/operations/compliance/` (models, seed,
+  schemas, service, router) — a subpackage of `app.operations` rather
+  than a flat file like Repairs (Sprint 14), since Compliance spans
+  three sprints (Foundation/Operations/Assurance, per
+  architecture/04-operations-domain.md §3 and spec §45-46) and has more
+  surface area. This sprint builds only the first four links in the
+  spec's chain — FRAMEWORK → DOMAIN → REQUIREMENT → APPLICABILITY —
+  explicitly *not* INSPECTION/ACTION (Sprint 16) or the STATUS engine
+  (Sprint 17), per the roadmap's own split.
+- **Global+org-specific catalog pattern reused**: `organisation_id` is
+  nullable on `ComplianceFramework`/`ComplianceDomain`/
+  `ComplianceRequirement` — `NULL` means a DataLume-seeded global
+  default visible to every org, non-`NULL` means one org's own
+  addition. Same shape as `ComponentType` (Sprint 8), and it needs the
+  same non-standard RLS policy (`organisation_id IS NULL OR
+  organisation_id IS NOT DISTINCT FROM ...`) rather than the standard
+  tenant-isolation policy — captured in the migration's
+  `_global_or_org_rls()` helper.
+- **Only the 21 domain names are seeded, deliberately** — a stable
+  taxonomy spec §45 names explicitly. No default requirement content
+  (title/cadence/obligation text) is pre-populated, because fabricating
+  plausible-sounding regulatory obligations would be exactly the kind
+  of AI-invented compliance interpretation spec §31/§47 warns against.
+  Orgs add their own requirements under any domain, global or custom.
+- **Requirement versioning without a `lineage_id` column**: unlike
+  `Specification`/`Document` (explicit `lineage_id`), a requirement's
+  versions are grouped by `(domain_id, code)` as the natural lineage
+  key — `code` is meant to be a stable regulatory identifier. A new
+  version is a new row with `version` incremented; the prior row only
+  ever gets `superseded_date` set, never edited in place — same
+  append-only pattern as `Specification` (Sprint 9).
+- **`operations.compliance` permission's first real use** — narrower
+  than `operations.write`, held only by COMPLIANCE_MANAGER and
+  BUILDING_SAFETY_MANAGER in RBAC (not REPAIRS_MANAGER/PROPERTY_MANAGER,
+  who run day-to-day repairs but shouldn't reshape the compliance
+  framework itself). Defined back in Sprint 1; this is the first sprint
+  that gates anything with it.
+- **Applicability** (`RequirementApplicability`) links a requirement to
+  a building, property, or component — strictly those three entity
+  types (spec's own chain), not "development". Standard tenant RLS
+  (not the global/org-nullable variant), since an applicability record
+  is always one org's own decision about its own stock.
+- **Bug found and fixed during live verification**: `create_requirement`
+  had no guard against two independent requirements sharing a
+  `(domain_id, code)` while both current (non-superseded) — which
+  would silently corrupt the `(domain_id, code)`-based version-lineage
+  lookup used by `create_requirement_version` and the requirement
+  detail endpoint's version list. Found by accident: a UI click landed
+  on the wrong domain (see below), which meant creating the *right*
+  requirement afterwards required creating it a second time, and
+  nothing stopped that duplicate from being accepted. Fixed with a new
+  `DuplicateRequirementCodeError`, a pre-insert existence check scoped
+  to `(organisation_id, domain_id, code, superseded_date IS NULL)`, and
+  a regression test confirming the same code is still allowed across
+  *different* domains (codes are scoped to domain, not global). Full
+  suite re-run: 181 passed.
+- `apps/web`: `/compliance` is now a real two-panel page (domain list +
+  requirements for the selected domain, "Add a domain" / "Add a
+  requirement" forms, `(custom)` tag on org-specific domains) replacing
+  the `ComingSoon` stub. The Building detail page gained an "Add a
+  compliance requirement" form and a Compliance requirements list
+  (Applicable/Ended badge, End action) alongside its existing sections.
+- 15 new backend tests (181 total passing): seeded catalog (21 domains,
+  all global), seeded framework, org-specific domain creation,
+  requirement create/version/supersede, applicability create/end/
+  list-filter, permission checks (REPAIRS_MANAGER lacks
+  `operations.compliance`), cross-org 404s, and the duplicate-code
+  regression above.
+- Verified end-to-end live against the SQLite+fake-Redis smoketest
+  server: signed up, confirmed all 21 global domains render on
+  `/compliance`, added a `GAS-001` requirement under Gas Safety through
+  the real UI. During that pass, a browser-automation click landed on
+  the wrong domain button (a recurring `computer`-tool click
+  reliability issue in this environment — switched to a JS-driven click
+  via `javascript_tool`, which worked), which is what surfaced the
+  duplicate-code gap above. After the fix, killed and restarted the
+  smoketest server (service-layer code changes need a restart — this
+  script has no `--reload`), re-signed-up fresh, and confirmed via curl
+  that a duplicate `GAS-001` create now correctly returns `400` while
+  the first create still returns `201`. Re-loaded `/compliance` in the
+  browser against the fresh, code-current server and confirmed all 21
+  domains and the requirements panel still render correctly.
+
 ## Not yet done
 
-Sprints 15–24 (compliance, stock condition, tenancies, and the rest) —
-not started. Full order and scope in
+Sprints 16–24 (compliance operations, stock condition, tenancies, and
+the rest) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
