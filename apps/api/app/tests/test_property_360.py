@@ -77,6 +77,17 @@ def test_property_360_composes_everything_available(client):
             "property_id": prop["id"],
         },
     )
+    client.post(
+        "/api/v1/repairs",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "property_id": prop["id"],
+            "component_id": component["id"],
+            "category": "Heating",
+            "description": "Boiler not firing",
+            "reported_date": "2026-01-01",
+        },
+    )
 
     resp = client.get(f"/api/v1/properties/{prop['id']}/360", headers={"X-Organisation-Id": org_id})
     assert resp.status_code == 200
@@ -96,11 +107,15 @@ def test_property_360_composes_everything_available(client):
     assert body["warranties"][0]["provider"] == "Worcester Bosch"
     assert len(body["defects"]) == 1
     assert body["defects"][0]["category"] == "Windows"
+    assert len(body["repairs"]) == 1
+    assert body["repairs"][0]["category"] == "Heating"
     assert body["handover_record"] is None
     assert len(body["timeline"]) > 0
     assert any(e["action_code"] == "property.created" for e in body["timeline"])
     assert any(e["action_code"] == "component.created" for e in body["timeline"])
-    assert "repairs (Sprint 14)" in body["not_yet_available"]
+    assert any(e["action_code"] == "repair.reported" for e in body["timeline"])
+    assert "repairs (Sprint 14)" not in body["not_yet_available"]
+    assert "compliance_and_safety (Sprint 15-17)" in body["not_yet_available"]
 
 
 def test_property_360_includes_components_attached_via_space(client):

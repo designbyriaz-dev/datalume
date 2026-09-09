@@ -37,6 +37,7 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "CHANGE_CONTROL": "CHG-{sequence:06d}",
     "DEFECT": "DEF-{sequence:06d}",
     "WARRANTY": "WAR-{sequence:06d}",
+    "REPAIR": "REP-{sequence:06d}",
 }
 
 

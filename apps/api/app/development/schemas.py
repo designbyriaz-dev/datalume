@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.data_health.schemas import FindingOut
 from app.development.models import ComponentStatus, PropertyStatus
 from app.documents.schemas import DocumentOut
+from app.operations.schemas import RepairOut
 
 
 class CreateDevelopmentRequest(BaseModel):
@@ -514,11 +515,11 @@ class TimelineEventOut(BaseModel):
 class Property360Out(BaseModel):
     """architecture/03-development-domain.md all sections, spec §41.
     Composes everything spec §41 asks for that has a canonical table as
-    of Sprint 13 — Property Information, Development History, Building/
+    of Sprint 14 — Property Information, Development History, Building/
     Block, Components (with Golden Thread's own per-component bundle,
     app/development/composition.py), Golden Thread-equivalent evidence/
     specs/changes at the property's own level, Handover, Warranties,
-    Defects, Data Health. Repairs, Compliance & Safety, Stock Condition,
+    Defects, Repairs, Data Health. Compliance & Safety, Stock Condition,
     Planned Investment, Tenancy/Lease, Rent & Payments, Attention
     Signals and Ask DataLume have no canonical data yet — named
     explicitly in not_yet_available rather than omitted silently, same
@@ -534,6 +535,7 @@ class Property360Out(BaseModel):
     components: list[GoldenThreadComponentOut]
     warranties: list[WarrantyOut]
     defects: list[DefectOut]
+    repairs: list[RepairOut]
     handover_record: HandoverRecordOut | None
     data_health_findings: list[FindingOut]
     timeline: list[TimelineEventOut]

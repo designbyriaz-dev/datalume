@@ -20,6 +20,7 @@ from app.development.portfolio_router import router as portfolio_router
 from app.development.router import router as development_router
 from app.development.specifications_router import router as specifications_router
 from app.development.warranties_router import router as warranties_router
+from app.operations.repairs_router import router as repairs_router
 
 settings = get_settings()
 
@@ -47,6 +48,7 @@ app.include_router(defects_router)
 app.include_router(warranties_router)
 app.include_router(handover_router)
 app.include_router(portfolio_router)
+app.include_router(repairs_router)
 app.include_router(data_health_router)
 app.include_router(identifiers_router)
 

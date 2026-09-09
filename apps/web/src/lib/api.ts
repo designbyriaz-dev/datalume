@@ -475,6 +475,7 @@ export type Property360 = {
   components: GoldenThreadComponent[];
   warranties: WarrantyOut[];
   defects: DefectOut[];
+  repairs: RepairOut[];
   handover_record: HandoverRecordOut | null;
   data_health_findings: DataHealthFinding[];
   timeline: TimelineEvent[];
@@ -501,6 +502,75 @@ export type PortfolioSummary = {
   overdue_defects_count: number;
   warranties_expiring_within_90_days_count: number;
   development_readiness: DevelopmentReadinessSummary[];
+};
+
+export type RepairOut = {
+  id: string;
+  repair_reference: string;
+  property_id: string;
+  component_id: string | null;
+  category: string;
+  description: string;
+  priority: "EMERGENCY" | "URGENT" | "ROUTINE" | "PLANNED";
+  is_emergency: boolean;
+  reported_date: string;
+  contractor: string | null;
+  completed_date: string | null;
+  cost_pence: number | null;
+  status: "REPORTED" | "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+  source_type: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type RepeatRepairSignal = {
+  property_id: string;
+  repair_count: number;
+  window_months: number;
+  threshold: number;
+  repair_ids: string[];
+};
+
+export type RepeatFailureSignal = {
+  component_id: string;
+  repair_count: number;
+  window_months: number;
+  threshold: number;
+  repair_ids: string[];
+};
+
+export type ModelTrendSignal = {
+  component_type_id: string;
+  manufacturer: string;
+  model: string;
+  installed_count: number;
+  failed_count: number;
+  failure_ratio: number;
+  threshold_ratio: number;
+  component_ids: string[];
+};
+
+export type RepairsByKey = { key: string; count: number };
+
+export type RepairsIntelligence = {
+  total_count: number;
+  open_count: number;
+  completed_count: number;
+  emergency_count: number;
+  by_category: RepairsByKey[];
+  by_contractor: RepairsByKey[];
+  total_cost_pence: number;
+  average_completion_days: number | null;
+  repeat_repair_properties: RepeatRepairSignal[];
+  repeat_failure_components: RepeatFailureSignal[];
+};
+
+export type RepairRuleConfig = {
+  rule_code: string;
+  window_months: number | null;
+  threshold: number | null;
+  threshold_ratio: number | null;
+  min_installed_base: number | null;
 };
 
 export const api = {
@@ -649,6 +719,55 @@ export const api = {
     request<Property360>(`/api/v1/properties/${propertyId}/360`, { organisationId }),
   portfolioSummary: (organisationId: string) =>
     request<PortfolioSummary>("/api/v1/portfolio/summary", { organisationId }),
+  createRepair: (
+    organisationId: string,
+    payload: {
+      property_id: string;
+      component_id?: string;
+      category: string;
+      description: string;
+      reported_date: string;
+      priority?: string;
+      contractor?: string;
+      cost_pence?: number;
+    },
+  ) => request<RepairOut>("/api/v1/repairs", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  updateRepairStatus: (
+    organisationId: string,
+    repairId: string,
+    payload: { status: string; completed_date?: string; cost_pence?: number },
+  ) =>
+    request<RepairOut>(`/api/v1/repairs/${repairId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listRepairs: (organisationId: string, filters?: { property_id?: string; component_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    if (filters?.component_id) params.set("component_id", filters.component_id);
+    const qs = params.toString();
+    return request<RepairOut[]>(`/api/v1/repairs${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  repairsIntelligence: (organisationId: string) =>
+    request<RepairsIntelligence>("/api/v1/repairs/intelligence", { organisationId }),
+  propertyRepeatRepairs: (organisationId: string, propertyId: string) =>
+    request<RepeatRepairSignal | null>(`/api/v1/properties/${propertyId}/repeat-repairs`, { organisationId }),
+  componentRepeatFailures: (organisationId: string, componentId: string) =>
+    request<RepeatFailureSignal | null>(`/api/v1/components/${componentId}/repeat-failures`, { organisationId }),
+  repairModelTrend: (organisationId: string, componentTypeId: string, manufacturer: string, model: string) =>
+    request<ModelTrendSignal | null>(
+      `/api/v1/repairs/model-trend?${new URLSearchParams({ component_type_id: componentTypeId, manufacturer, model })}`,
+      { organisationId },
+    ),
+  listRepairRuleConfigs: (organisationId: string) =>
+    request<RepairRuleConfig[]>("/api/v1/repair-rule-configs", { organisationId }),
+  updateRepairRuleConfig: (organisationId: string, ruleCode: string, updates: Partial<RepairRuleConfig>) =>
+    request<RepairRuleConfig>(`/api/v1/repair-rule-configs/${ruleCode}`, {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify(updates),
+    }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

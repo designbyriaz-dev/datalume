@@ -33,10 +33,10 @@ from app.development.schemas import (
     TimelineEventOut,
 )
 from app.documents.schemas import DocumentOut
+from app.operations.models import Repair
 from app.platform.audit import AuditEvent
 
 NOT_YET_AVAILABLE = [
-    "repairs (Sprint 14)",
     "compliance_and_safety (Sprint 15-17)",
     "stock_condition_and_planned_investment (Sprint 18)",
     "tenancy_and_lease (Sprint 19)",
@@ -90,14 +90,40 @@ def _defects_for(
     )
 
 
+def _repairs_for(
+    db: Session, organisation_id: uuid.UUID, property_id: uuid.UUID, component_ids: list[uuid.UUID]
+) -> list[Repair]:
+    condition = (
+        or_(Repair.property_id == property_id, Repair.component_id.in_(component_ids))
+        if component_ids
+        else Repair.property_id == property_id
+    )
+    return (
+        db.query(Repair)
+        .filter(Repair.organisation_id == organisation_id, condition)
+        .order_by(Repair.reported_date.desc())
+        .all()
+    )
+
+
 def _timeline_for(
-    db: Session, organisation_id: uuid.UUID, property_id: uuid.UUID, component_ids: list[uuid.UUID], limit: int = 50
+    db: Session,
+    organisation_id: uuid.UUID,
+    property_id: uuid.UUID,
+    component_ids: list[uuid.UUID],
+    repair_ids: list[uuid.UUID],
+    limit: int = 50,
 ) -> list[TimelineEventOut]:
     entity_filter = (AuditEvent.entity_type == "property") & (AuditEvent.entity_id == str(property_id))
     if component_ids:
         entity_filter = or_(
             entity_filter,
             (AuditEvent.entity_type == "component") & (AuditEvent.entity_id.in_([str(c) for c in component_ids])),
+        )
+    if repair_ids:
+        entity_filter = or_(
+            entity_filter,
+            (AuditEvent.entity_type == "repair") & (AuditEvent.entity_id.in_([str(r) for r in repair_ids])),
         )
     events = (
         db.query(AuditEvent)
@@ -133,6 +159,8 @@ def get_property_360(db: Session, organisation_id: uuid.UUID, prop: Property) ->
         build_component_view(db, organisation_id, c, component_type_names) for c in components
     ]
     component_ids = [c.id for c in components]
+    repairs = _repairs_for(db, organisation_id, prop.id, component_ids)
+    repair_ids = [r.id for r in repairs]
 
     handover_record = (
         db.query(HandoverRecord)
@@ -172,8 +200,9 @@ def get_property_360(db: Session, organisation_id: uuid.UUID, prop: Property) ->
         components=component_views,
         warranties=warranties_to_out(_warranties_for(db, organisation_id, prop.id, component_ids)),
         defects=_defects_for(db, organisation_id, prop.id, component_ids),
+        repairs=repairs,
         handover_record=handover_record,
         data_health_findings=data_health_findings,
-        timeline=_timeline_for(db, organisation_id, prop.id, component_ids),
+        timeline=_timeline_for(db, organisation_id, prop.id, component_ids, repair_ids),
         not_yet_available=NOT_YET_AVAILABLE,
     )

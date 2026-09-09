@@ -32,6 +32,18 @@ function severityVariant(severity: string) {
   return "neutral" as const;
 }
 
+function repairPriorityVariant(priority: string) {
+  if (priority === "EMERGENCY") return "critical" as const;
+  if (priority === "URGENT") return "warning" as const;
+  return "neutral" as const;
+}
+
+function repairStatusVariant(status: string) {
+  if (status === "COMPLETED") return "success" as const;
+  if (status === "CANCELLED") return "critical" as const;
+  return "neutral" as const;
+}
+
 export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
   const [view, setView] = useState<Property360 | null>(null);
   const [spaces, setSpaces] = useState<SpaceOut[] | null>(null);
@@ -358,6 +370,39 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           )}
         </div>
       </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+        Repairs · <Link href="/repairs" style={{ color: "var(--color-primary)", fontWeight: 400, fontSize: 13 }}>Report one →</Link>
+      </h2>
+      {view.repairs.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>None.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", fontSize: 13 }}>
+          {view.repairs.map((r) => (
+            <li
+              key={r.id}
+              style={{
+                padding: "6px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {r.repair_reference}
+                </span>
+                {r.category}
+              </span>
+              <span style={{ display: "flex", gap: 4 }}>
+                <StatusBadge label={r.priority} variant={repairPriorityVariant(r.priority)} />
+                <StatusBadge label={r.status} variant={repairStatusVariant(r.status)} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Data Health</h2>
       {view.data_health_findings.length === 0 ? (

@@ -757,10 +757,75 @@ per instruction — "continue with sprint 2, billing later"):
   building's Golden Thread now shows the same handover record with its
   full readiness snapshot.
 
+**Sprint 14 — Repairs / Component Failures:**
+
+- **New domain package**: `app/operations/` — the first module outside
+  `app.development`, matching architecture/04's own document boundary
+  from architecture/03. Gated by the `operations.read`/`operations.write`
+  RBAC permissions that have existed since Sprint 1 (REPAIRS_MANAGER,
+  PROPERTY_MANAGER, ASSET_MANAGER) but had nothing to gate until now —
+  the same "give an old permission its first real use" pattern as
+  Sprint 12's `development.handover`.
+- `Repair` (architecture/04-operations-domain.md §1) — `property_id` is
+  required (unlike `Defect`'s fully-optional multi-attachment): a repair
+  is inherently a post-handover, day-to-day operational concern tied to
+  one property, not something reported against a development-phase
+  location that doesn't exist yet. `contractor` stays a plain string,
+  not a `contractor_id` FK — no Contractor domain exists anywhere in
+  this build, same precedent `Defect.contractor` already set in Sprint
+  11. `is_emergency` is derived from `priority == EMERGENCY` at write
+  time rather than accepted as an independent input, so the two columns
+  the spec's SQL sketch lists separately can never disagree.
+- **Repeat Repair / Component Failure engine**
+  (`app/operations/repeat_repair.py`, spec §44: "do not let the LLM
+  invent calculations") — three independent, separately testable
+  functions (`repeat_repairs_for_property`, `repeat_failures_for_component`,
+  `component_model_trend`), each returning `None` rather than a
+  zeroed-out signal when the pattern isn't met. `window_months`/
+  `threshold`/`threshold_ratio`/`min_installed_base` are per-organisation
+  configurable via `RepairRuleConfig` (lazily seeded, same pattern as
+  Sprint 7's `ReferencePattern` and Sprint 12's
+  `HandoverReadinessCheckWeight`) rather than hard-coded — confirmed
+  live that raising a threshold immediately silences a previously-
+  triggered signal, with no code change. Every signal carries its own
+  `repair_ids`/`window`/`threshold` inputs, computed fresh on every
+  read rather than persisted — same "deterministic, computed at read
+  time" approach as Data Health and Handover Readiness, so there's
+  nothing to go stale between writes.
+- **Repairs Intelligence** (spec §43) — a fixed set of aggregate reads
+  (open/completed/emergency counts, by-category, by-contractor, total
+  cost, average completion time), folding in every currently-triggered
+  repeat-repair/component-failure signal — same "not a scored engine"
+  reasoning as Defects Intelligence (Sprint 11).
+- **Property 360 updated**: repairs are now wired in for real — `repairs`
+  field added, `not_yet_available` no longer lists them, and the
+  Timeline now also covers `repair.*` audit events alongside
+  `property.*`/`component.*`. Caught while doing this: the exact same
+  "stale not_yet_available entry" pattern Sprint 13 fixed for Golden
+  Thread's handover link — fixed the same way, by wiring in real data
+  rather than just deleting the list entry.
+- `apps/web`: `/repairs` is now a real page (KPIs, repeat-repair pattern
+  list, report-a-repair form, register with status-transition buttons)
+  replacing the `ComingSoon` stub that had been there since Sprint 1;
+  the Property detail page gained its own Repairs section.
+- 14 new backend tests (166 total passing) — one test-authoring mistake
+  caught by the suite itself before anything else did (a model-trend
+  test asserted a signal would trigger with a failure ratio below the
+  threshold it had just configured — fixed the test's own arithmetic,
+  not the engine).
+- Verified end-to-end live: reported a repair through the real UI and
+  drove it through `SCHEDULED`; created three more repairs against the
+  same property/component over curl and confirmed both repeat-repair
+  signals (property-level and component-level) appeared on the Repairs
+  page with the exact counts and thresholds; confirmed the same repairs
+  composed correctly into Property 360 (list, timeline); confirmed live
+  that raising `REPEAT_REPAIRS_PER_PROPERTY`'s threshold via the config
+  endpoint immediately silenced the signal for the same underlying data.
+
 ## Not yet done
 
-Sprints 14–24 (repairs, compliance, stock condition, tenancies, and the
-rest) — not started. Full order and scope in
+Sprints 15–24 (compliance, stock condition, tenancies, and the rest) —
+not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

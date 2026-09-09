@@ -167,7 +167,23 @@ while extending Golden Thread: its `not_yet_available` list still named
 Sprint 12's handover as missing after Sprint 12 shipped — now a real
 `handover_records` field. See STATUS.md for the full live verification.
 
-Sprints 14–24 are not started; they are ordered and ready to pick up.
+**Sprint 14 (Repairs / Component Failures): built** — the first module
+in a new `app.operations` domain package (architecture/04), gated by
+the `operations.*` RBAC permissions carried since Sprint 1 but unused
+until now. `Repair` requires `property_id` (a post-handover operational
+concern, unlike Defect's fully-optional attachment). The Repeat Repair /
+Component Failure engine (spec §44) is three deterministic,
+independently testable functions with per-organisation configurable
+thresholds (`RepairRuleConfig`, same lazy-seeded pattern as Sprint 7/12's
+config tables) — "do not let the LLM invent calculations" enforced by
+construction, not by prompting. Repairs Intelligence (spec §43) folds
+those signals into the same fixed-aggregate-reads shape as Defects
+Intelligence (Sprint 11). Property 360 now composes repairs for real,
+closing the gap Sprint 13 had explicitly flagged. See STATUS.md for the
+live verification, including confirming a rule-config change silences a
+triggered signal immediately.
+
+Sprints 15–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 
