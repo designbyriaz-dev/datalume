@@ -314,7 +314,29 @@ STATUS.md for the full live verification, including a grounded
 compliance question with its expandable explainability panel and an
 explicitly ungrounded fallback question.
 
-Sprints 23–24 are not started; they are ordered and ready to pick up.
+**Sprint 23 (Reporting): built** — implements architecture §4's "a
+report is a rendering target, not a separate data path": all five
+named report types (Development Summary, Handover Readiness,
+Compliance Executive Summary, Board Assurance, Commercial Portfolio)
+are composed entirely from already-built service-layer functions into
+one generic content shape, rendered to PDF (ReportLab)/XLSX
+(openpyxl)/CSV. Report generation runs on Sprint 21's now-real worker
+loop rather than repeating Sprint 3's synchronous ImportJob workaround
+— architecture explicitly requires background generation, and the
+infrastructure to do it for real now exists. The two board-level
+report types reuse the existing `reports.board` permission the
+`/assurance-report` endpoint already enforces, checked at both request
+and download time, so exporting isn't a permission side door. A real
+bug — a foreign key the worker process never resolved because nothing
+in its own imports pulled in the `users` table — was caught only by
+running the worker as a genuinely separate process during this
+sprint's live verification, not by the pytest suite (which always
+builds its FastAPI client through `app.main`, masking the gap). See
+STATUS.md for the full live verification, including watching a report
+job go PENDING → READY with no manual refresh.
+
+Sprint 24 (security/performance/accessibility hardening) is not
+started; it is ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

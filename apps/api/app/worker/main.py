@@ -17,7 +17,27 @@ per heartbeat tick, is enough for a single nightly job and keeps this
 process's only dependency the same ones already in pyproject.toml.
 `ATTENTION_SCAN_HOUR_UTC` (default 2am UTC, a quiet hour for a
 UK-hours product) is the only tunable; there is no cron string to
-parse because there is only one job.
+parse because there is only one nightly job.
+
+Sprint 23 (Reporting) adds this worker's second job, and its first
+on-demand one: report generation (architecture §4's "background job...
+never generated synchronously in the request/response cycle"). A report
+job needs to complete in seconds for a user waiting on it, not by the
+next 2am scan, so it's polled on every heartbeat tick rather than
+gated by an hour check — the tick interval was shortened from 30s to
+5s accordingly, still a plain DB poll, no new dependency.
+
+`ReportJob.requested_by` is this worker's first foreign key to a table
+(`users`) outside the job code's own transitive imports — SQLAlchemy
+only resolves a string-based ForeignKey against classes actually
+imported in the current process, so without `import app.main` below,
+the first report job processed here crashed with
+NoReferencedTableError the moment this worker ran as its own process
+(app/tests/conftest.py's test client didn't catch this, since it
+already imports app.main to build the FastAPI app). Importing app.main
+registers every domain's models the same way it does for the API
+process — cheaper than hand-listing every model module this job (or
+the next one) happens to reference.
 """
 
 import os
@@ -26,12 +46,15 @@ from datetime import date, datetime, timezone
 
 import structlog
 
+import app.main  # noqa: F401  (registers every domain's models in this process)
 from app.core.db import SessionLocal
 from app.worker.jobs.attention_scan import run_attention_scan_for_all_organisations
+from app.worker.jobs.report_generation import process_pending_report_jobs
 
 logger = structlog.get_logger("datalume.worker")
 
 ATTENTION_SCAN_HOUR_UTC = int(os.environ.get("ATTENTION_SCAN_HOUR_UTC", "2"))
+WORKER_TICK_SECONDS = int(os.environ.get("WORKER_TICK_SECONDS", "5"))
 
 
 def _run_attention_scan() -> None:
@@ -50,11 +73,36 @@ def _run_attention_scan() -> None:
         db.close()
 
 
+def _run_report_generation() -> None:
+    db = SessionLocal()
+    try:
+        result = process_pending_report_jobs(db)
+        if result.jobs_processed:
+            logger.info(
+                "report_generation.tick",
+                jobs_processed=result.jobs_processed,
+                jobs_failed=result.jobs_failed,
+            )
+    finally:
+        db.close()
+
+
 def main() -> None:
-    logger.info("worker.started", jobs_registered=1, attention_scan_hour_utc=ATTENTION_SCAN_HOUR_UTC)
+    logger.info(
+        "worker.started",
+        jobs_registered=2,
+        attention_scan_hour_utc=ATTENTION_SCAN_HOUR_UTC,
+        worker_tick_seconds=WORKER_TICK_SECONDS,
+    )
     last_scan_date: date | None = None
     while True:
-        time.sleep(30)
+        time.sleep(WORKER_TICK_SECONDS)
+
+        try:
+            _run_report_generation()
+        except Exception:
+            logger.exception("report_generation.failed")
+
         now = datetime.now(timezone.utc)
         if now.hour == ATTENTION_SCAN_HOUR_UTC and last_scan_date != now.date():
             logger.info("attention_scan.starting")

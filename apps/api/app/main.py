@@ -12,6 +12,7 @@ from app.ingestion.router import router as ingestion_router
 from app.intelligence.ask.router import router as ask_router
 from app.organisations.router import router as organisations_router
 from app.platform.router import router as billing_router
+from app.reports.router import router as reports_router
 
 import app.development.importers  # noqa: F401  (registers IMPORTERS["PROPERTIES", "COMPONENTS"] as a side effect)
 from app.development.change_control_router import router as change_control_router
@@ -65,6 +66,7 @@ app.include_router(planned_investment_router)
 app.include_router(data_health_router)
 app.include_router(identifiers_router)
 app.include_router(ask_router)
+app.include_router(reports_router)
 
 
 @app.get("/health")

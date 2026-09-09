@@ -56,11 +56,15 @@ def client(monkeypatch, tmp_path):
 
     import app.documents.router as documents_router_module
     import app.ingestion.router as ingestion_router_module
+    import app.reports.router as reports_router_module
+    import app.reports.service as reports_service_module
     from app.integrations.storage import LocalFilesystemStorage
 
     test_storage = LocalFilesystemStorage(tmp_path / "storage")
     monkeypatch.setattr(documents_router_module, "get_document_storage", lambda: test_storage)
     monkeypatch.setattr(ingestion_router_module, "get_document_storage", lambda: test_storage)
+    monkeypatch.setattr(reports_service_module, "get_document_storage", lambda: test_storage)
+    monkeypatch.setattr(reports_router_module, "get_document_storage", lambda: test_storage)
 
     with TestClient(app) as c:
         yield c

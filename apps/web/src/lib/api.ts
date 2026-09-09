@@ -879,6 +879,32 @@ export type BoardAssuranceReport = {
   open_hazard_severity_counts: Record<string, number>;
 };
 
+export const REPORT_TYPES = [
+  { value: "DEVELOPMENT_SUMMARY", label: "Development Summary" },
+  { value: "HANDOVER_READINESS", label: "Handover Readiness" },
+  { value: "COMPLIANCE_EXECUTIVE_SUMMARY", label: "Compliance Executive Summary" },
+  { value: "BOARD_ASSURANCE", label: "Board Assurance" },
+  { value: "COMMERCIAL_PORTFOLIO", label: "Commercial Portfolio" },
+] as const;
+
+export const REPORT_FORMATS = ["PDF", "XLSX", "CSV"] as const;
+
+export type ReportType = (typeof REPORT_TYPES)[number]["value"];
+export type ReportFormatValue = (typeof REPORT_FORMATS)[number];
+
+export type ReportJobOut = {
+  id: string;
+  report_type: ReportType;
+  format: ReportFormatValue;
+  filters: Record<string, string>;
+  status: "PENDING" | "RUNNING" | "READY" | "FAILED";
+  requested_by: string;
+  requested_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  file_size_bytes: number | null;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -1718,6 +1744,31 @@ export const api = {
       params.set("expiring_within_days", String(filters.expiring_within_days));
     const qs = params.toString();
     return request<WarrantyOut[]>(`/api/v1/warranties${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  requestReport: (
+    organisationId: string,
+    payload: {
+      report_type: ReportType;
+      format: ReportFormatValue;
+      building_id?: string;
+      property_id?: string;
+      period_start?: string;
+      period_end?: string;
+    },
+  ) => request<ReportJobOut>("/api/v1/reports", { method: "POST", organisationId, body: JSON.stringify(payload) }),
+  listReports: (organisationId: string) => request<ReportJobOut[]>("/api/v1/reports", { organisationId }),
+  getReport: (organisationId: string, reportJobId: string) =>
+    request<ReportJobOut>(`/api/v1/reports/${reportJobId}`, { organisationId }),
+  // Same reasoning as downloadDocument — a plain <a href> can't carry
+  // the X-Organisation-Id header, so this goes through fetch and hands
+  // back a Blob to save via an object URL.
+  downloadReport: async (organisationId: string, reportJobId: string): Promise<Blob> => {
+    const res = await fetch(`${API_URL}/api/v1/reports/${reportJobId}/download`, {
+      credentials: "include",
+      headers: { "X-Organisation-Id": organisationId },
+    });
+    if (!res.ok) throw new ApiError(res.status, "Download failed");
+    return res.blob();
   },
 };
 

@@ -1457,10 +1457,96 @@ per instruction — "continue with sprint 2, billing later"):
   message rendered instead of any guess, with no explainability panel
   shown since no tool ran.
 
+**Sprint 23 — Reporting:**
+
+- **architecture §4: "a report is a rendering target, not a separate
+  data path."** `app/reports/content.py` builds all five named report
+  types (Development Summary, Handover Readiness, Compliance Executive
+  Summary, Board Assurance, Commercial Portfolio) entirely by
+  composing already-built service-layer functions
+  (`get_portfolio_summary`, `compute_handover_readiness`,
+  `get_board_assurance_report`, `collection_rate`/`arrears_for_lease`)
+  into one generic `ReportContent` shape (headline fields + tables).
+  Nothing in this sprint computes a new number.
+- **Compliance Executive Summary and Board Assurance intentionally
+  read the same data path** (`get_board_assurance_report`, portfolio-
+  wide) — spec item 57 only formally defines one assurance
+  methodology, and §4 explicitly allows one data path to back more
+  than one rendering target. They differ only in altitude: Board
+  Assurance renders the full per-domain breakdown table; Compliance
+  Executive Summary renders only the headline totals, for a one-page
+  exec readout.
+- **PDF/XLSX/CSV via ReportLab/openpyxl/csv** — ReportLab over
+  WeasyPrint (architecture names both) since it's pure-Python with no
+  system Cairo/Pango dependency, the same "needs no external service to
+  implement and verify for real" preference that picked
+  LocalFilesystemStorage over a cloud SDK in Sprint 4. CSV is
+  inherently flat: for the two multi-table report types, it renders
+  the report's primary table only, documented on the section itself
+  rather than silently dropped.
+- **Report generation runs on this codebase's now-real worker loop**
+  (`app/worker/main.py`, built for real in Sprint 21) — architecture §4
+  explicitly requires background generation "never... in the
+  request/response cycle," and unlike Sprint 3's `ImportJob` (which had
+  no real queue to run on yet and stayed synchronous, an honest,
+  documented scope gap), the infrastructure to do this for real now
+  exists. `ReportJob` follows `ImportJob`'s own shape almost exactly.
+  Report jobs are on-demand, not nightly, so the worker's tick was
+  shortened from 30s to 5s and now polls for PENDING report jobs every
+  tick, alongside the existing once-a-day attention scan check — still
+  a plain DB poll, no new scheduling dependency.
+- **Board-level report types reuse the existing `reports.board`
+  permission**, the same gate the `/assurance-report` JSON endpoint
+  (Sprint 17) already enforces — Compliance Executive Summary and Board
+  Assurance both read that same data, so letting any `reports.read`
+  holder export it as a file would have been a permission regression
+  through a side door. Checked at both request-time and download-time.
+- **A real bug caught only by running the worker as its own process**,
+  not by pytest: `ReportJob.requested_by` is the worker's first foreign
+  key to a table (`users`) outside its own job code's transitive
+  imports. SQLAlchemy only resolves a string-based ForeignKey against
+  classes actually imported in the current process; `app/worker/main.py`
+  never imported anything that pulled in `app.auth.models`, so the
+  first report job processed by a real, standalone worker process
+  crashed with `NoReferencedTableError` — invisible to the pytest suite
+  because `app/tests/conftest.py` already imports `app.main` (and
+  therefore every model) to build its FastAPI test client. Fixed by
+  having `app/worker/main.py` import `app.main` at startup, registering
+  every domain's models the same way the API process does. Found during
+  this sprint's own two-process live verification (API + worker as
+  separate processes against the same SQLite file), not by a unit test.
+- `apps/web`: `/reports` replaces its `ComingSoon` stub with a real
+  page — report/format pickers (with Building/Property scope fields
+  appearing only for the two board-level types), a "Generate report"
+  button, and a live-updating table of recent report jobs that polls
+  every 3s while anything is still PENDING/RUNNING, with a Download
+  button once a job reaches READY. Nav entry already existed
+  (`app/organisations/adaptive.py`), unchanged.
+- 9 new backend tests (293 total passing): PDF/XLSX/CSV generation and
+  download for three of the five report types, the `reports.board`
+  permission boundary (MANAGER 403, EXECUTIVE 200) on both board-level
+  types, download-before-ready returns 400, cross-organisation 404 on
+  both the status and download endpoints, and list ordering.
+- Verified end-to-end live: ran the API and worker as two genuinely
+  separate processes against one shared SQLite file (not the pytest
+  in-process fixture), confirmed via curl that a PDF and an XLSX report
+  download as valid files (`%PDF` magic bytes; a real Excel 2007+ zip
+  container), then in the real browser UI generated a Handover
+  Readiness CSV report and watched its status go PENDING → READY with
+  no manual refresh — the page's own 3s poll picked up the worker's 5s
+  tick automatically — then generated Compliance Executive Summary
+  (with its Building/Property scope fields correctly appearing only for
+  that report type) and clicked Download, confirming a real 200 OK
+  network request. All four report types tried this way generated
+  successfully; Commercial Portfolio is covered by its own dedicated
+  backend test instead, since it needs a commercial-landlord
+  organisation with lease/rent data this session's browser account
+  wasn't set up as.
+
 ## Not yet done
 
-Sprints 23–24 (reporting, and security/performance/accessibility
-hardening) — not started. Full order and scope in
+Sprint 24 (security/performance/accessibility hardening) — not
+started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
