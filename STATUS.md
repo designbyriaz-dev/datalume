@@ -481,11 +481,87 @@ per instruction — "continue with sprint 2, billing later"):
   came back `null` even though the revision it superseded had been
   approved.
 
+**Sprint 10 — Construction Evidence / Change Control:**
+
+- **Construction Evidence** (spec §32) needed no new table: architecture
+  03 §7 describes it as documents linked "via a polymorphic
+  (related_entity_type, related_entity_id) pair down to component/space
+  granularity" — exactly the mechanism `Document` (Sprint 4) already has
+  and Sprint 9's Golden Thread already surfaces read-only as
+  `evidence`. Sprint 10's actual work here was closing the write-side
+  gap: the Golden Thread evidence section was read-only, so this sprint
+  is what a real user would use to put evidence there in the first
+  place — verified by uploading a component-scoped document over curl
+  (Browser pane tools can't drive a native file picker, same limitation
+  noted since Sprint 3) and confirming it appears in both the component
+  page and the building's Golden Thread.
+- **Change Control** (spec §33): `ChangeControl` — a real six-state
+  workflow (`PROPOSED → UNDER_REVIEW → APPROVED → IMPLEMENTED`, plus
+  `REJECTED`/`CANCELLED`), not just a status column. Deliberately
+  deviates from BUILD_PROMPT.md §33's literal sketch in one place: that
+  sketch gives change_control its own
+  development_id/building_id/property_id/component_id columns, but the
+  doc explicitly calls these "Conceptual fields," and duplicating
+  Specification's own polymorphic location alongside a `specification_id`
+  FK would let the two drift out of sync. Every change instead targets
+  exactly one `specification_id`, with `related_entity_type`/
+  `related_entity_id` copied from it at submission time (immutable,
+  for filtering without a join) — same "compose, don't duplicate"
+  reasoning Sprint 9 used for Golden Thread, applied to a write path
+  this time.
+  `previous_value` is captured automatically from the specification's
+  live fields at submission — never accepted from the caller — so it
+  stays trustworthy regardless of what happens to the specification
+  afterwards. Approving and implementing are two separate actions
+  (approving records a decision; implementing is what actually calls
+  Sprint 9's `create_specification_revision`, superseding the old
+  specification row and recording which new row resulted) — a real
+  workflow can approve now and implement at a scheduled cutover later,
+  which is why the spec gives six statuses instead of a simpler
+  approve-and-done model.
+  `external_approval_reference` (an optional field on approval) routes
+  through Sprint 7's `ExternalReference` engine with a new
+  `EXTERNAL_APPROVAL_REFERENCE` type, not a plain column — same
+  hard-write-path reasoning as every other official external identifier
+  in this codebase.
+- **Golden Thread updated**: the CHANGE link in spec §29's chain is now
+  real (`ChangeControl` rows matched by the same related_entity_type/id
+  every other Golden Thread link uses, so a change stays visible in a
+  location's history even once implemented and the specification it
+  targeted has been superseded). `not_yet_available` now lists only
+  `inspections` (Sprint 16) and `handover_records` (Sprint 12).
+- `apps/web`: Change Control surfaces on the Component detail page next
+  to Specifications — propose a change against any current specification,
+  and status-appropriate action buttons (Start review / Approve / Reject
+  / Cancel / Implement) per row. The Building page's Golden Thread
+  section shows each component's change history alongside its
+  specifications and evidence.
+- 20 new backend tests (114 total passing). One real bug found during
+  browser verification (not by pytest — this one needed the actual UI):
+  the Component page's "Change control" list was filtered by the
+  *specification's* id, so a change disappeared from the page the moment
+  it was implemented (implementing supersedes the old specification row,
+  and the change stays permanently linked to that now-superseded row's
+  id). Fixed by filtering the list query by the *component's*
+  related_entity_type/related_entity_id instead — stable across the
+  specification's whole revision lineage — confirmed live: an
+  implemented change (`CHG-000001`) now stays visible with its terminal
+  `IMPLEMENTED` badge on both the component page and the building's
+  Golden Thread.
+- Verified end-to-end live: added a building specification and a
+  component specification through the UI; submitted a change against
+  the component specification over curl (confirming the automatic
+  `previous_value` snapshot matched the specification's actual fields);
+  drove the full `start-review → approve → implement` sequence through
+  the real UI buttons, confirming at each step the specification list
+  showed the new revision (`rev B`) with the old one gone from the
+  current-only view, and confirmed a separate change's `reject` path and
+  the `approve`-after-`reject` 400 guard over curl.
+
 ## Not yet done
 
-Sprints 10–24 (construction evidence, change control, defects/
-warranties, handover, Property 360, repairs, compliance, and the rest)
-— not started. Full order and scope in
+Sprints 11–24 (defects/warranties, handover, Property 360, repairs,
+compliance, and the rest) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

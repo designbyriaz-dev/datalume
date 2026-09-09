@@ -319,6 +319,26 @@ export type GoldenThreadResponsibleParty = {
   contractor_reference: string | null;
 };
 
+export type ChangeControlOut = {
+  id: string;
+  change_reference: string;
+  specification_id: string;
+  related_entity_type: string;
+  related_entity_id: string;
+  previous_value: Record<string, unknown>;
+  proposed_value: Record<string, unknown>;
+  reason: string;
+  impact_description: string | null;
+  status: "PROPOSED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "IMPLEMENTED" | "CANCELLED";
+  approved_by: string | null;
+  approved_date: string | null;
+  implemented_specification_id: string | null;
+  external_approval_reference: string | null;
+  source_type: string;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type GoldenThreadComponent = {
   id: string;
   component_reference: string;
@@ -327,6 +347,7 @@ export type GoldenThreadComponent = {
   specifications: SpecificationOut[];
   responsible_party: GoldenThreadResponsibleParty;
   evidence: DocumentOut[];
+  changes: ChangeControlOut[];
   external_references: Record<string, string>;
 };
 
@@ -336,6 +357,7 @@ export type GoldenThread = {
   building_name: string;
   specifications: SpecificationOut[];
   evidence: DocumentOut[];
+  changes: ChangeControlOut[];
   external_references: Record<string, string>;
   components: GoldenThreadComponent[];
   not_yet_available: string[];
@@ -603,6 +625,57 @@ export const api = {
     request<SpecificationDetail>(`/api/v1/specifications/${specificationId}`, { organisationId }),
   getGoldenThread: (organisationId: string, buildingId: string) =>
     request<GoldenThread>(`/api/v1/buildings/${buildingId}/golden-thread`, { organisationId }),
+  submitChangeControl: (
+    organisationId: string,
+    payload: {
+      specification_id: string;
+      proposed_value: Record<string, unknown>;
+      reason: string;
+      impact_description?: string;
+    },
+  ) =>
+    request<ChangeControlOut>("/api/v1/change-control", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listChangeControl: (
+    organisationId: string,
+    filters?: { specification_id?: string; related_entity_type?: string; related_entity_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.specification_id) params.set("specification_id", filters.specification_id);
+    if (filters?.related_entity_type) params.set("related_entity_type", filters.related_entity_type);
+    if (filters?.related_entity_id) params.set("related_entity_id", filters.related_entity_id);
+    const qs = params.toString();
+    return request<ChangeControlOut[]>(`/api/v1/change-control${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  startChangeControlReview: (organisationId: string, changeControlId: string) =>
+    request<ChangeControlOut>(`/api/v1/change-control/${changeControlId}/start-review`, {
+      method: "POST",
+      organisationId,
+    }),
+  approveChangeControl: (organisationId: string, changeControlId: string, externalApprovalReference?: string) =>
+    request<ChangeControlOut>(`/api/v1/change-control/${changeControlId}/approve`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ external_approval_reference: externalApprovalReference || undefined }),
+    }),
+  rejectChangeControl: (organisationId: string, changeControlId: string) =>
+    request<ChangeControlOut>(`/api/v1/change-control/${changeControlId}/reject`, {
+      method: "POST",
+      organisationId,
+    }),
+  cancelChangeControl: (organisationId: string, changeControlId: string) =>
+    request<ChangeControlOut>(`/api/v1/change-control/${changeControlId}/cancel`, {
+      method: "POST",
+      organisationId,
+    }),
+  implementChangeControl: (organisationId: string, changeControlId: string) =>
+    request<ChangeControlOut>(`/api/v1/change-control/${changeControlId}/implement`, {
+      method: "POST",
+      organisationId,
+    }),
 };
 
 export const ORGANISATION_TYPES = [

@@ -255,6 +255,39 @@ class SpecificationDetailOut(SpecificationOut):
     versions: list[SpecificationOut]
 
 
+class SubmitChangeControlRequest(BaseModel):
+    specification_id: uuid.UUID
+    proposed_value: dict
+    reason: str
+    impact_description: str | None = None
+
+
+class ApproveChangeControlRequest(BaseModel):
+    external_approval_reference: str | None = None
+
+
+class ChangeControlOut(BaseModel):
+    id: uuid.UUID
+    change_reference: str
+    specification_id: uuid.UUID
+    related_entity_type: str
+    related_entity_id: str
+    previous_value: dict
+    proposed_value: dict
+    reason: str
+    impact_description: str | None
+    status: str
+    approved_by: uuid.UUID | None
+    approved_date: date | None
+    implemented_specification_id: uuid.UUID | None
+    external_approval_reference: str | None
+    source_type: str
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class GoldenThreadResponsiblePartyOut(BaseModel):
     """architecture/03-development-domain.md §4: "responsible_party (from
     provenance/import metadata + contractor refs)" — there is no separate
@@ -277,25 +310,28 @@ class GoldenThreadComponentOut(BaseModel):
     specifications: list[SpecificationOut]
     responsible_party: GoldenThreadResponsiblePartyOut
     evidence: list[DocumentOut]
+    changes: list[ChangeControlOut]
     external_references: dict[str, str]
 
 
 class GoldenThreadOut(BaseModel):
     """The composed BUILDING -> DESIGN/SPECIFICATION -> COMPONENT ->
-    RESPONSIBLE PARTY -> EVIDENCE -> ... chain from spec §29, built from
-    existing tables only (architecture/03-development-domain.md §4:
-    "compose, don't duplicate"). `not_yet_available` names the links in
-    that chain with no canonical table yet — inspection (Sprint 16),
-    change control (Sprint 10), handover (Sprint 12) — so the UI can be
-    honest about what this view does and doesn't cover yet, per spec
-    §29's explicit constraint that storing this information does not by
-    itself satisfy every legal Golden Thread obligation."""
+    RESPONSIBLE PARTY -> EVIDENCE -> CHANGE -> APPROVAL/EXTERNAL
+    REFERENCE -> ... chain from spec §29, built from existing tables only
+    (architecture/03-development-domain.md §4: "compose, don't
+    duplicate"). `not_yet_available` names the links in that chain with
+    no canonical table yet — inspection (Sprint 16), handover (Sprint
+    12) — so the UI can be honest about what this view does and doesn't
+    cover yet, per spec §29's explicit constraint that storing this
+    information does not by itself satisfy every legal Golden Thread
+    obligation."""
 
     building_id: uuid.UUID
     building_reference: str
     building_name: str
     specifications: list[SpecificationOut]
     evidence: list[DocumentOut]
+    changes: list[ChangeControlOut]
     external_references: dict[str, str]
     components: list[GoldenThreadComponentOut]
     not_yet_available: list[str]

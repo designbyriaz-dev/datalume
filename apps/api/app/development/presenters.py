@@ -13,8 +13,8 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.development.models import Building, Component, ComponentType, Development, Property
-from app.development.schemas import BuildingOut, ComponentOut, DevelopmentOut, PropertyOut
+from app.development.models import Building, ChangeControl, Component, ComponentType, Development, Property
+from app.development.schemas import BuildingOut, ChangeControlOut, ComponentOut, DevelopmentOut, PropertyOut
 from app.identifiers.service import get_external_references, get_external_references_bulk
 
 
@@ -204,4 +204,53 @@ def components_to_out(db: Session, organisation_id: uuid.UUID, components: list[
             created_at=c.created_at,
         )
         for c in components
+    ]
+
+
+def change_control_to_out(db: Session, organisation_id: uuid.UUID, change: ChangeControl) -> ChangeControlOut:
+    refs = get_external_references(db, organisation_id, "change_control", change.id)
+    return ChangeControlOut(
+        id=change.id,
+        change_reference=change.change_reference,
+        specification_id=change.specification_id,
+        related_entity_type=change.related_entity_type,
+        related_entity_id=change.related_entity_id,
+        previous_value=change.previous_value,
+        proposed_value=change.proposed_value,
+        reason=change.reason,
+        impact_description=change.impact_description,
+        status=change.status.value,
+        approved_by=change.approved_by,
+        approved_date=change.approved_date,
+        implemented_specification_id=change.implemented_specification_id,
+        external_approval_reference=refs.get("EXTERNAL_APPROVAL_REFERENCE"),
+        source_type=change.source_type.value,
+        created_by=change.created_by,
+        created_at=change.created_at,
+    )
+
+
+def changes_to_out(db: Session, organisation_id: uuid.UUID, changes: list[ChangeControl]) -> list[ChangeControlOut]:
+    refs_by_id = get_external_references_bulk(db, organisation_id, "change_control", [c.id for c in changes])
+    return [
+        ChangeControlOut(
+            id=c.id,
+            change_reference=c.change_reference,
+            specification_id=c.specification_id,
+            related_entity_type=c.related_entity_type,
+            related_entity_id=c.related_entity_id,
+            previous_value=c.previous_value,
+            proposed_value=c.proposed_value,
+            reason=c.reason,
+            impact_description=c.impact_description,
+            status=c.status.value,
+            approved_by=c.approved_by,
+            approved_date=c.approved_date,
+            implemented_specification_id=c.implemented_specification_id,
+            external_approval_reference=refs_by_id.get(str(c.id), {}).get("EXTERNAL_APPROVAL_REFERENCE"),
+            source_type=c.source_type.value,
+            created_by=c.created_by,
+            created_at=c.created_at,
+        )
+        for c in changes
     ]

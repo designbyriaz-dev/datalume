@@ -42,7 +42,7 @@ def test_golden_thread_composes_building_specifications_and_components(client):
         json={"component_type_id": boiler_type_id, "building_id": building["id"], "manufacturer": "Worcester"},
     ).json()
 
-    client.post(
+    component_spec = client.post(
         "/api/v1/specifications",
         headers={"X-Organisation-Id": org_id},
         json={
@@ -50,7 +50,16 @@ def test_golden_thread_composes_building_specifications_and_components(client):
             "related_entity_id": component["id"],
             "title": "Boiler installation spec",
         },
-    )
+    ).json()
+    change = client.post(
+        "/api/v1/change-control",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "specification_id": component_spec["id"],
+            "proposed_value": {"title": "Boiler installation spec (revised)"},
+            "reason": "Manufacturer discontinued the specified model",
+        },
+    ).json()
     client.post(
         "/api/v1/documents",
         headers={"X-Organisation-Id": org_id},
@@ -82,12 +91,11 @@ def test_golden_thread_composes_building_specifications_and_components(client):
     assert comp["evidence"][0]["title"] == "Boiler commissioning certificate"
     assert comp["responsible_party"]["created_by_name"] == "Jamie Ward"
     assert comp["responsible_party"]["source_type"] == "MANUAL"
+    assert len(comp["changes"]) == 1
+    assert comp["changes"][0]["id"] == change["id"]
+    assert comp["changes"][0]["status"] == "PROPOSED"
 
-    assert body["not_yet_available"] == [
-        "inspections (Sprint 16)",
-        "change_control (Sprint 10)",
-        "handover_records (Sprint 12)",
-    ]
+    assert body["not_yet_available"] == ["inspections (Sprint 16)", "handover_records (Sprint 12)"]
 
 
 def test_golden_thread_includes_components_attached_via_property(client):

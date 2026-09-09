@@ -363,6 +363,12 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                 <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>
                   Evidence: {c.evidence.length === 0 ? "none" : c.evidence.map((d) => d.title).join(", ")}
                 </div>
+                <div style={{ color: "var(--text-secondary)", marginBottom: 4 }}>
+                  Change control:{" "}
+                  {c.changes.length === 0
+                    ? "none"
+                    : c.changes.map((ch) => `${ch.change_reference} (${ch.status})`).join(", ")}
+                </div>
                 <div style={{ color: "var(--text-secondary)" }}>
                   Responsible party:{" "}
                   {c.responsible_party.created_by_name ?? c.responsible_party.source_type}

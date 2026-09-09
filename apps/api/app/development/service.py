@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session
 from app.core.provenance import SourceType
 from app.development.models import (
     Building,
+    ChangeControl,
+    ChangeControlStatus,
     Component,
     ComponentStatus,
     Development,
@@ -33,7 +35,7 @@ from app.development.models import (
     SpecificationStatus,
 )
 from app.identifiers.models import ExternalReferenceType
-from app.identifiers.service import generate_reference, record_external_reference
+from app.identifiers.service import generate_reference, get_external_references, record_external_reference
 from app.platform.audit import record_audit_event
 
 
@@ -51,6 +53,11 @@ class HierarchyMismatchError(ValueError):
 class UnsupportedEntityTypeError(ValueError):
     """A specification's related_entity_type isn't one of the five spec
     §27 names — the router maps this to a 400."""
+
+
+class InvalidChangeControlTransitionError(ValueError):
+    """The requested status transition isn't allowed from a change
+    control's current status — the router maps this to a 400."""
 
 
 def _get_org_development(db: Session, organisation_id: uuid.UUID, development_id: uuid.UUID) -> Development:
@@ -711,3 +718,244 @@ def approve_specification(
         after={"approved_by": str(actor_user_id)},
     )
     return specification
+
+
+SPECIFICATION_SNAPSHOT_FIELDS = ("title", "description", "related_component_type", "effective_date")
+
+
+def _specification_snapshot(specification: Specification) -> dict:
+    snapshot = {field: getattr(specification, field) for field in SPECIFICATION_SNAPSHOT_FIELDS}
+    if snapshot["effective_date"] is not None:
+        snapshot["effective_date"] = snapshot["effective_date"].isoformat()
+    return snapshot
+
+
+def _get_org_change_control(db: Session, organisation_id: uuid.UUID, change_control_id: uuid.UUID) -> ChangeControl:
+    change = (
+        db.query(ChangeControl)
+        .filter(ChangeControl.id == change_control_id, ChangeControl.organisation_id == organisation_id)
+        .first()
+    )
+    if change is None:
+        raise HierarchyNotFoundError(f"Change control {change_control_id} not found")
+    return change
+
+
+def _require_change_control_transition(
+    change: ChangeControl, allowed_from: tuple[ChangeControlStatus, ...], action: str
+) -> None:
+    if change.status not in allowed_from:
+        raise InvalidChangeControlTransitionError(
+            f"Cannot {action} a change control in status {change.status.value}"
+        )
+
+
+def submit_change_control(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    specification_id: uuid.UUID,
+    proposed_value: dict,
+    reason: str,
+    impact_description: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> ChangeControl:
+    """previous_value is always captured HERE, from the specification's
+    own current fields — never accepted from the caller — so it stays an
+    accurate record of what was actually being proposed against,
+    independent of anything that happens to the specification later
+    (architecture/03-development-domain.md §7)."""
+    specification = _get_org_specification(db, organisation_id, specification_id)
+    if specification.status == SpecificationStatus.SUPERSEDED:
+        raise HierarchyMismatchError("Cannot propose a change against a superseded specification revision")
+
+    change = ChangeControl(
+        organisation_id=organisation_id,
+        change_reference=generate_reference(db, organisation_id, "CHANGE_CONTROL"),
+        specification_id=specification.id,
+        related_entity_type=specification.related_entity_type,
+        related_entity_id=specification.related_entity_id,
+        previous_value=_specification_snapshot(specification),
+        proposed_value=proposed_value,
+        reason=reason,
+        impact_description=impact_description,
+        status=ChangeControlStatus.PROPOSED,
+        source_type=SourceType.MANUAL,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(change)
+    db.flush()
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="change_control.submitted",
+        entity_type="change_control",
+        entity_id=str(change.id),
+        after={"change_reference": change.change_reference, "specification_id": str(specification.id)},
+    )
+    return change
+
+
+def start_change_control_review(
+    db: Session, organisation_id: uuid.UUID, change: ChangeControl, *, actor_user_id: uuid.UUID | None = None
+) -> ChangeControl:
+    _require_change_control_transition(change, (ChangeControlStatus.PROPOSED,), "start review on")
+    change.status = ChangeControlStatus.UNDER_REVIEW
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="change_control.under_review",
+        entity_type="change_control",
+        entity_id=str(change.id),
+        after={"status": change.status.value},
+    )
+    return change
+
+
+def approve_change_control(
+    db: Session,
+    organisation_id: uuid.UUID,
+    change: ChangeControl,
+    *,
+    external_approval_reference: str | None = None,
+    actor_user_id: uuid.UUID,
+) -> ChangeControl:
+    _require_change_control_transition(
+        change, (ChangeControlStatus.PROPOSED, ChangeControlStatus.UNDER_REVIEW), "approve"
+    )
+    change.status = ChangeControlStatus.APPROVED
+    change.approved_by = actor_user_id
+    change.approved_date = date.today()
+
+    if external_approval_reference:
+        record_external_reference(
+            db,
+            organisation_id,
+            entity_type="change_control",
+            entity_id=change.id,
+            reference_type=ExternalReferenceType.EXTERNAL_APPROVAL_REFERENCE,
+            value=external_approval_reference,
+            source_type=SourceType.MANUAL,
+            actor_user_id=actor_user_id,
+        )
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="change_control.approved",
+        entity_type="change_control",
+        entity_id=str(change.id),
+        after={"approved_by": str(actor_user_id)},
+    )
+    return change
+
+
+def reject_change_control(
+    db: Session, organisation_id: uuid.UUID, change: ChangeControl, *, actor_user_id: uuid.UUID | None = None
+) -> ChangeControl:
+    _require_change_control_transition(
+        change, (ChangeControlStatus.PROPOSED, ChangeControlStatus.UNDER_REVIEW), "reject"
+    )
+    change.status = ChangeControlStatus.REJECTED
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="change_control.rejected",
+        entity_type="change_control",
+        entity_id=str(change.id),
+        after={"status": change.status.value},
+    )
+    return change
+
+
+def cancel_change_control(
+    db: Session, organisation_id: uuid.UUID, change: ChangeControl, *, actor_user_id: uuid.UUID | None = None
+) -> ChangeControl:
+    _require_change_control_transition(
+        change,
+        (ChangeControlStatus.PROPOSED, ChangeControlStatus.UNDER_REVIEW, ChangeControlStatus.APPROVED),
+        "cancel",
+    )
+    change.status = ChangeControlStatus.CANCELLED
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="change_control.cancelled",
+        entity_type="change_control",
+        entity_id=str(change.id),
+        after={"status": change.status.value},
+    )
+    return change
+
+
+def _next_revision_label(specification: Specification) -> str:
+    # Single uppercase letter is the common case (Sprint 9's own UI only
+    # ever produces "A", "B", "C", ...) — increment it. Anything else
+    # (a custom revision label supplied through the API directly) falls
+    # back to a numbered label rather than guessing at a letter sequence
+    # that was never being followed in the first place.
+    current = specification.revision
+    if len(current) == 1 and "A" <= current <= "Y":
+        return chr(ord(current) + 1)
+    return f"{current}.1"
+
+
+def implement_change_control(
+    db: Session, organisation_id: uuid.UUID, change: ChangeControl, *, actor_user_id: uuid.UUID | None = None
+) -> ChangeControl:
+    """The one action that actually touches Specification: creates the
+    new revision via create_specification_revision (Sprint 9's own
+    append-only path — the prior row is marked SUPERSEDED, never edited
+    in place) using proposed_value, and records which new row resulted."""
+    _require_change_control_transition(change, (ChangeControlStatus.APPROVED,), "implement")
+
+    specification = _get_org_specification(db, organisation_id, change.specification_id)
+    if specification.status == SpecificationStatus.SUPERSEDED:
+        raise HierarchyMismatchError(
+            "The target specification has already been superseded — this change can no longer be implemented as-is"
+        )
+
+    new_version = create_specification_revision(
+        db,
+        organisation_id,
+        specification,
+        revision=_next_revision_label(specification),
+        title=change.proposed_value.get("title"),
+        description=change.proposed_value.get("description"),
+        related_component_type=change.proposed_value.get("related_component_type"),
+        effective_date=(
+            date.fromisoformat(change.proposed_value["effective_date"])
+            if change.proposed_value.get("effective_date")
+            else None
+        ),
+        actor_user_id=actor_user_id,
+    )
+
+    change.status = ChangeControlStatus.IMPLEMENTED
+    change.implemented_specification_id = new_version.id
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="change_control.implemented",
+        entity_type="change_control",
+        entity_id=str(change.id),
+        after={"implemented_specification_id": str(new_version.id)},
+    )
+    return change
+
+
+def get_change_control_external_approval_reference(
+    db: Session, organisation_id: uuid.UUID, change: ChangeControl
+) -> str | None:
+    return get_external_references(db, organisation_id, "change_control", change.id).get(
+        ExternalReferenceType.EXTERNAL_APPROVAL_REFERENCE.value
+    )

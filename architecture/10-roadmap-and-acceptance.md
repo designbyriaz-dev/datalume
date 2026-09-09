@@ -111,7 +111,22 @@ silently, since those land in Sprints 16, 10 and 12. See STATUS.md for
 the live browser/curl verification, including confirming a specification
 revision resets approval rather than carrying it forward.
 
-Sprints 10–24 are not started; they are ordered and ready to pick up.
+**Sprint 10 (Construction Evidence / Change Control): built** —
+Construction Evidence (spec §32) reused Document's existing polymorphic
+linking rather than a new table, per 03 §7. `ChangeControl` (spec §33)
+is a real six-status workflow (submit → review → approve → implement,
+plus reject/cancel) targeting a `specification_id`, with location copied
+from it at submission rather than duplicated as four more nullable FKs
+the way BUILD_PROMPT.md's "Conceptual fields" sketch shows — implementing
+an approved change calls Sprint 9's own `create_specification_revision`,
+so the append-only specification history stays the single source of
+truth. Golden Thread's CHANGE link (§29) is now real. See STATUS.md for
+the live-verification bug (a change control filtered by its
+now-superseded specification id disappeared from the UI after
+implementation — fixed by filtering on the stable related-entity
+location instead) and the full browser/curl verification.
+
+Sprints 11–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

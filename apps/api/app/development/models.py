@@ -19,7 +19,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -263,3 +263,69 @@ class Specification(Base, ProvenanceMixin):
     source_document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
     approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ChangeControlStatus(str, enum.Enum):
+    PROPOSED = "PROPOSED"
+    UNDER_REVIEW = "UNDER_REVIEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    IMPLEMENTED = "IMPLEMENTED"
+    CANCELLED = "CANCELLED"
+
+
+class ChangeControl(Base, ProvenanceMixin):
+    """architecture/03-development-domain.md §7, spec §33 — CHANGE CONTROL
+    REGISTER. "A change must NOT simply overwrite the previous
+    specification."
+
+    BUILD_PROMPT.md §33 sketches change_control with its own
+    development_id/building_id/property_id/component_id columns
+    alongside previous_value/proposed_value, but those are marked
+    "Conceptual fields", not literal DDL — duplicating Specification's
+    own (related_entity_type, related_entity_id) here as four more
+    nullable FKs would let a change's recorded location drift out of
+    sync with the specification it's actually revising. Instead every
+    change targets exactly one specification_id, and related_entity_type/
+    related_entity_id are copied from that specification at submission
+    time (immutable snapshot, not a live join) purely so list/filter
+    queries don't need to join through specifications — the same
+    "compose, don't duplicate" reasoning as Golden Thread (§4), applied
+    to writes instead of reads.
+
+    previous_value is captured automatically from the target
+    specification's current fields at submission time — never supplied
+    by the caller — so it stays a trustworthy record of what was
+    actually being changed, independent of whatever the specification
+    itself looks like by the time this row is read later.
+
+    Approval and implementation are deliberately two different actions
+    (app/development/service.py.approve_change_control vs.
+    implement_change_control): approving is a decision (approved_by/
+    approved_date recorded), implementing is the action that actually
+    calls create_specification_revision using proposed_value and records
+    which new Specification row resulted
+    (implemented_specification_id) — matching the architecture's "on
+    approval, a new specifications row is created" while still giving
+    the six distinct statuses spec §33 asks for (a real workflow can
+    approve now and implement at a scheduled cutover later).
+    """
+
+    __tablename__ = "change_controls"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    change_reference: Mapped[str] = mapped_column(String(32))
+    specification_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("specifications.id"))
+    related_entity_type: Mapped[str] = mapped_column(String(64))
+    related_entity_id: Mapped[str] = mapped_column(String(64))
+    previous_value: Mapped[dict] = mapped_column(JSON)
+    proposed_value: Mapped[dict] = mapped_column(JSON)
+    reason: Mapped[str] = mapped_column(Text)
+    impact_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[ChangeControlStatus] = mapped_column(Enum(ChangeControlStatus), default=ChangeControlStatus.PROPOSED)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    approved_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    implemented_specification_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("specifications.id"), nullable=True
+    )

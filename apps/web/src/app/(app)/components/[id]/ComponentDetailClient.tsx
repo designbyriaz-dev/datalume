@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type ComponentOut, type ComponentType, type SpecificationOut } from "@/lib/api";
+import { api, type ChangeControlOut, type ComponentOut, type ComponentType, type SpecificationOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -18,6 +18,12 @@ function specStatusVariant(status: string) {
   return status === "SUPERSEDED" ? ("neutral" as const) : ("success" as const);
 }
 
+function changeStatusVariant(status: string) {
+  if (status === "IMPLEMENTED" || status === "APPROVED") return "success" as const;
+  if (status === "REJECTED" || status === "CANCELLED") return "critical" as const;
+  return "neutral" as const;
+}
+
 function orgId(): string | null {
   return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
 }
@@ -27,6 +33,7 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
   const [children, setChildren] = useState<ComponentOut[] | null>(null);
   const [types, setTypes] = useState<ComponentType[]>([]);
   const [specifications, setSpecifications] = useState<SpecificationOut[] | null>(null);
+  const [changes, setChanges] = useState<ChangeControlOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [childTypeId, setChildTypeId] = useState("");
@@ -37,6 +44,12 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
   const [specSubmitting, setSpecSubmitting] = useState(false);
   const [specFormError, setSpecFormError] = useState<string | null>(null);
 
+  const [changeSpecId, setChangeSpecId] = useState("");
+  const [changeProposedTitle, setChangeProposedTitle] = useState("");
+  const [changeReason, setChangeReason] = useState("");
+  const [changeSubmitting, setChangeSubmitting] = useState(false);
+  const [changeFormError, setChangeFormError] = useState<string | null>(null);
+
   async function refreshChildren() {
     const id = orgId();
     if (!id) return;
@@ -46,7 +59,22 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
   async function refreshSpecifications() {
     const id = orgId();
     if (!id) return;
-    setSpecifications(await api.listSpecifications(id, { related_entity_type: "component", related_entity_id: componentId }));
+    const specList = await api.listSpecifications(id, {
+      related_entity_type: "component",
+      related_entity_id: componentId,
+    });
+    setSpecifications(specList);
+    return specList;
+  }
+
+  async function refreshChanges() {
+    const id = orgId();
+    if (!id) return;
+    // Filtered by related_entity_type/id (stable across a specification's
+    // whole revision lineage), not specification_id — a change stays
+    // visible in this component's history even after it's implemented
+    // and the specification_id it targeted has since been superseded.
+    setChanges(await api.listChangeControl(id, { related_entity_type: "component", related_entity_id: componentId }));
   }
 
   useEffect(() => {
@@ -57,17 +85,20 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         return;
       }
       try {
-        const [comp, childList, typeList, specList] = await Promise.all([
+        const [comp, childList, typeList, specList, changeList] = await Promise.all([
           api.getComponent(id, componentId),
           api.listComponentChildren(id, componentId),
           api.listComponentTypes(id),
           api.listSpecifications(id, { related_entity_type: "component", related_entity_id: componentId }),
+          api.listChangeControl(id, { related_entity_type: "component", related_entity_id: componentId }),
         ]);
         setComponent(comp);
         setChildren(childList);
         setTypes(typeList);
         setSpecifications(specList);
+        setChanges(changeList);
         if (typeList[0]) setChildTypeId(typeList[0].id);
+        if (specList[0]) setChangeSpecId(specList[0].id);
       } catch {
         setLoadError("Couldn't load this component.");
       }
@@ -104,7 +135,8 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         title: specTitle.trim(),
       });
       setSpecTitle("");
-      await refreshSpecifications();
+      const specList = await refreshSpecifications();
+      if (specList?.[0] && !changeSpecId) setChangeSpecId(specList[0].id);
     } catch {
       setSpecFormError("Couldn't add that specification.");
     } finally {
@@ -112,11 +144,48 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
     }
   }
 
+  async function onSubmitChange() {
+    const id = orgId();
+    if (!id || !changeSpecId || !changeProposedTitle.trim() || !changeReason.trim()) {
+      setChangeFormError("Pick a specification, a proposed title, and a reason.");
+      return;
+    }
+    setChangeSubmitting(true);
+    setChangeFormError(null);
+    try {
+      await api.submitChangeControl(id, {
+        specification_id: changeSpecId,
+        proposed_value: { title: changeProposedTitle.trim() },
+        reason: changeReason.trim(),
+      });
+      setChangeProposedTitle("");
+      setChangeReason("");
+      await refreshChanges();
+    } catch {
+      setChangeFormError("Couldn't submit that change.");
+    } finally {
+      setChangeSubmitting(false);
+    }
+  }
+
+  async function onChangeTransition(changeId: string, action: "start-review" | "approve" | "reject" | "cancel" | "implement") {
+    const id = orgId();
+    if (!id) return;
+    if (action === "start-review") await api.startChangeControlReview(id, changeId);
+    else if (action === "approve") await api.approveChangeControl(id, changeId);
+    else if (action === "reject") await api.rejectChangeControl(id, changeId);
+    else if (action === "cancel") await api.cancelChangeControl(id, changeId);
+    else if (action === "implement") await api.implementChangeControl(id, changeId);
+    const [specList] = await Promise.all([refreshSpecifications(), refreshChanges()]);
+    const activeSpec = specList?.find((s) => s.status === "ACTIVE");
+    if (activeSpec) setChangeSpecId(activeSpec.id);
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!component || !children || !specifications) {
+  if (!component || !children || !specifications || !changes) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -227,6 +296,125 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
                 {s.title} <span style={{ color: "var(--text-secondary)" }}>rev {s.revision}</span>
               </span>
               <StatusBadge label={s.status} variant={specStatusVariant(s.status)} />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Change control</h2>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.2fr 1.2fr 1.2fr auto", alignItems: "end" }}>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Specification
+            </label>
+            <select style={inputStyle} value={changeSpecId} onChange={(e) => setChangeSpecId(e.target.value)}>
+              {specifications
+                .filter((s) => s.status === "ACTIVE")
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title} (rev {s.revision})
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Proposed title
+            </label>
+            <input
+              style={inputStyle}
+              value={changeProposedTitle}
+              onChange={(e) => setChangeProposedTitle(e.target.value)}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Reason
+            </label>
+            <input style={inputStyle} value={changeReason} onChange={(e) => setChangeReason(e.target.value)} />
+          </div>
+          <button style={primaryBtn} onClick={onSubmitChange} disabled={changeSubmitting}>
+            {changeSubmitting ? "Submitting…" : "Propose"}
+          </button>
+        </div>
+        {specifications.filter((s) => s.status === "ACTIVE").length === 0 && (
+          <div style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: 10 }}>
+            Add a specification above before proposing a change to it.
+          </div>
+        )}
+        {changeFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{changeFormError}</div>
+        )}
+      </div>
+      {changes.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No change requests yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {changes.map((c) => (
+            <li
+              key={c.id}
+              style={{
+                padding: "12px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)" }}>{c.change_reference}</span>
+                <StatusBadge label={c.status} variant={changeStatusVariant(c.status)} />
+              </div>
+              <div style={{ color: "var(--text-secondary)", marginBottom: 8 }}>{c.reason}</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {c.status === "PROPOSED" && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => onChangeTransition(c.id, "start-review")}
+                  >
+                    Start review
+                  </button>
+                )}
+                {(c.status === "PROPOSED" || c.status === "UNDER_REVIEW") && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => onChangeTransition(c.id, "approve")}
+                  >
+                    Approve
+                  </button>
+                )}
+                {(c.status === "PROPOSED" || c.status === "UNDER_REVIEW") && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--color-critical)" }}
+                    onClick={() => onChangeTransition(c.id, "reject")}
+                  >
+                    Reject
+                  </button>
+                )}
+                {c.status === "APPROVED" && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => onChangeTransition(c.id, "implement")}
+                  >
+                    Implement
+                  </button>
+                )}
+                {(c.status === "PROPOSED" || c.status === "UNDER_REVIEW" || c.status === "APPROVED") && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--text-secondary)" }}
+                    onClick={() => onChangeTransition(c.id, "cancel")}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>

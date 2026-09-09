@@ -136,7 +136,15 @@ def test_list_reference_patterns_shows_every_known_type(client):
     resp = client.get("/api/v1/reference-patterns", headers={"X-Organisation-Id": signup["organisation_id"]})
     assert resp.status_code == 200
     entity_types = {p["entity_type"] for p in resp.json()}
-    assert entity_types == {"DEVELOPMENT", "BUILDING", "PROPERTY", "DOCUMENT", "COMPONENT", "SPECIFICATION"}
+    assert entity_types == {
+        "DEVELOPMENT",
+        "BUILDING",
+        "PROPERTY",
+        "DOCUMENT",
+        "COMPONENT",
+        "SPECIFICATION",
+        "CHANGE_CONTROL",
+    }
 
 
 # --- external references -----------------------------------------------------

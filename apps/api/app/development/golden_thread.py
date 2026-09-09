@@ -7,8 +7,12 @@ Document, ExternalReference).
 
 BUILDING -> DESIGN/SPECIFICATION -> COMPONENT -> RESPONSIBLE PARTY ->
 EVIDENCE -> INSPECTION -> CHANGE -> APPROVAL/EXTERNAL REFERENCE ->
-HANDOVER -> OPERATION. Inspection, change control and handover have no
-canonical table yet (Sprints 16, 10, 12) — see GoldenThreadOut's
+HANDOVER -> OPERATION. CHANGE is Sprint 10's own addition (`ChangeControl`
+rows, matched by the same related_entity_type/related_entity_id every
+other link here is matched by — not by specification_id, since the
+Golden Thread traverses by *location*, and a location's change history
+outlives any one specification revision). Inspection and handover still
+have no canonical table yet (Sprints 16, 12) — see GoldenThreadOut's
 not_yet_available list, which is the honest, explicit stand-in rather
 than silently omitting those links.
 """
@@ -19,7 +23,16 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.development.models import Building, Component, ComponentType, Property, Specification, SpecificationStatus
+from app.development.models import (
+    Building,
+    ChangeControl,
+    Component,
+    ComponentType,
+    Property,
+    Specification,
+    SpecificationStatus,
+)
+from app.development.presenters import changes_to_out
 from app.development.schemas import (
     GoldenThreadComponentOut,
     GoldenThreadOut,
@@ -30,7 +43,7 @@ from app.documents.models import Document
 from app.documents.schemas import DocumentOut
 from app.identifiers.service import get_external_references
 
-NOT_YET_AVAILABLE = ["inspections (Sprint 16)", "change_control (Sprint 10)", "handover_records (Sprint 12)"]
+NOT_YET_AVAILABLE = ["inspections (Sprint 16)", "handover_records (Sprint 12)"]
 
 
 def _current_specifications(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> list:
@@ -56,6 +69,19 @@ def _evidence(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_
             Document.related_entity_id == str(entity_id),
         )
         .order_by(Document.uploaded_at.desc())
+        .all()
+    )
+
+
+def _changes(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> list:
+    return (
+        db.query(ChangeControl)
+        .filter(
+            ChangeControl.organisation_id == organisation_id,
+            ChangeControl.related_entity_type == entity_type,
+            ChangeControl.related_entity_id == str(entity_id),
+        )
+        .order_by(ChangeControl.created_at.desc())
         .all()
     )
 
@@ -113,6 +139,7 @@ def get_golden_thread(db: Session, organisation_id: uuid.UUID, building: Buildin
                 ],
                 responsible_party=_responsible_party(db, organisation_id, component, external_references),
                 evidence=[DocumentOut.model_validate(d) for d in _evidence(db, organisation_id, "component", component.id)],
+                changes=changes_to_out(db, organisation_id, _changes(db, organisation_id, "component", component.id)),
                 external_references=external_references,
             )
         )
@@ -126,6 +153,7 @@ def get_golden_thread(db: Session, organisation_id: uuid.UUID, building: Buildin
             for s in _current_specifications(db, organisation_id, "building", building.id)
         ],
         evidence=[DocumentOut.model_validate(d) for d in _evidence(db, organisation_id, "building", building.id)],
+        changes=changes_to_out(db, organisation_id, _changes(db, organisation_id, "building", building.id)),
         external_references=get_external_references(db, organisation_id, "building", building.id),
         components=component_views,
         not_yet_available=NOT_YET_AVAILABLE,
