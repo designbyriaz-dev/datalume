@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type BuildingOut, type PropertyOut, type SpaceOut } from "@/lib/api";
+import { api, type Property360, type SpaceOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -26,10 +26,15 @@ function statusVariant(status: string) {
   return "neutral" as const;
 }
 
+function severityVariant(severity: string) {
+  if (severity === "HIGH") return "critical" as const;
+  if (severity === "MEDIUM") return "warning" as const;
+  return "neutral" as const;
+}
+
 export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
-  const [property, setProperty] = useState<PropertyOut | null>(null);
+  const [view, setView] = useState<Property360 | null>(null);
   const [spaces, setSpaces] = useState<SpaceOut[] | null>(null);
-  const [building, setBuilding] = useState<BuildingOut | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [spaceName, setSpaceName] = useState("");
@@ -50,6 +55,12 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
     setSpaces(await api.listSpaces(id, propertyId));
   }
 
+  async function refresh360() {
+    const id = orgId();
+    if (!id) return;
+    setView(await api.getProperty360(id, propertyId));
+  }
+
   useEffect(() => {
     (async () => {
       const id = orgId();
@@ -58,15 +69,9 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         return;
       }
       try {
-        const [prop, spaceList] = await Promise.all([
-          api.getProperty(id, propertyId),
-          api.listSpaces(id, propertyId),
-        ]);
-        setProperty(prop);
+        const [view360, spaceList] = await Promise.all([api.getProperty360(id, propertyId), api.listSpaces(id, propertyId)]);
+        setView(view360);
         setSpaces(spaceList);
-        if (prop.building_id) {
-          setBuilding(await api.getBuilding(id, prop.building_id));
-        }
       } catch {
         setLoadError("Couldn't load this property.");
       }
@@ -98,11 +103,12 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
 
   async function onChangeStatus(newStatus: string) {
     const id = orgId();
-    if (!id || newStatus === property?.status) return;
+    if (!id || newStatus === view?.property.status) return;
     setStatusUpdating(true);
     setStatusError(null);
     try {
-      setProperty(await api.updatePropertyStatus(id, propertyId, newStatus));
+      await api.updatePropertyStatus(id, propertyId, newStatus);
+      await refresh360();
     } catch (err) {
       setStatusError(err instanceof Error && err.message ? err.message : "Couldn't update status.");
     } finally {
@@ -114,12 +120,14 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!property) {
+  if (!view || !spaces) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
+  const { property, development, building, floor } = view;
+
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: 860 }}>
       <Link href="/properties" style={{ fontSize: 13, color: "var(--color-primary)" }}>
         ← Properties
       </Link>
@@ -175,15 +183,24 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           <div>{property.property_type ?? "—"}</div>
         </div>
         <div>
-          <div style={{ color: "var(--text-secondary)", marginBottom: 2 }}>Building</div>
+          <div style={{ color: "var(--text-secondary)", marginBottom: 2 }}>Development history</div>
           <div>
-            {building ? (
-              <Link href={`/buildings/${building.id}`} style={{ color: "var(--color-primary)" }}>
-                {building.name}
+            {development ? (
+              <Link href={`/developments/${development.id}`} style={{ color: "var(--color-primary)" }}>
+                {development.name}
               </Link>
             ) : (
               "—"
             )}
+            {building && (
+              <>
+                {" → "}
+                <Link href={`/buildings/${building.id}`} style={{ color: "var(--color-primary)" }}>
+                  {building.name}
+                </Link>
+              </>
+            )}
+            {floor && ` → ${floor.name}`}
           </div>
         </div>
         <div>
@@ -191,6 +208,14 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           <div>
             {property.source_type === "FILE_UPLOAD" ? "Imported" : "Manual"}
             {property.original_reference ? ` (${property.original_reference})` : ""}
+          </div>
+        </div>
+        <div>
+          <div style={{ color: "var(--text-secondary)", marginBottom: 2 }}>Handover</div>
+          <div>
+            {view.handover_record
+              ? `${view.handover_record.readiness_score_pct}% at handover${view.handover_record.override_reason ? " (override)" : ""}`
+              : "Not yet handed over"}
           </div>
         </div>
       </div>
@@ -232,12 +257,10 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         )}
       </div>
 
-      {spaces === null ? (
-        <div style={{ color: "var(--text-secondary)" }}>Loading…</div>
-      ) : spaces.length === 0 ? (
-        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>No spaces recorded yet.</div>
+      {spaces.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No spaces recorded yet.</div>
       ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
           {spaces.map((s) => (
             <li
               key={s.id}
@@ -255,6 +278,129 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           ))}
         </ul>
       )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Components</h2>
+      {view.components.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No components yet.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 12, marginBottom: 24 }}>
+          {view.components.map((c) => (
+            <div
+              key={c.id}
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "var(--radius-card)",
+                padding: 16,
+                fontSize: 13,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <Link href={`/components/${c.id}`} style={{ color: "var(--color-primary)", fontWeight: 700 }}>
+                  {c.component_reference} — {c.component_type_name}
+                </Link>
+                <StatusBadge label={c.status} variant={c.status === "ACTIVE" ? "success" : "neutral"} />
+              </div>
+              <div style={{ color: "var(--text-secondary)" }}>
+                Specs: {c.specifications.length === 0 ? "none" : c.specifications.map((s) => s.title).join(", ")} ·
+                Evidence: {c.evidence.length === 0 ? "none" : c.evidence.length} · Changes:{" "}
+                {c.changes.length === 0 ? "none" : c.changes.length}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Warranties</h2>
+          {view.warranties.length === 0 ? (
+            <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>None.</div>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
+              {view.warranties.map((w) => (
+                <li key={w.id} style={{ padding: "6px 0", borderTop: "1px solid var(--border-subtle)" }}>
+                  {w.provider} — {w.warranty_type}
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {" "}
+                    ({w.is_expired ? "expired" : `${w.days_until_expiry}d left`})
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Defects</h2>
+          {view.defects.length === 0 ? (
+            <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>None.</div>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, fontSize: 13 }}>
+              {view.defects.map((d) => (
+                <li
+                  key={d.id}
+                  style={{
+                    padding: "6px 0",
+                    borderTop: "1px solid var(--border-subtle)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <span>{d.category}</span>
+                  <span style={{ display: "flex", gap: 4 }}>
+                    <StatusBadge label={d.severity} variant={severityVariant(d.severity)} />
+                    <StatusBadge label={d.status} variant={d.status === "CLOSED" || d.status === "COMPLETED" ? "success" : "neutral"} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Data Health</h2>
+      {view.data_health_findings.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No issues found.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", fontSize: 13 }}>
+          {view.data_health_findings.map((f, i) => (
+            <li key={i} style={{ padding: "6px 0", borderTop: "1px solid var(--border-subtle)" }}>
+              {f.message}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Timeline</h2>
+      {view.timeline.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No activity recorded yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 16px", fontSize: 13 }}>
+          {view.timeline.map((e, i) => (
+            <li
+              key={i}
+              style={{
+                padding: "8px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                display: "flex",
+                justifyContent: "space-between",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <span>
+                {e.action_code}
+                {e.actor_name ? ` · ${e.actor_name}` : ""}
+              </span>
+              <span>{new Date(e.created_at).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
+        Not yet available: {view.not_yet_available.join(", ")}
+      </div>
     </div>
   );
 }

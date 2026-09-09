@@ -692,10 +692,75 @@ per instruction — "continue with sprint 2, billing later"):
   permanently in `handover_records`; confirmed the weight-configuration
   PATCH endpoint and its 404 guard on an unknown check_code over curl.
 
+**Sprint 13 — Property 360 / Portfolio:**
+
+- **Refactored before extending**: Golden Thread's per-component bundle
+  (specs/evidence/changes/responsible party/external references) was
+  duplicated logic Property 360 needed identically, just gathered by
+  property instead of by building — pulled out into
+  `app/development/composition.py` (`build_component_view` and the
+  entity-agnostic `current_specifications`/`evidence_for`/`changes_for`
+  helpers) so both views call the same functions instead of copying
+  them. Caught and fixed a real gap while touching this code: Golden
+  Thread's `not_yet_available` still listed "handover (Sprint 12)" after
+  Sprint 12 shipped and never actually wired in `HandoverRecord` data —
+  fixed by adding a real `handover_records` field (properties under the
+  building, same as every other Golden Thread link) rather than just
+  deleting the stale list entry.
+- **Property 360** (`app/development/property_360.py`, spec §41) — a
+  read-composition exactly like Golden Thread and Handover Readiness,
+  scoped to one property: property info, development/building/floor
+  history, the same per-component bundle Golden Thread uses (including
+  components attached via a space, not just directly), property-level
+  specifications/evidence/change control, warranties and defects (both
+  property- and component-level), the property's handover record if
+  any, Data Health findings filtered to this property (reusing the
+  existing Sprint 5 rule registry, not a duplicate one), and a Timeline
+  — the first real consumer of `AuditEvent` reads in this codebase,
+  composed from `entity_type IN ("property", "component")` rows every
+  service function since Sprint 5 has already been writing. Repairs,
+  Compliance & Safety, Stock Condition/Planned Investment, Tenancy/
+  Lease, Rent & Payments, Attention Signals and Ask DataLume have no
+  canonical data yet — named explicitly in `not_yet_available`, same
+  honesty pattern as Golden Thread's own list.
+- **Portfolio rollups** (`app/development/portfolio.py`) — an org-wide
+  counterpart to Property 360: total properties/developments/buildings/
+  components, properties by status, the org's Data Health score, open/
+  overdue defect counts, warranties expiring within 90 days, and each
+  development's current handover readiness score. Every number is a
+  direct read over tables that already exist — nothing new is stored.
+  This replaces the Home dashboard's ad-hoc client-side property-count-
+  plus-data-health fetch (present since Sprint 5) with one real
+  backend-computed endpoint.
+- `apps/web`: the Property detail page is now genuinely the Property
+  360 view (components, warranties, defects, Data Health, timeline, not-
+  yet-available footer, all in one place); Home now shows six real KPIs
+  plus a properties-by-status breakdown and a per-development handover
+  readiness list, sourced from the one new portfolio endpoint instead of
+  two ad-hoc calls.
+- 8 new backend tests (152 total passing) — no bugs found by the suite;
+  the two real issues this sprint caught (Golden Thread's stale
+  not_yet_available entry, and the shared composition logic that
+  motivated the refactor) were both found by re-reading the code while
+  extending it, not by a failing assertion.
+- Verified end-to-end live: built a development with two properties, a
+  component, a warranty and an overdue defect over curl and confirmed
+  Home's KPIs matched exactly (2 properties, 1 development, 1 component,
+  correct status breakdown, 1 open defect, correct development
+  readiness %); opened the enriched property page and confirmed every
+  section composed correctly (development → building breadcrumb,
+  component with its own specs/evidence/changes, warranty days-
+  remaining, defect severity/status, Data Health findings scoped to
+  just this property, a timeline with real actor names and timestamps);
+  authorised handover for that property and confirmed both the property
+  page's Handover field and Timeline updated correctly, and that the
+  building's Golden Thread now shows the same handover record with its
+  full readiness snapshot.
+
 ## Not yet done
 
-Sprints 13–24 (Property 360, repairs, compliance, and the rest) — not
-started. Full order and scope in
+Sprints 14–24 (repairs, compliance, stock condition, tenancies, and the
+rest) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

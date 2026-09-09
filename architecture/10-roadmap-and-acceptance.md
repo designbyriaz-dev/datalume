@@ -152,7 +152,22 @@ never a copy. See STATUS.md for the live verification and a real bug
 the test suite caught (an empty development scoring ~85% instead of 0%,
 since most checks vacuously pass when there's nothing to apply to yet).
 
-Sprints 13–24 are not started; they are ordered and ready to pick up.
+**Sprint 13 (Property 360 / Portfolio): built** — Property 360 (spec
+§41) composes property info, development/building/floor history,
+components (with the same per-component specs/evidence/changes bundle
+Golden Thread uses — extracted into a shared `composition.py` module
+rather than duplicated), warranties, defects, handover record, Data
+Health findings, and a Timeline sourced from `AuditEvent` rows every
+sprint since 5 has been writing. Portfolio rollups give the Home
+dashboard real backend-computed KPIs (properties/developments/
+components, status breakdown, Data Health, defects, warranty expiry,
+per-development handover readiness) in place of the ad-hoc client-side
+fetch that had been there since Sprint 5. Also fixed a real gap found
+while extending Golden Thread: its `not_yet_available` list still named
+Sprint 12's handover as missing after Sprint 12 shipped — now a real
+`handover_records` field. See STATUS.md for the full live verification.
+
+Sprints 14–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

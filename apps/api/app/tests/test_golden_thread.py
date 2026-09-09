@@ -95,7 +95,8 @@ def test_golden_thread_composes_building_specifications_and_components(client):
     assert comp["changes"][0]["id"] == change["id"]
     assert comp["changes"][0]["status"] == "PROPOSED"
 
-    assert body["not_yet_available"] == ["inspections (Sprint 16)", "handover_records (Sprint 12)"]
+    assert body["not_yet_available"] == ["inspections (Sprint 16)"]
+    assert body["handover_records"] == []
 
 
 def test_golden_thread_includes_components_attached_via_property(client):
@@ -126,6 +127,41 @@ def test_golden_thread_includes_components_attached_via_property(client):
     assert resp.status_code == 200
     component_ids = [c["id"] for c in resp.json()["components"]]
     assert component_ids == [component["id"]]
+
+
+def test_golden_thread_includes_handover_records_for_properties_under_the_building(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    dev = client.post(
+        "/api/v1/developments", headers={"X-Organisation-Id": org_id}, json={"name": "Riverside Gardens"}
+    ).json()
+    building = client.post(
+        "/api/v1/buildings",
+        headers={"X-Organisation-Id": org_id},
+        json={"name": "Block A", "development_id": dev["id"]},
+    ).json()
+    prop = client.post(
+        "/api/v1/properties",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "address": "Flat 1, Block A",
+            "development_id": dev["id"],
+            "building_id": building["id"],
+            "status": "READY_FOR_HANDOVER",
+        },
+    ).json()
+    client.post(
+        f"/api/v1/developments/{dev['id']}/handover/authorise",
+        headers={"X-Organisation-Id": org_id},
+        json={"override_reason": "Pilot scheme sign-off"},
+    )
+
+    resp = client.get(f"/api/v1/buildings/{building['id']}/golden-thread", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    handover_records = resp.json()["handover_records"]
+    assert len(handover_records) == 1
+    assert handover_records[0]["property_id"] == prop["id"]
+    assert handover_records[0]["override_reason"] == "Pilot scheme sign-off"
 
 
 def test_golden_thread_for_missing_building_is_404(client):

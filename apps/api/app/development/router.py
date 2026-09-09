@@ -8,9 +8,11 @@ from app.core.provenance import SourceType
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
 from app.development.models import Property, Space
 from app.development.presenters import properties_to_out, property_to_out
+from app.development.property_360 import get_property_360
 from app.development.schemas import (
     CreatePropertyRequest,
     CreateSpaceRequest,
+    Property360Out,
     PropertyOut,
     SpaceOut,
     UpdatePropertyStatusRequest,
@@ -97,6 +99,20 @@ def get_property(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
     prop = _get_org_property(db, ctx.organisation_id, property_id)
     return property_to_out(db, ctx.organisation_id, prop)
+
+
+@router.get("/{property_id}/360", response_model=Property360Out)
+def get_property_360_endpoint(
+    property_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_auth_context),
+    db: Session = Depends(get_db),
+):
+    if ctx.organisation_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
+    prop = _get_org_property(db, ctx.organisation_id, property_id)
+    view = get_property_360(db, ctx.organisation_id, prop)
+    db.commit()  # Data Health findings recomputed on read, same as GET /api/v1/data-health
+    return view
 
 
 @router.post("/{property_id}/status", response_model=PropertyOut)

@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel
 
+from app.data_health.schemas import FindingOut
 from app.development.models import ComponentStatus, PropertyStatus
 from app.documents.schemas import DocumentOut
 
@@ -288,6 +289,19 @@ class ChangeControlOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HandoverRecordOut(BaseModel):
+    id: uuid.UUID
+    property_id: uuid.UUID
+    development_id: uuid.UUID
+    readiness_score_pct: float
+    readiness_snapshot: list[dict]
+    override_reason: str | None
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class GoldenThreadResponsiblePartyOut(BaseModel):
     """architecture/03-development-domain.md §4: "responsible_party (from
     provenance/import metadata + contractor refs)" — there is no separate
@@ -317,14 +331,15 @@ class GoldenThreadComponentOut(BaseModel):
 class GoldenThreadOut(BaseModel):
     """The composed BUILDING -> DESIGN/SPECIFICATION -> COMPONENT ->
     RESPONSIBLE PARTY -> EVIDENCE -> CHANGE -> APPROVAL/EXTERNAL
-    REFERENCE -> ... chain from spec §29, built from existing tables only
-    (architecture/03-development-domain.md §4: "compose, don't
-    duplicate"). `not_yet_available` names the links in that chain with
-    no canonical table yet — inspection (Sprint 16), handover (Sprint
-    12) — so the UI can be honest about what this view does and doesn't
-    cover yet, per spec §29's explicit constraint that storing this
-    information does not by itself satisfy every legal Golden Thread
-    obligation."""
+    REFERENCE -> HANDOVER -> ... chain from spec §29, built from existing
+    tables only (architecture/03-development-domain.md §4: "compose,
+    don't duplicate"). HANDOVER is Sprint 12's own addition
+    (`HandoverRecord` rows for properties under this building).
+    `not_yet_available` names the one remaining link with no canonical
+    table yet — inspection (Sprint 16) — so the UI can be honest about
+    what this view does and doesn't cover yet, per spec §29's explicit
+    constraint that storing this information does not by itself satisfy
+    every legal Golden Thread obligation."""
 
     building_id: uuid.UUID
     building_reference: str
@@ -332,6 +347,7 @@ class GoldenThreadOut(BaseModel):
     specifications: list[SpecificationOut]
     evidence: list[DocumentOut]
     changes: list[ChangeControlOut]
+    handover_records: list[HandoverRecordOut]
     external_references: dict[str, str]
     components: list[GoldenThreadComponentOut]
     not_yet_available: list[str]
@@ -475,19 +491,6 @@ class AuthoriseHandoverRequest(BaseModel):
     override_reason: str | None = None
 
 
-class HandoverRecordOut(BaseModel):
-    id: uuid.UUID
-    property_id: uuid.UUID
-    development_id: uuid.UUID
-    readiness_score_pct: float
-    readiness_snapshot: list[dict]
-    override_reason: str | None
-    created_by: uuid.UUID | None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class HandoverReadinessWeightOut(BaseModel):
     check_code: str
     label: str
@@ -496,3 +499,74 @@ class HandoverReadinessWeightOut(BaseModel):
 
 class UpdateHandoverReadinessWeightRequest(BaseModel):
     weight: float
+
+
+class TimelineEventOut(BaseModel):
+    action_code: str
+    entity_type: str
+    entity_id: str | None
+    actor_name: str | None
+    before: dict | None
+    after: dict | None
+    created_at: datetime
+
+
+class Property360Out(BaseModel):
+    """architecture/03-development-domain.md all sections, spec §41.
+    Composes everything spec §41 asks for that has a canonical table as
+    of Sprint 13 — Property Information, Development History, Building/
+    Block, Components (with Golden Thread's own per-component bundle,
+    app/development/composition.py), Golden Thread-equivalent evidence/
+    specs/changes at the property's own level, Handover, Warranties,
+    Defects, Data Health. Repairs, Compliance & Safety, Stock Condition,
+    Planned Investment, Tenancy/Lease, Rent & Payments, Attention
+    Signals and Ask DataLume have no canonical data yet — named
+    explicitly in not_yet_available rather than omitted silently, same
+    pattern as Golden Thread's own list."""
+
+    property: PropertyOut
+    development: DevelopmentOut | None
+    building: BuildingOut | None
+    floor: FloorOut | None
+    specifications: list[SpecificationOut]
+    evidence: list[DocumentOut]
+    changes: list[ChangeControlOut]
+    components: list[GoldenThreadComponentOut]
+    warranties: list[WarrantyOut]
+    defects: list[DefectOut]
+    handover_record: HandoverRecordOut | None
+    data_health_findings: list[FindingOut]
+    timeline: list[TimelineEventOut]
+    not_yet_available: list[str]
+
+
+class PortfolioStatusCountOut(BaseModel):
+    key: str
+    count: int
+
+
+class DevelopmentReadinessSummaryOut(BaseModel):
+    development_id: uuid.UUID
+    development_reference: str
+    name: str
+    score_pct: float
+
+
+class PortfolioSummaryOut(BaseModel):
+    """Portfolio rollups — roadmap Sprint 13 "portfolio rollups", spec
+    §41's portfolio-level counterpart to Property 360. Every number here
+    is directly re-derivable from the entity list/detail endpoints
+    already built (properties, components, defects, warranties, data
+    health) — nothing new is stored, this is a read-composition exactly
+    like Golden Thread and Property 360."""
+
+    total_properties: int
+    total_developments: int
+    total_buildings: int
+    total_components: int
+    properties_by_status: list[PortfolioStatusCountOut]
+    data_health_score_pct: float
+    open_defects_count: int
+    overdue_defects_count: int
+    warranties_expiring_within_90_days_count: int
+    development_readiness: list[DevelopmentReadinessSummaryOut]

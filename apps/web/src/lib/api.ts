@@ -454,6 +454,55 @@ export type WarrantyOut = {
   created_at: string;
 };
 
+export type TimelineEvent = {
+  action_code: string;
+  entity_type: string;
+  entity_id: string | null;
+  actor_name: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type Property360 = {
+  property: PropertyOut;
+  development: DevelopmentOut | null;
+  building: BuildingOut | null;
+  floor: FloorOut | null;
+  specifications: SpecificationOut[];
+  evidence: DocumentOut[];
+  changes: ChangeControlOut[];
+  components: GoldenThreadComponent[];
+  warranties: WarrantyOut[];
+  defects: DefectOut[];
+  handover_record: HandoverRecordOut | null;
+  data_health_findings: DataHealthFinding[];
+  timeline: TimelineEvent[];
+  not_yet_available: string[];
+};
+
+export type PortfolioStatusCount = { key: string; count: number };
+
+export type DevelopmentReadinessSummary = {
+  development_id: string;
+  development_reference: string;
+  name: string;
+  score_pct: number;
+};
+
+export type PortfolioSummary = {
+  total_properties: number;
+  total_developments: number;
+  total_buildings: number;
+  total_components: number;
+  properties_by_status: PortfolioStatusCount[];
+  data_health_score_pct: number;
+  open_defects_count: number;
+  overdue_defects_count: number;
+  warranties_expiring_within_90_days_count: number;
+  development_readiness: DevelopmentReadinessSummary[];
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -596,6 +645,10 @@ export const api = {
       organisationId,
       body: JSON.stringify({ status: newStatus }),
     }),
+  getProperty360: (organisationId: string, propertyId: string) =>
+    request<Property360>(`/api/v1/properties/${propertyId}/360`, { organisationId }),
+  portfolioSummary: (organisationId: string) =>
+    request<PortfolioSummary>("/api/v1/portfolio/summary", { organisationId }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

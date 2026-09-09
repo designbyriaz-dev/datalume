@@ -16,6 +16,7 @@ from app.development.components_router import router as components_router
 from app.development.defects_router import router as defects_router
 from app.development.handover_router import router as handover_router
 from app.development.hierarchy_router import router as development_hierarchy_router
+from app.development.portfolio_router import router as portfolio_router
 from app.development.router import router as development_router
 from app.development.specifications_router import router as specifications_router
 from app.development.warranties_router import router as warranties_router
@@ -45,6 +46,7 @@ app.include_router(change_control_router)
 app.include_router(defects_router)
 app.include_router(warranties_router)
 app.include_router(handover_router)
+app.include_router(portfolio_router)
 app.include_router(data_health_router)
 app.include_router(identifiers_router)
 
