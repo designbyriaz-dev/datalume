@@ -1,10 +1,11 @@
 """Field dictionaries used to propose a column mapping — architecture/02
-§2 step 3 ("Understand"). Deliberately data, not domain models: no real
-Property/Component tables exist yet (those land Sprint 5/8), so these
-dictionaries describe the *shape* an upload is expected to have ahead of
-the canonical tables existing. Sprint 5+ adds a dictionary per domain as
-each one lands — see docs/BUILD_PROMPT.md §13 for the full dataset list
-this eventually covers (Developments, Repairs, Compliance, Tenancies...).
+§2 step 3 ("Understand"). Deliberately data, not domain models — these
+dictionaries describe the *shape* an upload is expected to have,
+independent of whichever canonical table happens to receive it (Property
+landed Sprint 5, Component Sprint 8). Sprint 5+ adds a dictionary per
+domain as each one lands — see docs/BUILD_PROMPT.md §13 for the full
+dataset list this eventually covers (Developments, Repairs, Compliance,
+Tenancies...).
 """
 
 from pydantic import BaseModel

@@ -13,8 +13,8 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.development.models import Building, Development, Property
-from app.development.schemas import BuildingOut, DevelopmentOut, PropertyOut
+from app.development.models import Building, Component, ComponentType, Development, Property
+from app.development.schemas import BuildingOut, ComponentOut, DevelopmentOut, PropertyOut
 from app.identifiers.service import get_external_references, get_external_references_bulk
 
 
@@ -136,4 +136,72 @@ def buildings_to_out(db: Session, organisation_id: uuid.UUID, buildings: list[Bu
             created_at=b.created_at,
         )
         for b in buildings
+    ]
+
+
+def component_to_out(db: Session, organisation_id: uuid.UUID, component: Component) -> ComponentOut:
+    refs = get_external_references(db, organisation_id, "component", component.id)
+    component_type = db.get(ComponentType, component.component_type_id)
+    return ComponentOut(
+        id=component.id,
+        component_reference=component.component_reference,
+        component_type_id=component.component_type_id,
+        component_type_name=component_type.name if component_type else "Unknown",
+        component_subtype=component.component_subtype,
+        manufacturer=component.manufacturer,
+        model=component.model,
+        serial_number=refs.get("MANUFACTURER_SERIAL_NUMBER"),
+        installer=component.installer,
+        installation_date=component.installation_date,
+        commissioning_date=component.commissioning_date,
+        warranty_start=component.warranty_start,
+        warranty_expiry=component.warranty_expiry,
+        expected_life_years=component.expected_life_years,
+        indicative_replacement_date=component.indicative_replacement_date,
+        status=component.status.value,
+        development_id=component.development_id,
+        building_id=component.building_id,
+        property_id=component.property_id,
+        space_id=component.space_id,
+        parent_component_id=component.parent_component_id,
+        source_type=component.source_type.value,
+        source_dataset_id=component.source_dataset_id,
+        original_reference=component.original_reference,
+        created_at=component.created_at,
+    )
+
+
+def components_to_out(db: Session, organisation_id: uuid.UUID, components: list[Component]) -> list[ComponentOut]:
+    refs_by_id = get_external_references_bulk(db, organisation_id, "component", [c.id for c in components])
+    type_ids = {c.component_type_id for c in components}
+    types_by_id = {t.id: t for t in db.query(ComponentType).filter(ComponentType.id.in_(type_ids)).all()}
+    return [
+        ComponentOut(
+            id=c.id,
+            component_reference=c.component_reference,
+            component_type_id=c.component_type_id,
+            component_type_name=types_by_id[c.component_type_id].name if c.component_type_id in types_by_id else "Unknown",
+            component_subtype=c.component_subtype,
+            manufacturer=c.manufacturer,
+            model=c.model,
+            serial_number=refs_by_id.get(str(c.id), {}).get("MANUFACTURER_SERIAL_NUMBER"),
+            installer=c.installer,
+            installation_date=c.installation_date,
+            commissioning_date=c.commissioning_date,
+            warranty_start=c.warranty_start,
+            warranty_expiry=c.warranty_expiry,
+            expected_life_years=c.expected_life_years,
+            indicative_replacement_date=c.indicative_replacement_date,
+            status=c.status.value,
+            development_id=c.development_id,
+            building_id=c.building_id,
+            property_id=c.property_id,
+            space_id=c.space_id,
+            parent_component_id=c.parent_component_id,
+            source_type=c.source_type.value,
+            source_dataset_id=c.source_dataset_id,
+            original_reference=c.original_reference,
+            created_at=c.created_at,
+        )
+        for c in components
     ]

@@ -145,3 +145,73 @@ class Space(Base, ProvenanceMixin):
     building_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("buildings.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(255))
     space_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class ComponentStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"
+    REPLACED = "REPLACED"
+    DISPOSED = "DISPOSED"
+
+
+class ComponentType(Base):
+    """Seeded taxonomy, org-extensible — spec §22. organisation_id NULL
+    is the global seeded catalog (visible to every org, same pattern as
+    system roles/plans); a non-NULL row is one org's own custom addition,
+    e.g. an unrecognised type auto-created during CSV import
+    (app/development/importers.py) rather than hard-failing the row."""
+
+    __tablename__ = "component_types"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organisations.id"), nullable=True)
+    code: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(128))
+    parent_type_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("component_types.id"), nullable=True)
+
+
+class Component(Base, ProvenanceMixin):
+    """architecture/03-development-domain.md §2. Can attach to any
+    combination of development/building/property/space (spec §24: not a
+    strict single-parent tree the way Property's hierarchy is — a lift
+    might belong to a building with no specific property, for instance)
+    plus an optional parent_component_id for the HEATING SYSTEM -> BOILER
+    -> PUMP -> CONTROL style hierarchy from spec §24.
+
+    serial_number is NOT a column here — it's a manufacturer-supplied
+    external identifier (app.identifiers.models.ExternalReferenceType.
+    MANUFACTURER_SERIAL_NUMBER), same reasoning as Property.uprn since
+    Sprint 7: spec §25 "never confuse internal component codes with
+    manufacturer serial numbers" is enforced by them literally living in
+    different tables, not just different columns.
+
+    indicative_replacement_date is computed once, at write time, from
+    installation_date + expected_life_years (see
+    app/development/service.py.create_component) — a real but partial
+    version of spec §26's Component Lifecycle Intelligence, which also
+    factors in condition/repair/failure signals that don't exist until
+    Repairs (Sprint 14) and Stock Condition (Sprint 18) land. Recomputing
+    it against those signals is that later sprint's job, not this one's.
+    """
+
+    __tablename__ = "components"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    development_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("developments.id"), nullable=True)
+    building_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("buildings.id"), nullable=True)
+    property_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("properties.id"), nullable=True)
+    space_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("spaces.id"), nullable=True)
+    parent_component_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("components.id"), nullable=True)
+    component_reference: Mapped[str] = mapped_column(String(32))
+    component_type_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("component_types.id"))
+    component_subtype: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    installer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    installation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    commissioning_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    warranty_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    warranty_expiry: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expected_life_years: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    indicative_replacement_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[ComponentStatus] = mapped_column(Enum(ComponentStatus), default=ComponentStatus.ACTIVE)

@@ -160,34 +160,67 @@ def test_import_without_mapping_is_rejected(client):
 
 
 def test_import_with_no_registered_importer_is_an_honest_noop(client):
-    """PROPERTIES got a real importer in Sprint 5 (see test_ingestion_imports_real_property_entities
-    below) — COMPONENTS still has none, so it's still the honest-no-op case this test covers."""
+    """PROPERTIES (Sprint 5) and COMPONENTS (Sprint 8) both have real
+    importers now — rather than depend on some other real dataset_type
+    staying unregistered forever (fragile: the whole point of IMPORTERS
+    is that more get added every sprint), this exercises import_dataset
+    directly against a dataset_type that deliberately isn't in
+    FIELD_DICTIONARIES or IMPORTERS at all, constructed straight in the
+    DB rather than through the /uploads endpoint (which would reject an
+    unknown dataset_type before ever reaching this code path)."""
+    import app.core.db as db_module
+    from app.ingestion.models import Dataset, DatasetStatus, ImportJob, ImportJobStatus, ImportRow, ImportRowStatus
+    from app.ingestion.pipeline import import_dataset
+
     signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
-    org_id = signup["organisation_id"]
-    csv_text = "Component Type,Manufacturer\nBoiler,Worcester\nSmoke Alarm,Aico\n"
-    upload = _upload_csv(client, org_id, csv_text, dataset_type="COMPONENTS").json()
-    client.post(
-        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
-        headers={"X-Organisation-Id": org_id},
-        json={"column_mapping": {"Component Type": "component_type", "Manufacturer": "manufacturer"}},
-    )
+    org_id = uuid.UUID(signup["organisation_id"])
+    user_id = uuid.UUID(signup["user_id"])
 
-    resp = client.post(
-        f"/api/v1/datasets/{upload['dataset_id']}/import",
-        headers={"X-Organisation-Id": org_id},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["rows_processed"] == 2
-    assert body["entities_created"] == 0
-    assert body["importer_registered"] is False
+    db = db_module.SessionLocal()
+    try:
+        dataset = Dataset(
+            organisation_id=org_id,
+            name="Unregistered type test",
+            dataset_type="SOME_FUTURE_DATASET_TYPE",
+            status=DatasetStatus.MAPPED,
+            row_count=2,
+            uploaded_by=user_id,
+        )
+        db.add(dataset)
+        db.flush()
+        import_job = ImportJob(
+            organisation_id=org_id,
+            dataset_id=dataset.id,
+            status=ImportJobStatus.MAPPED,
+            column_mapping={"Col": "field"},
+        )
+        db.add(import_job)
+        db.flush()
+        for i in (1, 2):
+            db.add(
+                ImportRow(
+                    organisation_id=org_id,
+                    import_job_id=import_job.id,
+                    row_number=i,
+                    raw_data={"Col": f"value {i}"},
+                    status=ImportRowStatus.VALID,
+                    errors=[],
+                )
+            )
+        db.commit()
 
-    detail = client.get(
-        f"/api/v1/datasets/{upload['dataset_id']}",
-        headers={"X-Organisation-Id": org_id},
-    ).json()
-    assert detail["status"] == "IMPORTED"
-    assert detail["row_status_counts"] == {"IMPORTED": 2}
+        result = import_dataset(db, dataset, import_job)
+        db.commit()
+
+        assert result == {"rows_processed": 2, "entities_created": 0, "importer_registered": False}
+
+        rows = db.query(ImportRow).filter(ImportRow.import_job_id == import_job.id).all()
+        assert all(r.status == ImportRowStatus.IMPORTED for r in rows)
+        assert all(r.mapped_entity_type is None for r in rows)
+        db.refresh(dataset)
+        assert dataset.status == DatasetStatus.IMPORTED
+    finally:
+        db.close()
 
 
 def test_ingestion_imports_real_property_entities(client):

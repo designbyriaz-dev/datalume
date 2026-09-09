@@ -32,6 +32,7 @@ DEFAULT_PATTERNS: dict[str, str] = {
     "BUILDING": "BLD-{sequence:06d}",
     "PROPERTY": "PROP-{sequence:06d}",
     "DOCUMENT": "DOC-{sequence:06d}",
+    "COMPONENT": "COMP-{sequence:06d}",
 }
 
 

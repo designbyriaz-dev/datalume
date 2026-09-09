@@ -15,11 +15,21 @@ supplied.
 """
 
 import uuid
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
-from app.development.models import Building, Development, Floor, Property, PropertyStatus, Space
+from app.development.models import (
+    Building,
+    Component,
+    ComponentStatus,
+    Development,
+    Floor,
+    Property,
+    PropertyStatus,
+    Space,
+)
 from app.identifiers.models import ExternalReferenceType
 from app.identifiers.service import generate_reference, record_external_reference
 from app.platform.audit import record_audit_event
@@ -63,6 +73,33 @@ def _get_org_floor(db: Session, organisation_id: uuid.UUID, floor_id: uuid.UUID)
     if floor is None:
         raise HierarchyNotFoundError(f"Floor {floor_id} not found")
     return floor
+
+
+def _get_org_property(db: Session, organisation_id: uuid.UUID, property_id: uuid.UUID) -> Property:
+    prop = (
+        db.query(Property).filter(Property.id == property_id, Property.organisation_id == organisation_id).first()
+    )
+    if prop is None:
+        raise HierarchyNotFoundError(f"Property {property_id} not found")
+    return prop
+
+
+def _get_org_space(db: Session, organisation_id: uuid.UUID, space_id: uuid.UUID) -> Space:
+    space = db.query(Space).filter(Space.id == space_id, Space.organisation_id == organisation_id).first()
+    if space is None:
+        raise HierarchyNotFoundError(f"Space {space_id} not found")
+    return space
+
+
+def _get_org_component(db: Session, organisation_id: uuid.UUID, component_id: uuid.UUID) -> Component:
+    component = (
+        db.query(Component)
+        .filter(Component.id == component_id, Component.organisation_id == organisation_id)
+        .first()
+    )
+    if component is None:
+        raise HierarchyNotFoundError(f"Component {component_id} not found")
+    return component
 
 
 def resolve_property_hierarchy(
@@ -378,3 +415,107 @@ def create_space(
         after={"name": name, "property_id": str(property_id) if property_id else None},
     )
     return space
+
+
+def _indicative_replacement_date(installation_date: date | None, expected_life_years: int | None) -> date | None:
+    if installation_date is None or expected_life_years is None:
+        return None
+    return installation_date + timedelta(days=round(expected_life_years * 365.25))
+
+
+def create_component(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    component_type_id: uuid.UUID,
+    component_subtype: str | None = None,
+    manufacturer: str | None = None,
+    model: str | None = None,
+    serial_number: str | None = None,
+    installer: str | None = None,
+    installation_date: date | None = None,
+    commissioning_date: date | None = None,
+    warranty_start: date | None = None,
+    warranty_expiry: date | None = None,
+    expected_life_years: int | None = None,
+    status: ComponentStatus = ComponentStatus.ACTIVE,
+    development_id: uuid.UUID | None = None,
+    building_id: uuid.UUID | None = None,
+    property_id: uuid.UUID | None = None,
+    space_id: uuid.UUID | None = None,
+    parent_component_id: uuid.UUID | None = None,
+    source_type: SourceType,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> Component:
+    # Existence/ownership checks only — unlike Property, a component's
+    # attachment points aren't cross-validated against each other (spec
+    # §24: a component can belong to a building with no specific property,
+    # a property with no specific space, etc. — there's no single strict
+    # tree position to derive here the way floor->building->development
+    # works for Property).
+    if development_id is not None:
+        _get_org_development(db, organisation_id, development_id)
+    if building_id is not None:
+        _get_org_building(db, organisation_id, building_id)
+    if property_id is not None:
+        _get_org_property(db, organisation_id, property_id)
+    if space_id is not None:
+        _get_org_space(db, organisation_id, space_id)
+    if parent_component_id is not None:
+        _get_org_component(db, organisation_id, parent_component_id)
+
+    component = Component(
+        organisation_id=organisation_id,
+        development_id=development_id,
+        building_id=building_id,
+        property_id=property_id,
+        space_id=space_id,
+        parent_component_id=parent_component_id,
+        component_reference=generate_reference(db, organisation_id, "COMPONENT"),
+        component_type_id=component_type_id,
+        component_subtype=component_subtype,
+        manufacturer=manufacturer,
+        model=model,
+        installer=installer,
+        installation_date=installation_date,
+        commissioning_date=commissioning_date,
+        warranty_start=warranty_start,
+        warranty_expiry=warranty_expiry,
+        expected_life_years=expected_life_years,
+        indicative_replacement_date=_indicative_replacement_date(installation_date, expected_life_years),
+        status=status,
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(component)
+    db.flush()
+
+    _record_optional_external_references(
+        db,
+        organisation_id,
+        "component",
+        component.id,
+        {ExternalReferenceType.MANUFACTURER_SERIAL_NUMBER: serial_number},
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        actor_user_id=actor_user_id,
+    )
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="component.created",
+        entity_type="component",
+        entity_id=str(component.id),
+        after={"component_reference": component.component_reference, "component_type_id": str(component_type_id)},
+    )
+    return component

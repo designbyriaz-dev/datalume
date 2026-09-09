@@ -84,7 +84,19 @@ building-control/BSR reference columns) is now routed through
 `app.identifiers.models.ExternalReference` instead, with the same public
 API shape. See STATUS.md.
 
-Sprints 8–24 are not started; they are ordered and ready to pick up.
+**Sprint 8 (Component Register): built** — `Component`/`ComponentType`
+(spec §22), the latter reusing the global+org-specific seeded-catalog
+pattern (system roles, Plans) with a non-standard RLS policy so the
+global rows stay visible under tenant scoping. Components attach
+independently to development/building/property/space/parent-component;
+serial number routes through Sprint 7's `ExternalReference`; references
+use Sprint 7's engine (`COMP-000001`). `IMPORTERS["COMPONENTS"]`
+registered (closing Sprint 5's remaining "honest no-op" case), with
+unmatched CSV type names auto-creating an org-specific custom type. See
+STATUS.md for two real bugs the test suite caught (singular/plural type
+matching, catalog-seeding order) and the live browser/curl verification.
+
+Sprints 9–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

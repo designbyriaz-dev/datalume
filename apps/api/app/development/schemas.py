@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
-from app.development.models import PropertyStatus
+from app.development.models import ComponentStatus, PropertyStatus
 
 
 class CreateDevelopmentRequest(BaseModel):
@@ -148,3 +148,61 @@ class DevelopmentHierarchyOut(BaseModel):
     status: str
     buildings: list[BuildingHierarchyOut]
     unbuilt_property_count: int  # properties on this development but no specific building
+
+
+class ComponentTypeOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    name: str
+    parent_type_id: uuid.UUID | None
+    organisation_id: uuid.UUID | None  # None = global seeded type
+
+    model_config = {"from_attributes": True}
+
+
+class CreateComponentRequest(BaseModel):
+    component_type_id: uuid.UUID
+    component_subtype: str | None = None
+    manufacturer: str | None = None
+    model: str | None = None
+    serial_number: str | None = None
+    installer: str | None = None
+    installation_date: date | None = None
+    commissioning_date: date | None = None
+    warranty_start: date | None = None
+    warranty_expiry: date | None = None
+    expected_life_years: int | None = None
+    status: ComponentStatus = ComponentStatus.ACTIVE
+    development_id: uuid.UUID | None = None
+    building_id: uuid.UUID | None = None
+    property_id: uuid.UUID | None = None
+    space_id: uuid.UUID | None = None
+    parent_component_id: uuid.UUID | None = None
+
+
+class ComponentOut(BaseModel):
+    id: uuid.UUID
+    component_reference: str
+    component_type_id: uuid.UUID
+    component_type_name: str
+    component_subtype: str | None
+    manufacturer: str | None
+    model: str | None
+    serial_number: str | None
+    installer: str | None
+    installation_date: date | None
+    commissioning_date: date | None
+    warranty_start: date | None
+    warranty_expiry: date | None
+    expected_life_years: int | None
+    indicative_replacement_date: date | None
+    status: str
+    development_id: uuid.UUID | None
+    building_id: uuid.UUID | None
+    property_id: uuid.UUID | None
+    space_id: uuid.UUID | None
+    parent_component_id: uuid.UUID | None
+    source_type: str
+    source_dataset_id: uuid.UUID | None
+    original_reference: str | None
+    created_at: datetime

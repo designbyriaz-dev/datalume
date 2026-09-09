@@ -252,6 +252,42 @@ export type ReferencePattern = {
   next_sequence: number;
 };
 
+export type ComponentType = {
+  id: string;
+  code: string;
+  name: string;
+  parent_type_id: string | null;
+  organisation_id: string | null;
+};
+
+export type ComponentOut = {
+  id: string;
+  component_reference: string;
+  component_type_id: string;
+  component_type_name: string;
+  component_subtype: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  installer: string | null;
+  installation_date: string | null;
+  commissioning_date: string | null;
+  warranty_start: string | null;
+  warranty_expiry: string | null;
+  expected_life_years: number | null;
+  indicative_replacement_date: string | null;
+  status: "ACTIVE" | "REPLACED" | "DISPOSED";
+  development_id: string | null;
+  building_id: string | null;
+  property_id: string | null;
+  space_id: string | null;
+  parent_component_id: string | null;
+  source_type: string;
+  source_dataset_id: string | null;
+  original_reference: string | null;
+  created_at: string;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -425,6 +461,42 @@ export const api = {
       organisationId,
       body: JSON.stringify({ pattern }),
     }),
+  listComponentTypes: (organisationId: string) =>
+    request<ComponentType[]>("/api/v1/component-types", { organisationId }),
+  createComponent: (
+    organisationId: string,
+    payload: {
+      component_type_id: string;
+      manufacturer?: string;
+      model?: string;
+      serial_number?: string;
+      installation_date?: string;
+      expected_life_years?: number;
+      property_id?: string;
+      building_id?: string;
+      parent_component_id?: string;
+    },
+  ) =>
+    request<ComponentOut>("/api/v1/components", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listComponents: (
+    organisationId: string,
+    filters?: { property_id?: string; building_id?: string; parent_component_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.property_id) params.set("property_id", filters.property_id);
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    if (filters?.parent_component_id) params.set("parent_component_id", filters.parent_component_id);
+    const qs = params.toString();
+    return request<ComponentOut[]>(`/api/v1/components${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  getComponent: (organisationId: string, componentId: string) =>
+    request<ComponentOut>(`/api/v1/components/${componentId}`, { organisationId }),
+  listComponentChildren: (organisationId: string, componentId: string) =>
+    request<ComponentOut[]>(`/api/v1/components/${componentId}/children`, { organisationId }),
 };
 
 export const ORGANISATION_TYPES = [

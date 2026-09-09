@@ -357,10 +357,71 @@ per instruction — "continue with sprint 2, billing later"):
   data-health test suite (not new hand-testing this time; the old tests
   did their job).
 
+**Sprint 8 — Component Register:**
+
+- `app/development/`: `Component` and `ComponentType` models — spec §22.
+  `ComponentType` reuses the same global+org-specific catalog pattern as
+  system roles (Sprint 1) and Plans (Sprint 2): 23 types seeded with
+  `organisation_id = NULL` (visible to every org), and an org can add its
+  own custom types on top (`organisation_id` set), auto-created during
+  CSV import when a row's type name doesn't match anything seeded. This
+  needed a non-standard RLS policy on `component_types`
+  (`organisation_id IS NULL OR ...`) — the standard tenant-isolation
+  policy used everywhere else would hide the global seeded rows the
+  moment a tenant context is set, which would have made the catalog
+  invisible to every org.
+- `Component` attaches to a development, building, property, space,
+  and/or a parent component — each attachment point is validated
+  independently (existence only), not cross-validated against each
+  other like `resolve_property_hierarchy` does for properties. Serial
+  number is stored as an external reference
+  (`ExternalReferenceType.MANUFACTURER_SERIAL_NUMBER`, Sprint 7's
+  engine), not a plain column, matching the UPRN/planning-reference
+  pattern. `indicative_replacement_date` is computed once at write time
+  from `installation_date + expected_life_years` and is explicitly
+  labelled "(indicative only)" in the UI — it's a planning aid, not a
+  determination.
+- References use Sprint 7's engine (`COMP-000001`, ...) — no interim
+  generator was ever built for components, so this sprint went straight
+  to the real thing.
+- `apps/web`: `/components` (list + add form, component-type dropdown
+  populated from the real seeded catalog) and `/components/[id]`
+  (detail view + child-component list/add, exercising the parent/child
+  hierarchy).
+- CSV import (`app/development/importers.py`, registering `"COMPONENTS"`
+  into the Sprint 3 pipeline) — the second real importer after
+  Properties (Sprint 5), closing the "honest no-op" gap
+  `test_ingestion.py` had used `COMPONENTS` to demonstrate since Sprint
+  5. Unmatched type names auto-create an org-specific custom type rather
+  than failing the row.
+- 11 new backend tests (91 total passing). Two real bugs found and fixed
+  by the test suite before this ever reached the browser: (1) type
+  matching was exact-string-only, so a CSV using "Boiler" against the
+  seeded "Boilers" created a needless duplicate custom type instead of
+  matching — fixed with a naive singular/plural fallback
+  (`_singularish`) in `find_component_type_by_name`; (2) the import path
+  matched against the catalog before ever seeding it, so on a fresh org
+  *nothing* matched and everything became a spurious custom type — fixed
+  by calling `ensure_component_type_catalog_seeded` first in
+  `import_component_row`.
+- Verified end-to-end live: signed up a fresh org, added a component
+  manually via the UI (`COMP-000001`, Boilers, Worcester Bosch/Greenstar
+  8000), added a child component under it (`COMP-000002`) and confirmed
+  the parent/child UI, then drove the CSV import path over real HTTP
+  with `curl` (upload → mapping → import) using a row with the singular
+  "Boiler" and a genuinely novel type name. Confirmed via
+  `GET /api/v1/components` and `/component-types` that "Boiler" matched
+  the existing global "Boilers" type (same `component_type_id` as the
+  manual entry, no duplicate) while the novel type auto-created a new
+  org-scoped `ComponentType`, and that references continued the same
+  sequence (`COMP-000003`, `COMP-000004`) with correct provenance
+  (`FILE_UPLOAD` vs `MANUAL`, `source_dataset_id`).
+
 ## Not yet done
 
-Sprints 8–24 (component register, every remaining domain model, Ask
-DataLume, reporting, hardening) — not started. Full order and scope in
+Sprints 9–24 (specifications/documents/golden thread, construction
+evidence, defects/warranties, handover, Property 360, repairs,
+compliance, and the rest) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
