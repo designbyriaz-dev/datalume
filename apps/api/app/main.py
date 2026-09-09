@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.attention.router import router as attention_router
 from app.auth.router import router as auth_router
 from app.commercial.router import router as commercial_router
 from app.core.config import get_settings
@@ -40,6 +41,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(attention_router)
 app.include_router(commercial_router)
 app.include_router(organisations_router)
 app.include_router(billing_router)

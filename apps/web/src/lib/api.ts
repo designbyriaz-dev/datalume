@@ -810,6 +810,41 @@ export type CollectionRate = {
   collection_rate: number;
 };
 
+export type AttentionRuleOut = {
+  id: string;
+  code: string;
+  name: string;
+  domain_scope: string;
+  rule_definition: Record<string, unknown>;
+  severity_default: string;
+  is_active: boolean;
+};
+
+export type AttentionSignalExplanation = {
+  what: string;
+  why: string;
+  supporting_record_ids: string[];
+  recommended_investigation: string;
+};
+
+export type AttentionSignalOut = {
+  id: string;
+  rule_id: string;
+  rule_code: string;
+  entity_type: string;
+  entity_id: string;
+  severity: string;
+  detected_at: string;
+  explanation: AttentionSignalExplanation;
+  status: string;
+};
+
+export type AttentionScanResult = {
+  rules_evaluated: number;
+  signals_created: number;
+  signals_refreshed: number;
+};
+
 export type BoardAssuranceDomainSummary = {
   domain_id: string;
   domain_code: string;
@@ -1381,6 +1416,26 @@ export const api = {
     request<ArrearsSnapshot>(`/api/v1/leases/${leaseId}/arrears${asOf ? `?as_of=${asOf}` : ""}`, { organisationId }),
   getCollectionRate: (organisationId: string, periodStart: string, periodEnd: string) =>
     request<CollectionRate>(`/api/v1/collection-rate?period_start=${periodStart}&period_end=${periodEnd}`, { organisationId }),
+  listAttentionRules: (organisationId: string) =>
+    request<AttentionRuleOut[]>("/api/v1/attention/rules", { organisationId }),
+  updateAttentionRule: (organisationId: string, ruleId: string, payload: { is_active?: boolean; rule_definition?: Record<string, unknown> }) =>
+    request<AttentionRuleOut>(`/api/v1/attention/rules/${ruleId}`, { method: "PATCH", organisationId, body: JSON.stringify(payload) }),
+  listAttentionSignals: (organisationId: string, filters?: { signal_status?: string; entity_type?: string; severity?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.signal_status) params.set("signal_status", filters.signal_status);
+    if (filters?.entity_type) params.set("entity_type", filters.entity_type);
+    if (filters?.severity) params.set("severity", filters.severity);
+    const qs = params.toString();
+    return request<AttentionSignalOut[]>(`/api/v1/attention/signals${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  updateAttentionSignalStatus: (organisationId: string, signalId: string, statusValue: string) =>
+    request<AttentionSignalOut>(`/api/v1/attention/signals/${signalId}/status`, {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ status: statusValue }),
+    }),
+  triggerAttentionScan: (organisationId: string) =>
+    request<AttentionScanResult>("/api/v1/attention/scan", { method: "POST", organisationId }),
   listDevelopments: (organisationId: string) =>
     request<DevelopmentOut[]>("/api/v1/developments", { organisationId }),
   getDevelopment: (organisationId: string, developmentId: string) =>

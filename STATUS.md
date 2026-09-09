@@ -1282,11 +1282,100 @@ per instruction — "continue with sprint 2, billing later"):
   £0 outstanding, the unallocated payment counted separately, and a
   correct 100% collection rate for a period with nothing due in it.
 
+**Sprint 21 — Cross-Domain Attention Engine:**
+
+- **This codebase's first genuine scheduled background job.** Every
+  prior "computed at read time" engine (Data Health, Handover
+  Readiness, Planned Investment, Sprint 17's compliance_status) noted
+  this is where a real scheduler would eventually land — this sprint
+  is that landing. `app/worker/main.py` (idle since Sprint 1, a
+  heartbeat loop with "0 jobs registered") now runs the Attention
+  Engine's nightly scan for every organisation, once per UTC day at a
+  configurable hour, with no new scheduling dependency (no APScheduler/
+  Celery) — a plain hour-check-plus-last-run-date guard on the existing
+  loop, since there's exactly one job to run.
+- **Four rules, matching architecture's own four named examples**:
+  `WARRANTY_EXPIRING_WITH_OPEN_DEFECT` (the worked example in the
+  architecture doc, implemented as given — a join of Sprint 11's
+  Warranty and Defect on the same component/property),
+  `REPEAT_FAILURE` (wraps Sprint 14's repeat_repairs_for_property /
+  repeat_failures_for_component — reads that engine's own already-
+  computed signal, never recomputes a repair count),
+  `COMPLIANCE_BREACH` (wraps Sprint 17's compliance_status, surfacing
+  entities where a currently-applicable requirement's computed status
+  is a genuine breach — OVERDUE/OVERDUE_ACTION/MISSING_EVIDENCE — not
+  the merely-advisory DUE_SOON/NEEDS_REVIEW), `LEASE_ARREARS` (wraps
+  Sprint 20's arrears_for_lease, flagging active leases over a
+  configurable outstanding threshold). Every rule is a join + threshold
+  over an already-built engine — none restates another domain's logic,
+  per architecture's own explicit instruction.
+- **Deliberate deviation from the SQL sketch's `organisation_id NULL`
+  global-catalog allowance**: `AttentionRule` is always org-scoped,
+  lazily seeded per (org, code) — the same RepairRuleConfig/
+  PlannedInvestmentWeight/ComplianceStatusConfig shape, not the
+  ComponentType/ComplianceDomain shared-catalog shape. Reasoning: the
+  four rule *types* are fixed Python functions, not data the rule
+  engine interprets — there's no rule-authoring DSL in this build, so
+  there's no real catalog to browse or fork from. Building one just to
+  honor a literal NULL column would mean a `rule_definition` field
+  nobody's code interprets as logic.
+- **`explanation` always answers spec §55's four questions** (what,
+  why, supporting_record_ids, recommended_investigation), stored as
+  data so every signal type renders uniformly rather than needing
+  bespoke copy per rule.
+- **Upsert semantics, tested explicitly**: a rule firing again for the
+  same (rule, entity) while a signal is still OPEN/ACKNOWLEDGED
+  refreshes that row in place (no duplicate). A signal a human
+  DISMISSED is never silently recreated — the dismissal is respected.
+  A RESOLVED signal firing again gets a genuinely new row, since a
+  fresh occurrence after resolution isn't a duplicate of the resolved
+  one. Caught and fixed during this sprint's own test-writing: the
+  first implementation only checked for OPEN/ACKNOWLEDGED signals
+  before creating a new row, which silently defeated the DISMISSED
+  suppression it was supposed to provide — a real bug, caught by the
+  test written to prove the opposite behaviour.
+- **Second real bug caught during testing**: `GET /attention/rules`
+  lazily seeds the four default rules but was missing the `db.commit()`
+  every other lazy-seeding list endpoint in this codebase already
+  calls (compliance domains, repair rule configs, ...) — the seeded
+  rows were visible within that one request's own transaction but
+  silently rolled back on connection close, so a subsequent request
+  using a rule's `id` from that response got a 404. Fixed by adding
+  the same `db.commit()` pattern; regression-tested.
+- **RBAC reuse, no new permission invented**: signal viewing/triage
+  (acknowledge/resolve/dismiss) is gated by `reports.read` — every
+  custom role in this build's RBAC table already holds it, so this is
+  closer to "any active member" than a real restriction today, which
+  is an intentional, low-risk choice (triaging an alert isn't a
+  sensitive write on core domain data). Rule configuration
+  (`is_active`, `rule_definition`) and manually forcing a rescan are
+  gated by `reports.board` — the same executive-level gate Board
+  Assurance (Sprint 17) uses, since reshaping how the whole
+  organisation's insights feed is computed is an org-wide decision.
+- `apps/web`: the Home dashboard gained a "Needs attention" section —
+  every OPEN signal with its full explanation, a severity badge, a
+  link to the relevant entity where one exists, and inline Acknowledge/
+  Resolve/Dismiss actions that update live without a page reload. No
+  separate rules-management page yet (the API fully supports it,
+  verified by tests) — not building a settings UI nobody asked for yet
+  is the same proportionate-scope call every prior sprint has made.
+- 14 new backend tests (274 total passing): one per rule's own
+  cross-domain composition (including a true-negative case for the
+  warranty rule), the upsert-refresh/dismiss-respects/resolve-recreates
+  semantics, rule deactivation, the multi-org worker entrypoint's
+  tenant isolation, and permission checks.
+- Verified end-to-end live: recorded three repairs against one
+  property through curl, confirmed the four rules seeded correctly,
+  triggered a scan and got back the expected `REPEAT_FAILURE` signal
+  with its full four-part explanation. Through the real Home page UI,
+  confirmed the same signal rendered in the "Needs attention" section
+  with a working link to the flagged property, then clicked Resolve
+  and watched it disappear live.
+
 ## Not yet done
 
-Sprints 21–24 (the cross-domain attention engine, Ask DataLume,
-reporting, and security/performance/accessibility hardening) — not
-started. Full order and scope in
+Sprints 22–24 (Ask DataLume, reporting, and security/performance/
+accessibility hardening) — not started. Full order and scope in
 `architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":

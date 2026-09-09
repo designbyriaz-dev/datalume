@@ -271,7 +271,24 @@ commercial.payments RBAC permission (RENT_MANAGER-only). See STATUS.md
 for the full live verification, including a config-driven due-date-
 window test in the same style as every other engine sprint.
 
-Sprints 21–24 are not started; they are ordered and ready to pick up.
+**Sprint 21 (Cross-Domain Attention Engine): built** — this codebase's
+first genuine scheduled background job: app/worker/main.py (idle since
+Sprint 1) now runs a nightly attention scan for every organisation, no
+new scheduling dependency. Four rules, matching architecture's own four
+named examples, each a join + threshold over an already-built engine
+(Warranty+Defect, Sprint 14's repeat-repair signals, Sprint 17's
+compliance_status, Sprint 20's arrears) — never restating another
+domain's logic. AttentionRule is always org-scoped (a documented
+deviation from the SQL sketch's NULL-catalog allowance, since there's
+no rule-authoring DSL for a shared catalog to serve). Two real bugs
+caught during this sprint's own test-writing: the upsert logic didn't
+actually respect a dismissed signal, and the rules list endpoint was
+missing the commit every other lazy-seeding endpoint has, both fixed
+and regression-tested. See STATUS.md for the full live verification,
+including the Home dashboard's new live-updating "Needs attention"
+section.
+
+Sprints 22–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

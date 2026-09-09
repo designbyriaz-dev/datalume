@@ -5,16 +5,44 @@ import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
 import { KpiStatCard } from "@/components/KpiStatCard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { api, type PortfolioSummary } from "@/lib/api";
+import { api, type AttentionSignalOut, type PortfolioSummary } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
+const ENTITY_LINK_PREFIX: Record<string, string> = {
+  property: "/properties",
+  component: "/components",
+  building: "/buildings",
+};
+
+function severityVariant(severity: string) {
+  if (severity === "CRITICAL" || severity === "HIGH") return "critical" as const;
+  if (severity === "MEDIUM") return "warning" as const;
+  return "neutral" as const;
+}
+
 export default function HomePage() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
+  const [signals, setSignals] = useState<AttentionSignalOut[] | null>(null);
+
+  function orgId(): string | null {
+    return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
+  }
+
+  async function refreshSignals() {
+    const id = orgId();
+    if (!id) return;
+    try {
+      setSignals(await api.listAttentionSignals(id, { signal_status: "OPEN" }));
+    } catch {
+      // Attention signals are a nice-to-have surface here too — Home
+      // still works without them for a role that can't see reports.
+    }
+  }
 
   useEffect(() => {
     (async () => {
-      const id = typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
+      const id = orgId();
       if (!id) return;
       try {
         setSummary(await api.portfolioSummary(id));
@@ -22,8 +50,17 @@ export default function HomePage() {
         // Home degrades to the empty state below rather than showing an error —
         // KPIs are a nice-to-have here, not the page's core function.
       }
+      await refreshSignals();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function onSignalAction(signalId: string, nextStatus: string) {
+    const id = orgId();
+    if (!id) return;
+    await api.updateAttentionSignalStatus(id, signalId, nextStatus);
+    await refreshSignals();
+  }
 
   const hasData = (summary?.total_properties ?? 0) > 0;
 
@@ -33,6 +70,54 @@ export default function HomePage() {
       <p style={{ color: "var(--text-secondary)", marginTop: 4, marginBottom: 24 }}>
         Here&rsquo;s what&rsquo;s happening across your portfolio.
       </p>
+
+      {signals && signals.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Needs attention ({signals.length})</h2>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {signals.map((s) => {
+              const linkPrefix = ENTITY_LINK_PREFIX[s.entity_type];
+              return (
+                <li key={s.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 8, flexWrap: "wrap" }}>
+                    <span>
+                      {linkPrefix ? (
+                        <Link href={`${linkPrefix}/${s.entity_id}`} style={{ color: "var(--color-primary)" }}>
+                          {s.explanation.what}
+                        </Link>
+                      ) : (
+                        s.explanation.what
+                      )}
+                    </span>
+                    <StatusBadge label={s.severity} variant={severityVariant(s.severity)} />
+                  </div>
+                  <div style={{ color: "var(--text-secondary)", marginBottom: 6 }}>{s.explanation.why}</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      style={{ background: "none", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                      onClick={() => onSignalAction(s.id, "ACKNOWLEDGED")}
+                    >
+                      Acknowledge
+                    </button>
+                    <button
+                      style={{ background: "none", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                      onClick={() => onSignalAction(s.id, "RESOLVED")}
+                    >
+                      Resolve
+                    </button>
+                    <button
+                      style={{ background: "none", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                      onClick={() => onSignalAction(s.id, "DISMISSED")}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {hasData && summary ? (
         <>
