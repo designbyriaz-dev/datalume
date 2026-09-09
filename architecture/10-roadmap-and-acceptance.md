@@ -74,7 +74,17 @@ trusting the caller; the composed hierarchy-tree query
 queries" item. No CSV import for this domain yet — manual entry only.
 See STATUS.md.
 
-Sprints 7–24 are not started; they are ordered and ready to pick up.
+**Sprint 7 (Identifiers & Asset Coding): built** — the real Reference
+Engine (row-locked, org-configurable, same default output as the old
+per-module generators it replaces) and the external reference model with
+its hard write-path constraint enforced both in application code and via
+a DB CHECK constraint. Every plain external-identifier column from
+Sprints 5-6 (`Property.uprn`, `Development`/`Building`'s planning/
+building-control/BSR reference columns) is now routed through
+`app.identifiers.models.ExternalReference` instead, with the same public
+API shape. See STATUS.md.
+
+Sprints 8–24 are not started; they are ordered and ready to pick up.
 
 ## 3. Acceptance matrix (spec §76–78, condensed to trace-to-architecture)
 

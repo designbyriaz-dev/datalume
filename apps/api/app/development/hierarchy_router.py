@@ -12,6 +12,7 @@ from app.core.db import get_db
 from app.core.provenance import SourceType
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
 from app.development.models import Building, Development, Floor, Property
+from app.development.presenters import building_to_out, buildings_to_out, development_to_out, developments_to_out
 from app.development.schemas import (
     BuildingHierarchyOut,
     BuildingOut,
@@ -79,7 +80,7 @@ def add_development(
     )
     db.commit()
     db.refresh(dev)
-    return dev
+    return development_to_out(db, ctx.organisation_id, dev)
 
 
 @router.get("/api/v1/developments", response_model=list[DevelopmentOut])
@@ -89,12 +90,13 @@ def list_developments(
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
-    return (
+    developments = (
         db.query(Development)
         .filter(Development.organisation_id == ctx.organisation_id)
         .order_by(Development.created_at.desc())
         .all()
     )
+    return developments_to_out(db, ctx.organisation_id, developments)
 
 
 @router.get("/api/v1/developments/{development_id}", response_model=DevelopmentOut)
@@ -105,7 +107,8 @@ def get_development(
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
-    return _get_org_development(db, ctx.organisation_id, development_id)
+    dev = _get_org_development(db, ctx.organisation_id, development_id)
+    return development_to_out(db, ctx.organisation_id, dev)
 
 
 @router.get("/api/v1/developments/{development_id}/hierarchy", response_model=DevelopmentHierarchyOut)
@@ -194,7 +197,7 @@ def add_building(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     db.commit()
     db.refresh(building)
-    return building
+    return building_to_out(db, ctx.organisation_id, building)
 
 
 @router.get("/api/v1/buildings", response_model=list[BuildingOut])
@@ -208,7 +211,8 @@ def list_buildings(
     query = db.query(Building).filter(Building.organisation_id == ctx.organisation_id)
     if development_id is not None:
         query = query.filter(Building.development_id == development_id)
-    return query.order_by(Building.created_at.desc()).all()
+    buildings = query.order_by(Building.created_at.desc()).all()
+    return buildings_to_out(db, ctx.organisation_id, buildings)
 
 
 @router.get("/api/v1/buildings/{building_id}", response_model=BuildingOut)
@@ -219,7 +223,8 @@ def get_building(
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
-    return _get_org_building(db, ctx.organisation_id, building_id)
+    building = _get_org_building(db, ctx.organisation_id, building_id)
+    return building_to_out(db, ctx.organisation_id, building)
 
 
 # --- Floors ---------------------------------------------------------------

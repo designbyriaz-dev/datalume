@@ -93,6 +93,14 @@ def test_data_health_recompute_clears_stale_findings(client):
     first = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
     assert len(first["findings"]) == 3  # missing uprn, postcode, property_type
 
+    # UPRN lives in app.identifiers.models.ExternalReference since Sprint 7 —
+    # record it through the real endpoint rather than a column assignment.
+    client.post(
+        "/api/v1/external-references",
+        headers={"X-Organisation-Id": org_id},
+        json={"entity_type": "property", "entity_id": prop["id"], "reference_type": "UPRN", "value": "999"},
+    )
+
     import app.core.db as db_module
     from app.development.models import Property
     import uuid as uuid_module
@@ -100,7 +108,6 @@ def test_data_health_recompute_clears_stale_findings(client):
     db = db_module.SessionLocal()
     try:
         row = db.get(Property, uuid_module.UUID(prop["id"]))
-        row.uprn = "999"
         row.postcode = "SW1A 1AA"
         row.property_type = "House"
         db.commit()

@@ -7,6 +7,7 @@ from app.core.db import get_db
 from app.core.provenance import SourceType
 from app.core.tenancy import AuthContext, get_auth_context, require_permission
 from app.development.models import Property, Space
+from app.development.presenters import properties_to_out, property_to_out
 from app.development.schemas import CreatePropertyRequest, CreateSpaceRequest, PropertyOut, SpaceOut
 from app.development.service import HierarchyMismatchError, HierarchyNotFoundError, create_property, create_space
 
@@ -51,7 +52,7 @@ def add_property(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     db.commit()
     db.refresh(prop)
-    return prop
+    return property_to_out(db, ctx.organisation_id, prop)
 
 
 @router.get("", response_model=list[PropertyOut])
@@ -70,7 +71,8 @@ def list_properties(
         query = query.filter(Property.development_id == development_id)
     if building_id is not None:
         query = query.filter(Property.building_id == building_id)
-    return query.order_by(Property.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    properties = query.order_by(Property.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return properties_to_out(db, ctx.organisation_id, properties)
 
 
 @router.get("/{property_id}", response_model=PropertyOut)
@@ -81,7 +83,8 @@ def get_property(
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
-    return _get_org_property(db, ctx.organisation_id, property_id)
+    prop = _get_org_property(db, ctx.organisation_id, property_id)
+    return property_to_out(db, ctx.organisation_id, prop)
 
 
 @router.post("/{property_id}/spaces", response_model=SpaceOut, status_code=status.HTTP_201_CREATED)

@@ -246,6 +246,12 @@ export type DataHealth = {
   findings: DataHealthFinding[];
 };
 
+export type ReferencePattern = {
+  entity_type: string;
+  pattern: string;
+  next_sequence: number;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -410,6 +416,14 @@ export const api = {
       method: "POST",
       organisationId,
       body: JSON.stringify(payload),
+    }),
+  listReferencePatterns: (organisationId: string) =>
+    request<ReferencePattern[]>("/api/v1/reference-patterns", { organisationId }),
+  updateReferencePattern: (organisationId: string, entityType: string, pattern: string) =>
+    request<ReferencePattern>(`/api/v1/reference-patterns/${entityType}`, {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify({ pattern }),
     }),
 };
 

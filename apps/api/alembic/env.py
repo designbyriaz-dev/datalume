@@ -9,6 +9,7 @@ from app.core.db import Base
 from app.data_health import models as data_health_models  # noqa: F401
 from app.development import models as development_models  # noqa: F401
 from app.documents import models as document_models  # noqa: F401
+from app.identifiers import models as identifier_models  # noqa: F401
 from app.ingestion import models as ingestion_models  # noqa: F401
 from app.organisations import models as org_models  # noqa: F401
 from app.platform import audit as platform_audit  # noqa: F401

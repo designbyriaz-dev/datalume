@@ -20,11 +20,8 @@ from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
 from app.development.models import Building, Development, Floor, Property, PropertyStatus, Space
-from app.development.reference import (
-    next_building_reference,
-    next_development_reference,
-    next_property_reference,
-)
+from app.identifiers.models import ExternalReferenceType
+from app.identifiers.service import generate_reference, record_external_reference
 from app.platform.audit import record_audit_event
 
 
@@ -95,6 +92,38 @@ def resolve_property_hierarchy(
     return development_id, building_id, floor_id
 
 
+def _record_optional_external_references(
+    db: Session,
+    organisation_id: uuid.UUID,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    values: dict[ExternalReferenceType, str | None],
+    *,
+    source_type: SourceType,
+    source_dataset_id: uuid.UUID | None,
+    import_job_id: uuid.UUID | None,
+    actor_user_id: uuid.UUID | None,
+) -> None:
+    """create_development/create_building/create_property all take a
+    handful of optional external-identifier kwargs for ergonomics (the
+    caller still just passes uprn="..." etc.) but store them as
+    ExternalReference rows, never columns — see identifiers/models.py."""
+    for reference_type, value in values.items():
+        if value:
+            record_external_reference(
+                db,
+                organisation_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                reference_type=reference_type,
+                value=value,
+                source_type=source_type,
+                source_dataset_id=source_dataset_id,
+                import_job_id=import_job_id,
+                actor_user_id=actor_user_id,
+            )
+
+
 def create_development(
     db: Session,
     organisation_id: uuid.UUID,
@@ -111,20 +140,33 @@ def create_development(
 ) -> Development:
     dev = Development(
         organisation_id=organisation_id,
-        development_reference=next_development_reference(db, organisation_id),
+        development_reference=generate_reference(db, organisation_id, "DEVELOPMENT"),
         name=name,
         description=description,
         address=address,
         postcode=postcode,
-        planning_reference=planning_reference,
-        building_control_reference=building_control_reference,
-        bsr_reference=bsr_reference,
         source_type=source_type,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
     db.add(dev)
     db.flush()
+
+    _record_optional_external_references(
+        db,
+        organisation_id,
+        "development",
+        dev.id,
+        {
+            ExternalReferenceType.PLANNING_REFERENCE: planning_reference,
+            ExternalReferenceType.BUILDING_CONTROL_REFERENCE: building_control_reference,
+            ExternalReferenceType.BSR_REFERENCE: bsr_reference,
+        },
+        source_type=source_type,
+        source_dataset_id=None,
+        import_job_id=None,
+        actor_user_id=actor_user_id,
+    )
 
     record_audit_event(
         db,
@@ -158,19 +200,32 @@ def create_building(
     building = Building(
         organisation_id=organisation_id,
         development_id=development_id,
-        building_reference=next_building_reference(db, organisation_id),
+        building_reference=generate_reference(db, organisation_id, "BUILDING"),
         name=name,
         building_type=building_type,
         address=address,
         storeys=storeys,
-        building_control_reference=building_control_reference,
-        bsr_reference=bsr_reference,
         source_type=source_type,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
     db.add(building)
     db.flush()
+
+    _record_optional_external_references(
+        db,
+        organisation_id,
+        "building",
+        building.id,
+        {
+            ExternalReferenceType.BUILDING_CONTROL_REFERENCE: building_control_reference,
+            ExternalReferenceType.BSR_REFERENCE: bsr_reference,
+        },
+        source_type=source_type,
+        source_dataset_id=None,
+        import_job_id=None,
+        actor_user_id=actor_user_id,
+    )
 
     record_audit_event(
         db,
@@ -247,10 +302,9 @@ def create_property(
         development_id=development_id,
         building_id=building_id,
         floor_id=floor_id,
-        property_reference=next_property_reference(db, organisation_id),
+        property_reference=generate_reference(db, organisation_id, "PROPERTY"),
         address=address,
         postcode=postcode,
-        uprn=uprn,
         property_type=property_type,
         status=status,
         source_type=source_type,
@@ -262,6 +316,18 @@ def create_property(
     )
     db.add(prop)
     db.flush()
+
+    _record_optional_external_references(
+        db,
+        organisation_id,
+        "property",
+        prop.id,
+        {ExternalReferenceType.UPRN: uprn},
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        actor_user_id=actor_user_id,
+    )
 
     record_audit_event(
         db,

@@ -309,19 +309,70 @@ per instruction — "continue with sprint 2, billing later"):
   matching the exact state created. The property detail page's Building
   link was also confirmed to resolve to the right building.
 
+**Sprint 7 — Identifiers & Asset Coding:**
+
+- `app/identifiers/`: the real Reference & Identifier Engine, replacing
+  the `COUNT`-based generators every sprint since Sprint 4 flagged as
+  interim. `generate_reference` reserves a sequence number under a row
+  lock (`SELECT ... FOR UPDATE` on a per-org-per-entity-type
+  `ReferencePattern` row) in the same transaction as the entity insert —
+  two concurrent creates can no longer read the same number. Default
+  patterns render to the **exact same strings** the old generators
+  produced (`PROP-000001`, `DEV-000001`, ...) — proven by a test
+  (`test_generate_reference_matches_the_pre_sprint_7_format`) — so this
+  is a genuine non-breaking upgrade: the concurrency guarantee and
+  configurability are new, the output format isn't churned for its own
+  sake. Patterns are org-configurable via `PATCH
+  /api/v1/reference-patterns/{entity_type}` (owner/admin only), verified
+  live in-browser: changed the Properties pattern to
+  `NORTHSTAR-{sequence:04d}` and the next property created picked it up
+  immediately, continuing the existing sequence number, while the
+  earlier property kept its original reference untouched.
+- **The external reference model, with its hard write-path constraint,
+  now actually exists** — `app.identifiers.models.ExternalReference`,
+  not the plain nullable columns Sprints 5-6 used as an honest interim
+  (`Property.uprn`, `Development.{planning_reference,
+  building_control_reference, bsr_reference}`,
+  `Building.{building_control_reference, bsr_reference}` — all removed
+  by this sprint's migration). The constraint is enforced two ways, not
+  just one: `record_external_reference` is the only function in the
+  codebase that writes this table and refuses `SYSTEM_GENERATED` at the
+  Python level, *and* a DB `CHECK` constraint refuses it independently —
+  tested by inserting a bad row directly via the ORM, bypassing the
+  service function entirely, and confirming Postgres-compatible SQLite
+  still rejects it with an `IntegrityError`. Same two-layer-defence
+  pattern as tenant isolation (RLS + app-layer scoping, Sprint 1).
+- The API contract for `PropertyOut`/`DevelopmentOut`/`BuildingOut` is
+  **unchanged** — `uprn`, `planning_reference`, etc. still appear in the
+  JSON exactly as before, just resolved via a lookup
+  (`app/development/presenters.py`) instead of a direct column read, so
+  no frontend changes were needed for existing pages. List endpoints use
+  a bulk lookup (one query for N entities), not one query per row.
+- `apps/web`: new `/organisation` page (previously a bare stub) — a
+  reference-pattern editor, the first real settings UI in the app.
+- 13 new backend tests (80 total passing). Found and fixed one real bug
+  along the way: `app/data_health/rules.py`'s `check_missing_uprn` still
+  read `Property.uprn` directly — a column that no longer exists after
+  this sprint's migration — caught immediately by the existing Sprint 5
+  data-health test suite (not new hand-testing this time; the old tests
+  did their job).
+
 ## Not yet done
 
-Sprints 7–24 (identifiers & asset coding, every remaining domain model,
-Ask DataLume, reporting, hardening) — not started. Full order and scope
-in `architecture/10-roadmap-and-acceptance.md`.
+Sprints 8–24 (component register, every remaining domain model, Ask
+DataLume, reporting, hardening) — not started. Full order and scope in
+`architecture/10-roadmap-and-acceptance.md`.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **Document, property, development and building references aren't
-  concurrency-safe.** All four reference generators are `COUNT`-based —
-  two simultaneous creates for the same org could theoretically collide.
-  Real fix is the Sprint 7 Reference Engine (row-locked counters), not a
-  patch here.
+- **The Reference Engine's first-ever pattern row per org+entity_type
+  still has a narrow bootstrap race.** Row-locking only protects reads
+  of an *existing* `ReferencePattern` row; two simultaneous first-ever
+  creates of the same entity_type for the same org could both attempt
+  the initial insert. A unique constraint turns that into a clean
+  `IntegrityError` rather than a silent duplicate, but it isn't caught/
+  retried — a real (if unlikely) gap, documented in
+  `identifiers/service.py`.
 - **No CSV import for developments, buildings or floors.** Only
   `PROPERTIES` has a field dictionary and a registered importer; adding
   the others is straightforward (same pattern as

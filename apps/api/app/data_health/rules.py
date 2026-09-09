@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
 from app.development.models import Property
+from app.identifiers.service import get_external_references_bulk
 
 
 @dataclass
@@ -64,7 +65,11 @@ def check_missing_property_type(db: Session, organisation_id) -> CheckResult:
 
 
 def check_missing_uprn(db: Session, organisation_id) -> CheckResult:
+    # UPRN moved off Property onto app.identifiers.models.ExternalReference
+    # in Sprint 7 — see that module's docstring for why. One bulk lookup
+    # here rather than N, same reasoning as development/presenters.py.
     properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
+    refs_by_id = get_external_references_bulk(db, organisation_id, "property", [p.id for p in properties])
     findings = [
         Finding(
             "MISSING_UPRN",
@@ -74,7 +79,7 @@ def check_missing_uprn(db: Session, organisation_id) -> CheckResult:
             f"{p.property_reference} has no UPRN recorded.",
         )
         for p in properties
-        if not p.uprn
+        if not refs_by_id.get(str(p.id), {}).get("UPRN")
     ]
     return CheckResult("MISSING_UPRN", len(properties), len(findings), findings)
 
