@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # apps/api — Python (pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  # apps/web — Node (package.json / package-lock.json)
+  - package-ecosystem: "npm"
+    directory: "/apps/web"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+
+  # GitHub Actions used in .github/workflows/ (ci.yml, codeql.yml) — the
+  # codeql-action v3->v4 bump this repo already needed once is exactly
+  # the kind of update this keeps ahead of.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
