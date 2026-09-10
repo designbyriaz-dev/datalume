@@ -1,4 +1,17 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+
+// Local dev installs the API into apps/api/.venv (this build's own
+// convention throughout, since the system Python here is too old —
+// see STATUS.md). CI's `pip install -e ".[dev]"` step has no venv at
+// all and installs onto actions/setup-python's own Python, which is
+// already first on PATH — a hardcoded ".venv/bin/python" path doesn't
+// exist there and fails with exit code 127, exactly the failure this
+// guard fixes. Prefer the venv when present, fall back to whatever
+// `python3` resolves to otherwise.
+const apiVenvPython = path.join(__dirname, "..", "api", ".venv", "bin", "python");
+const apiPython = existsSync(apiVenvPython) ? apiVenvPython : "python3";
 
 // A real, first E2E suite — spec §76-78 names 50 New Build acceptance
 // steps as the eventual target; this covers a handful of genuine
@@ -31,15 +44,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // Invokes the venv's own python directly (not `python3` off
-      // PATH) so this works whether or not the venv is "activated" in
-      // the shell Playwright itself was launched from — the same
-      // .venv/bin/python invocation used throughout this build's own
-      // manual verification. The venv must already exist
-      // (`pip install -e ".[dev]"` in apps/api) — this doesn't create
-      // it, same as CI's own separate api install step.
-      command:
-        "../api/.venv/bin/python scripts/run_smoketest_server.py --port 8000 --db-path e2e-smoketest.db --fresh",
+      command: `${apiPython} scripts/run_smoketest_server.py --port 8000 --db-path e2e-smoketest.db --fresh`,
       cwd: "../api",
       url: "http://localhost:8000/health",
       reuseExistingServer: !process.env.CI,
