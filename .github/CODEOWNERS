@@ -1,0 +1,9 @@
+# CODEOWNERS — see https://docs.github.com/articles/about-code-owners
+#
+# Single-maintainer repo today. This file exists so ownership is
+# explicit and reviews route to the right place as soon as that
+# changes, rather than being added retroactively.
+#
+# Order matters: later, more specific rules override earlier ones.
+
+* @designbyriaz-dev
