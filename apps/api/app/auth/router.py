@@ -1,11 +1,21 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.auth.models import Membership, MembershipStatus, Role, Session as SessionModel, User
-from app.auth.schemas import LoginRequest, MeResponse, MembershipSummary, SignupRequest
+from app.auth.schemas import (
+    LoginRequest,
+    MeResponse,
+    MembershipSummary,
+    MfaChallengeRequest,
+    MfaDisableRequest,
+    MfaEnrollResponse,
+    MfaVerifyRequest,
+    SignupRequest,
+)
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import hash_password, new_session_token, verify_password
@@ -16,6 +26,10 @@ from app.platform.billing import Subscription, SubscriptionStatus, TRIAL_LENGTH_
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 settings = get_settings()
+
+# How long a password-verified-but-not-yet-2FA-verified login has to
+# complete the MFA challenge before it has to restart from /login.
+MFA_PENDING_TTL_SECONDS = 300
 
 
 def _slugify(name: str) -> str:
@@ -114,6 +128,35 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = db.query(User).filter(User.email == payload.email).first()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+
+    if user.mfa_enabled:
+        # Password alone doesn't get a session yet — hand back a short-
+        # lived, single-purpose token that only /mfa/challenge accepts,
+        # the same "hashed before it touches Redis" treatment a real
+        # session token gets, not the account itself.
+        mfa_token = new_session_token()
+        redis_client.set(
+            f"mfa_pending:{hash_session_token(mfa_token)}", str(user.id), ex=MFA_PENDING_TTL_SECONDS
+        )
+        return {"mfa_required": True, "mfa_token": mfa_token}
+
+    _issue_session(db, response, user)
+    db.commit()
+    return {"mfa_required": False, "user_id": str(user.id)}
+
+
+@router.post("/mfa/challenge")
+def mfa_challenge(payload: MfaChallengeRequest, response: Response, db: Session = Depends(get_db)):
+    key = f"mfa_pending:{hash_session_token(payload.mfa_token)}"
+    user_id = redis_client.get(key)
+    if not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This sign-in attempt has expired — sign in again")
+
+    user = db.get(User, uuid.UUID(user_id))
+    if user is None or not user.mfa_secret or not pyotp.TOTP(user.mfa_secret).verify(payload.code, valid_window=1):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect code")
+
+    redis_client.delete(key)
     _issue_session(db, response, user)
     db.commit()
     return {"user_id": str(user.id)}
@@ -138,8 +181,62 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
         id=user.id,
         name=user.name,
         email=user.email,
+        mfa_enabled=user.mfa_enabled,
         memberships=[
             MembershipSummary(organisation_id=org.id, organisation_name=org.name, role_code=role.code)
             for _m, org, role in memberships
         ],
     )
+
+
+@router.post("/mfa/enroll", response_model=MfaEnrollResponse)
+def mfa_enroll(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Generates a new secret and returns it for the user's authenticator
+    app to add (manual-entry key + otpauth:// URI — no QR rendering here,
+    but every authenticator app accepts a typed-in setup key the same
+    way). mfa_enabled stays False until /mfa/verify confirms the app is
+    actually generating matching codes — enrolling isn't the same as
+    turning MFA on, the same way Stripe's checkout session existing
+    isn't the same as a subscription being active."""
+    secret = pyotp.random_base32()
+    user.mfa_secret = secret
+    db.commit()
+    otpauth_url = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name="DataLume")
+    return MfaEnrollResponse(secret=secret, otpauth_url=otpauth_url)
+
+
+@router.post("/mfa/verify")
+def mfa_verify(payload: MfaVerifyRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not user.mfa_secret:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Start enrolment first")
+    if not pyotp.TOTP(user.mfa_secret).verify(payload.code, valid_window=1):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Incorrect code — check your authenticator app and try again")
+    user.mfa_enabled = True
+    record_audit_event(
+        db,
+        organisation_id=None,
+        actor_user_id=user.id,
+        action_code="user.mfa_enabled",
+        entity_type="user",
+        entity_id=str(user.id),
+    )
+    db.commit()
+    return {"mfa_enabled": True}
+
+
+@router.post("/mfa/disable")
+def mfa_disable(payload: MfaDisableRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect password")
+    user.mfa_enabled = False
+    user.mfa_secret = None
+    record_audit_event(
+        db,
+        organisation_id=None,
+        actor_user_id=user.id,
+        action_code="user.mfa_disabled",
+        entity_type="user",
+        entity_id=str(user.id),
+    )
+    db.commit()
+    return {"mfa_enabled": False}

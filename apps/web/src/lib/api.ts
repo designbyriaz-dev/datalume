@@ -43,7 +43,17 @@ export type Me = {
   id: string;
   name: string;
   email: string;
+  mfa_enabled: boolean;
   memberships: Membership[];
+};
+
+export type LoginResult =
+  | { mfa_required: false; user_id: string }
+  | { mfa_required: true; mfa_token: string };
+
+export type MfaEnrollment = {
+  secret: string;
+  otpauth_url: string;
 };
 
 export type NavSection = {
@@ -943,9 +953,25 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
     ),
   login: (payload: { email: string; password: string }) =>
-    request<{ user_id: string }>("/api/v1/auth/login", {
+    request<LoginResult>("/api/v1/auth/login", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  mfaChallenge: (mfaToken: string, code: string) =>
+    request<{ user_id: string }>("/api/v1/auth/mfa/challenge", {
+      method: "POST",
+      body: JSON.stringify({ mfa_token: mfaToken, code }),
+    }),
+  mfaEnroll: () => request<MfaEnrollment>("/api/v1/auth/mfa/enroll", { method: "POST" }),
+  mfaVerify: (code: string) =>
+    request<{ mfa_enabled: boolean }>("/api/v1/auth/mfa/verify", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  mfaDisable: (password: string) =>
+    request<{ mfa_enabled: boolean }>("/api/v1/auth/mfa/disable", {
+      method: "POST",
+      body: JSON.stringify({ password }),
     }),
   logout: () => request<{ ok: boolean }>("/api/v1/auth/logout", { method: "POST" }),
   me: () => request<Me>("/api/v1/auth/me"),

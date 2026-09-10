@@ -31,4 +31,23 @@ class MeResponse(BaseModel):
     id: uuid.UUID
     name: str
     email: str
+    mfa_enabled: bool
     memberships: list[MembershipSummary]
+
+
+class MfaEnrollResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+
+
+class MfaVerifyRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class MfaChallengeRequest(BaseModel):
+    mfa_token: str
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class MfaDisableRequest(BaseModel):
+    password: str

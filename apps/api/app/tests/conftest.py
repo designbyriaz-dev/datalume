@@ -47,6 +47,9 @@ def client(monkeypatch, tmp_path):
         def expire(self, key, ttl):
             pass
 
+        def delete(self, key):
+            self.store.pop(key, None)
+
     import app.auth.router as auth_router_module
     import app.core.request_logging as request_logging_module
     import app.core.tenancy as tenancy_module

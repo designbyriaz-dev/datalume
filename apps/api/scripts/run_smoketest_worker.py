@@ -38,6 +38,9 @@ class FakeRedis:
     def expire(self, key, ttl):
         pass
 
+    def delete(self, key):
+        self.store.pop(key, None)
+
 
 fake_redis = FakeRedis()
 import app.auth.router as auth_router_module

@@ -1884,6 +1884,59 @@ second, signed-out session, created their account, confirmed they
 landed in the org — and confirmed the Manager (correctly) can't see
 the Users management screen themselves, only Owners/Admins can.
 
+**Post-Sprint-24 — TOTP-based MFA:** `User.mfa_enabled`/`mfa_secret`
+existed since Sprint 1 but nothing set or checked them — this closes
+that gap for real using `pyotp`, no external provider needed (unlike
+Stripe/email, TOTP is a self-contained standard, not something this
+sandbox lacks credentials for).
+
+`POST /api/v1/auth/mfa/enroll` generates a secret and returns a
+manual-entry key (`otpauth://` URI too, though nothing renders it as a
+QR code yet — any authenticator app accepts typed-in keys the same
+way). Enrolling doesn't turn MFA on by itself: `mfa_enabled` only
+flips to `True` once `/mfa/verify` confirms the app is actually
+producing matching codes, the same "the thing existing isn't the same
+as it being active" distinction Stripe's checkout session vs. active
+subscription already draws. `/mfa/disable` requires the current
+password, not just an active session, before turning it back off.
+
+Login changes shape for an MFA-enabled account: password-correct no
+longer issues a session directly. `POST /auth/login` returns a
+short-lived, single-use `mfa_token` (Redis-backed, 5-minute TTL,
+hashed the same way a real session token is before it touches Redis)
+instead, and `POST /auth/mfa/challenge` exchanges that token plus a
+6-digit code for the actual session — deleted on first use, so a
+captured token can't be replayed even inside its own TTL window. A
+non-MFA account's login response shape changed too (`{mfa_required:
+false, user_id}` instead of a bare `user_id`) — every caller (this
+codebase's own tests included) was updated for it.
+
+A real bug found while verifying this live rather than just against
+the SQLite test suite: `scripts/run_smoketest_server.py` and
+`run_smoketest_worker.py` each keep their own standalone `FakeRedis`
+class (they're not pytest, so they can't use `conftest.py`'s), and
+neither had a `.delete()` method — the pytest fixture's FakeRedis
+did, so the test suite never exercised the missing method and every
+automated check passed while the smoketest server 500'd on the very
+first real challenge attempt. Fixed in both scripts; worth noting as
+a reminder that this build's two parallel "fake infrastructure"
+implementations can drift, and only one of them gets exercised by
+`pytest`.
+
+9 new backend tests (339 total passing). `/settings` (previously a
+`ComingSoon` stub) now has a real two-factor section; `/sign-in`
+handles the two-step challenge. `npm run build`/`lint` both clean.
+Verified live end to end in-browser: enrolled, verified with a
+real computed TOTP code, signed out, and confirmed a plain password
+was no longer enough to sign back in until the second code was
+entered correctly.
+
+**What's still a known gap**: no backup/recovery codes — losing the
+authenticator device with no way back in is a real usability
+consequence of this first cut, not yet addressed. No QR code
+rendering for enrolment (manual-entry key only, which every
+authenticator app supports, just less convenient than a scan).
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -1955,15 +2008,6 @@ Specifically flagged as gaps to close early, not deferred to "later":
   those checks are about — added the same way, one function each, as
   Sprint 6+ lands them.
 
-- **RLS is unverified against real Postgres.** The policy SQL in
-  `alembic/versions/0001_foundation.py` and `0002_billing.py` is written
-  correctly per the architecture but has never actually run against a
-  live database. Sprint 24 added the security tests architecture/09 §2
-  asks for (`app/tests/test_security_tenant_isolation.py`) and they
-  pass — but against the SQLite test fixture, which has no RLS at all;
-  they confirm the *application*-layer tenant scoping, not the second,
-  Postgres-only layer. Treat RLS itself as still unconfirmed until
-  that same suite (or an equivalent) runs against real Postgres.
 - **Stripe checkout/portal are unverified against a live account.**
   `StripeBillingProvider` is now implemented (see the Post-Sprint-24
   entry above) and its webhook logic is fully tested offline, but
@@ -1971,10 +2015,6 @@ Specifically flagged as gaps to close early, not deferred to "later":
   been exercised against a real Stripe account — this sandbox has no
   `STRIPE_SECRET_KEY`. Needs a real test-mode key to confirm those two
   calls for real. See `app/integrations/billing_provider.py`.
-- MFA fields exist on `User` but there's no enrolment/verification flow
-  yet — `mfa_enabled` will always be `False` until that's built.
-- No CI pipeline wired up yet (backend pytest + frontend build/lint/test
-  should all gate merges once this repo has a remote).
 
 ## How to run this locally
 
