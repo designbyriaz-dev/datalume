@@ -4,6 +4,7 @@ node_modules/
 out/
 next-env.d.ts
 npm-debug.log*
+.turbo/
 
 # Python
 __pycache__/
@@ -11,13 +12,26 @@ __pycache__/
 .venv/
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Env
 .env
 .env.local
+.env.*.local
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
 
 # Misc
-.DS_Store
 *.db
 apps/api/smoketest.db
 
