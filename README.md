@@ -1,42 +1,89 @@
-# DataLume — Claude Code Build Package
+# DataLume — Property Intelligence
 
-This folder is a ready-to-drop-in project handoff for Claude Code.
+A multi-tenant B2B SaaS platform for UK housing associations, local
+authorities, managing agents, and commercial landlords: a single golden
+thread from development through handover into day-to-day operations —
+compliance, repairs, defects, warranties, planned investment, tenancies,
+rent/arrears — with a cross-domain attention engine, a grounded natural
+-language "Ask DataLume" assistant, and exportable reporting on top.
 
-## Contents
+All 24 sprints of the build roadmap are complete. See
+[`STATUS.md`](STATUS.md) for the full sprint-by-sprint history —
+what was built, real bugs found and fixed, live verification notes,
+and an honest list of what's still unverified or out of scope for this
+environment (Postgres RLS, real load testing, a real backup drill,
+full OTel/Sentry tracing, a Playwright E2E suite). The
+[`architecture/`](architecture) pack is the authoritative design
+reference the build was implemented against.
+
+## Stack
+
+- **API** — FastAPI (Python), SQLAlchemy + Alembic, Postgres with
+  row-level tenant isolation, Redis for sessions.
+- **Web** — Next.js (App Router) + React + TypeScript.
+- **Worker** — a plain polling loop (`app/worker/main.py`) for
+  background jobs (the nightly Attention Engine scan, on-demand report
+  generation) — no Celery/APScheduler, deliberately.
+- **Integrations** — Stripe (billing), Anthropic (Ask DataLume's LLM
+  interpretation layer), local-disk or cloud object storage for
+  documents/evidence, all behind adapter boundaries with a `Null*`
+  fallback when unconfigured.
+
+## Repo layout
 
 ```
-CLAUDE.md                    ← Claude Code reads this automatically first
-docs/
-  BUILD_PROMPT.md            ← full authoritative product/technical spec
-  DESIGN_SYSTEM.md           ← visual design system (colors, layout, components)
+apps/
+  api/            FastAPI backend — one top-level package per domain
+                   (development, operations, commercial, intelligence,
+                   platform, integrations, worker), plus app/tests/
+  web/             Next.js frontend
+architecture/      The authoritative design spec, one file per domain
+infra/             Dockerfiles + docker-compose.yml for local dev
+scripts/
+  seed_demo.py     Seeds the two fictional demo orgs — Northstar
+                   Housing and Northstar Commercial — with realistic,
+                   varied data across every domain
+STATUS.md          Full build history, sprint by sprint
 ```
 
-## How to use this
+## Running it locally
 
-1. Unzip this into a new empty git repository (or a fresh folder you'll
-   `git init` yourself).
-2. Open it in Claude Code (`claude` in the terminal, or the desktop app).
-3. Claude Code will pick up `CLAUDE.md` automatically as project
-   instructions. Kick things off with something like:
+**With Docker:**
 
-   > Read CLAUDE.md and docs/BUILD_PROMPT.md in full, then produce the
-   > DataLume Build 1 Architecture Pack as described. Do not write any
-   > implementation code yet.
+```bash
+docker compose -f infra/docker-compose.yml up
+cd apps/api && source .venv/bin/activate && python ../../scripts/seed_demo.py
+```
 
-4. Review the Architecture Pack it produces. Once you're happy with it,
-   tell it to proceed sprint by sprint per the implementation order in
-   `BUILD_PROMPT.md` §80.
+Web: http://localhost:3100 — API: http://localhost:8000/docs
 
-## Note on the design mockups
+**Without Docker** (backend tests and frontend build don't need a
+database at all):
 
-The two reference screenshots you shared (app dashboard + marketing/
-sign-in page) weren't retained as image files in this handoff — they
-weren't accessible on disk when this package was assembled. Instead,
-`docs/DESIGN_SYSTEM.md` captures everything from those mockups in writing
-(exact layout structure, color values, component patterns) so Claude Code
-has a concrete spec to build against.
+```bash
+# API
+cd apps/api
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
 
-If you still have the original PNGs, it's worth dropping them into
-`docs/design-reference/` and re-uploading them directly to Claude Code at
-the start of the session — a real image is always a stronger reference
-than a written description for pixel-level styling decisions.
+# Web
+cd apps/web
+npm install
+npm run build   # or `npm run dev` for a local server on :3100
+```
+
+A full browser click-through without Docker/Postgres/Redis needs a
+SQLite-backed API process with an in-process fake Redis in place of the
+real client — `apps/api/app/tests/conftest.py`'s fixture is the
+reference implementation of that pattern; see STATUS.md's "How to run
+this locally" section for the exact gotchas (importing `app.main`
+before `Base.metadata.create_all`, and every module that holds its own
+bound `redis_client` reference).
+
+## Tests
+
+```bash
+cd apps/api && pytest              # 308 backend tests
+cd apps/web && npm run build && npm run lint
+```
