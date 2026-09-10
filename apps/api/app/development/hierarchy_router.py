@@ -74,6 +74,7 @@ def add_development(
         description=payload.description,
         address=payload.address,
         postcode=payload.postcode,
+        number_of_planned_properties=payload.number_of_planned_properties,
         planning_reference=payload.planning_reference,
         building_control_reference=payload.building_control_reference,
         bsr_reference=payload.bsr_reference,

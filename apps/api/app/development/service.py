@@ -226,10 +226,14 @@ def create_development(
     description: str | None = None,
     address: str | None = None,
     postcode: str | None = None,
+    number_of_planned_properties: int | None = None,
     planning_reference: str | None = None,
     building_control_reference: str | None = None,
     bsr_reference: str | None = None,
     source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
     actor_user_id: uuid.UUID | None = None,
 ) -> Development:
     dev = Development(
@@ -239,7 +243,11 @@ def create_development(
         description=description,
         address=address,
         postcode=postcode,
+        number_of_planned_properties=number_of_planned_properties,
         source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
@@ -257,8 +265,8 @@ def create_development(
             ExternalReferenceType.BSR_REFERENCE: bsr_reference,
         },
         source_type=source_type,
-        source_dataset_id=None,
-        import_job_id=None,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
         actor_user_id=actor_user_id,
     )
 
@@ -286,6 +294,9 @@ def create_building(
     building_control_reference: str | None = None,
     bsr_reference: str | None = None,
     source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
     actor_user_id: uuid.UUID | None = None,
 ) -> Building:
     if development_id is not None:
@@ -300,6 +311,9 @@ def create_building(
         address=address,
         storeys=storeys,
         source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
@@ -316,8 +330,8 @@ def create_building(
             ExternalReferenceType.BSR_REFERENCE: bsr_reference,
         },
         source_type=source_type,
-        source_dataset_id=None,
-        import_job_id=None,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
         actor_user_id=actor_user_id,
     )
 

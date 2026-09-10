@@ -185,6 +185,7 @@ export type DevelopmentOut = {
   description: string | null;
   address: string | null;
   postcode: string | null;
+  number_of_planned_properties: number | null;
   status: string;
   planning_reference: string | null;
   building_control_reference: string | null;

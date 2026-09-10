@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
 from app.development.component_types import ensure_component_type_catalog_seeded, get_or_create_org_component_type
-from app.development.service import create_component, create_property
+from app.development.models import Development
+from app.development.service import create_building, create_component, create_development, create_property
 from app.ingestion.models import Dataset, ImportJob, ImportRow
 from app.ingestion.pipeline import IMPORTERS
 
@@ -37,6 +38,78 @@ def import_property_row(
         actor_user_id=dataset.uploaded_by,
     )
     return "property", prop.id
+
+
+def _parse_int(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(value.strip())
+    except ValueError:
+        return None
+
+
+def import_development_row(
+    db: Session, dataset: Dataset, import_job: ImportJob, row: ImportRow, mapped_fields: dict
+) -> tuple[str, uuid.UUID]:
+    dev = create_development(
+        db,
+        dataset.organisation_id,
+        name=mapped_fields.get("name") or "",
+        description=mapped_fields.get("description"),
+        address=mapped_fields.get("address"),
+        postcode=mapped_fields.get("postcode"),
+        number_of_planned_properties=_parse_int(mapped_fields.get("number_of_planned_properties")),
+        planning_reference=mapped_fields.get("planning_reference"),
+        building_control_reference=mapped_fields.get("building_control_reference"),
+        bsr_reference=mapped_fields.get("bsr_reference"),
+        source_type=SourceType.FILE_UPLOAD,
+        source_dataset_id=dataset.id,
+        import_job_id=import_job.id,
+        original_reference=f"row {row.row_number}",
+        actor_user_id=dataset.uploaded_by,
+    )
+    return "development", dev.id
+
+
+def import_building_row(
+    db: Session, dataset: Dataset, import_job: ImportJob, row: ImportRow, mapped_fields: dict
+) -> tuple[str, uuid.UUID]:
+    # An optional link to an already-imported Development, matched by its
+    # DataLume-generated reference (e.g. DEV-000001) — the only stable
+    # identifier a CSV can realistically carry, since the underlying UUID
+    # doesn't exist until that row was created. No match (blank, typo, or
+    # imported out of order) leaves development_id unset rather than
+    # failing the row — same permissiveness as PROPERTIES' importer,
+    # which doesn't attempt a hierarchy link at all today.
+    development_id = None
+    dev_reference = mapped_fields.get("development_reference")
+    if dev_reference:
+        dev = (
+            db.query(Development)
+            .filter(Development.organisation_id == dataset.organisation_id, Development.development_reference == dev_reference.strip())
+            .first()
+        )
+        if dev is not None:
+            development_id = dev.id
+
+    building = create_building(
+        db,
+        dataset.organisation_id,
+        name=mapped_fields.get("name") or "",
+        development_id=development_id,
+        building_type=mapped_fields.get("building_type"),
+        address=mapped_fields.get("address"),
+        storeys=_parse_int(mapped_fields.get("storeys")),
+        building_control_reference=mapped_fields.get("building_control_reference"),
+        bsr_reference=mapped_fields.get("bsr_reference"),
+        source_type=SourceType.FILE_UPLOAD,
+        source_dataset_id=dataset.id,
+        import_job_id=import_job.id,
+        original_reference=f"row {row.row_number}",
+        actor_user_id=dataset.uploaded_by,
+    )
+    return "building", building.id
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -85,3 +158,5 @@ def import_component_row(
 
 IMPORTERS["PROPERTIES"] = import_property_row
 IMPORTERS["COMPONENTS"] = import_component_row
+IMPORTERS["DEVELOPMENTS"] = import_development_row
+IMPORTERS["BUILDINGS"] = import_building_row

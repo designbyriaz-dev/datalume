@@ -16,6 +16,7 @@ class CreateDevelopmentRequest(BaseModel):
     description: str | None = None
     address: str | None = None
     postcode: str | None = None
+    number_of_planned_properties: int | None = None
     planning_reference: str | None = None
     building_control_reference: str | None = None
     bsr_reference: str | None = None
@@ -28,6 +29,7 @@ class DevelopmentOut(BaseModel):
     description: str | None
     address: str | None
     postcode: str | None
+    number_of_planned_properties: int | None
     status: str
     planning_reference: str | None
     building_control_reference: str | None

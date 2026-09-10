@@ -38,7 +38,7 @@ GOOD_CSV = (
 def test_field_dictionaries_endpoint_lists_known_types(client):
     resp = client.get("/api/v1/datasets/field-dictionaries")
     assert resp.status_code == 200
-    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS"}
+    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS"}
 
 
 def test_upload_stages_rows_and_proposes_mapping(client):
@@ -257,6 +257,106 @@ def test_ingestion_imports_real_property_entities(client):
         headers={"X-Organisation-Id": org_id},
     ).json()
     assert all(r["status"] == "IMPORTED" for r in rows)
+
+
+DEVELOPMENTS_CSV = (
+    "Development Name,Address,Postcode,Planned Properties,Planning Reference\n"
+    "Riverside Gardens,1 River Road,SW1A 1AA,84,PL/2026/001\n"
+    "Oak Court,2 Oak Lane,SW1A 1AB,12,\n"
+)
+
+
+def test_ingestion_imports_real_development_entities(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    upload = _upload_csv(client, org_id, DEVELOPMENTS_CSV, dataset_type="DEVELOPMENTS").json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "column_mapping": {
+                "Development Name": "name",
+                "Address": "address",
+                "Postcode": "postcode",
+                "Planned Properties": "number_of_planned_properties",
+                "Planning Reference": "planning_reference",
+            }
+        },
+    )
+
+    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rows_processed"] == 2
+    assert body["entities_created"] == 2
+    assert body["importer_registered"] is True
+
+    developments = client.get("/api/v1/developments", headers={"X-Organisation-Id": org_id}).json()
+    assert len(developments) == 2
+    names = {d["name"] for d in developments}
+    assert names == {"Riverside Gardens", "Oak Court"}
+    assert all(d["development_reference"].startswith("DEV-") for d in developments)
+    riverside = next(d for d in developments if d["name"] == "Riverside Gardens")
+    assert riverside["number_of_planned_properties"] == 84
+    assert riverside["planning_reference"] == "PL/2026/001"
+
+
+BUILDINGS_CSV_TEMPLATE = (
+    "Building Name,Type,Storeys,Development Reference\n"
+    "Block A,Residential,6,{dev_ref}\n"
+    "Unlinked Block,Residential,3,\n"
+)
+
+
+def test_ingestion_imports_buildings_and_links_to_existing_development(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    dev = client.post(
+        "/api/v1/developments", headers={"X-Organisation-Id": org_id}, json={"name": "Riverside Gardens"}
+    ).json()
+
+    csv_text = BUILDINGS_CSV_TEMPLATE.format(dev_ref=dev["development_reference"])
+    upload = _upload_csv(client, org_id, csv_text, dataset_type="BUILDINGS").json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "column_mapping": {
+                "Building Name": "name",
+                "Type": "building_type",
+                "Storeys": "storeys",
+                "Development Reference": "development_reference",
+            }
+        },
+    )
+
+    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    assert resp.json()["entities_created"] == 2
+
+    buildings = client.get("/api/v1/buildings", headers={"X-Organisation-Id": org_id}).json()
+    assert len(buildings) == 2
+    linked = next(b for b in buildings if b["name"] == "Block A")
+    unlinked = next(b for b in buildings if b["name"] == "Unlinked Block")
+    assert linked["development_id"] == dev["id"]
+    assert linked["storeys"] == 6
+    assert unlinked["development_id"] is None
+
+
+def test_ingestion_building_with_unknown_development_reference_is_left_unlinked(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    csv_text = "Building Name,Development Reference\nBlock B,DEV-999999\n"
+    upload = _upload_csv(client, org_id, csv_text, dataset_type="BUILDINGS").json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Building Name": "name", "Development Reference": "development_reference"}},
+    )
+    client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+
+    buildings = client.get("/api/v1/buildings", headers={"X-Organisation-Id": org_id}).json()
+    assert buildings[0]["development_id"] is None
 
 
 def test_cleaning_trims_whitespace_and_is_logged(client):

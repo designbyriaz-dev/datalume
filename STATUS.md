@@ -1964,6 +1964,72 @@ accepts the longer format. Verified live end to end: enabled MFA, saw
 the 10 codes, signed out, signed back in with one of them instead of a
 TOTP code, and confirmed the remaining count dropped to 9.
 
+**Post-Sprint-24 — Reference Engine bootstrap race, actually closed:**
+this document used to flag `identifiers/service.py`'s narrow gap
+honestly rather than pretend it away — two simultaneous *first-ever*
+`generate_reference` calls for the same org+entity_type could both miss
+the row-locked SELECT and both attempt the bootstrap insert, with only
+the DB's unique constraint stopping a duplicate. Now caught: the
+insert runs inside a SAVEPOINT (`db.begin_nested()`), and an
+`IntegrityError` there triggers a re-read of the row the "winner" just
+committed (same row lock the steady-state path already takes) instead
+of surfacing the error to whatever request happened to lose the race.
+Genuine concurrent-thread testing against SQLite would exercise a
+different failure mode than Postgres here (SQLite serializes writers
+at the whole-database level and raises `OperationalError`, not the
+row-lock + unique-constraint interplay this fix targets), so the race
+is deterministically simulated instead — one new test forces the
+first `_select_pattern` call to miss a row a "concurrent" transaction
+already committed, confirming recovery rather than a crash or
+duplicate. 1 new backend test (347 total).
+
+**Post-Sprint-24 — CSV import for Developments and Buildings:**
+closes the other half of the same honestly-flagged gap — only
+`PROPERTIES` (Sprint 5) and `COMPONENTS` (Sprint 8) had a field
+dictionary and a registered importer; a real housing association's
+onboarding data is Developments and Buildings as much as Properties,
+and until now every one of those had to be hand-created through the
+UI before a single Property CSV could even reference them. (`Floor`
+already existed as a full domain model since early on — this
+document's own gap note calling out "floors" was stale; Floor CSV
+import specifically is still unadded, see below.)
+
+New field dictionaries for both dataset types (`ingestion/
+field_dictionary.py`) and `import_development_row`/`import_building_row`
+(`development/importers.py`), registered into the same `IMPORTERS` seam
+PROPERTIES/COMPONENTS already use — no frontend change needed at all,
+since `/data-and-uploads`'s dataset-type dropdown was already driven
+entirely by the field-dictionary API response, not a hardcoded list.
+Buildings can optionally link to an already-imported Development via
+an internal `development_reference` (`DEV-000001`) column — the only
+identifier a CSV can realistically carry, since the real UUID doesn't
+exist until that row was created — resolved by lookup at import time;
+a blank or unmatched reference leaves the building unlinked rather
+than failing the row, same permissiveness PROPERTIES' importer already
+has toward its own (still entirely unwired) hierarchy links.
+
+Found and fixed a real, pre-existing, unrelated gap while wiring this:
+`number_of_planned_properties` has been a real column on `Development`
+since Sprint 6, but neither `CreateDevelopmentRequest` nor
+`DevelopmentOut` ever exposed it — the manual-entry API couldn't set
+it and couldn't show it back, even though the demo data's own "84
+homes" language depends on exactly this field. Fixed in the schema,
+both presenter functions, and the manual-create router, not just the
+new importer's path.
+
+`create_development`/`create_building` also didn't accept
+`source_dataset_id`/`import_job_id`/`original_reference` at all before
+this — `create_property`/`create_component` already did, so those two
+were the only service functions in this domain that couldn't honestly
+stamp file-upload provenance. Fixed to match.
+
+6 new backend tests (350 total, plus the schema-completeness fix
+above). Verified live: a real multipart CSV upload against a running
+smoketest server (not just pytest's TestClient) for both dataset
+types, including the fuzzy column-mapping correctly auto-matching
+every header with no manual correction needed, and the
+development_reference linking resolving to the right Development.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2008,19 +2074,11 @@ punch list for whoever takes this toward a real pilot:
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **The Reference Engine's first-ever pattern row per org+entity_type
-  still has a narrow bootstrap race.** Row-locking only protects reads
-  of an *existing* `ReferencePattern` row; two simultaneous first-ever
-  creates of the same entity_type for the same org could both attempt
-  the initial insert. A unique constraint turns that into a clean
-  `IntegrityError` rather than a silent duplicate, but it isn't caught/
-  retried — a real (if unlikely) gap, documented in
-  `identifiers/service.py`.
-- **No CSV import for developments, buildings or floors.** Only
-  `PROPERTIES` has a field dictionary and a registered importer; adding
-  the others is straightforward (same pattern as
-  `app/development/importers.py`) but wasn't needed for this sprint's
-  stated scope.
+- **No CSV import for Floors.** Developments and Buildings are covered
+  now (see the Post-Sprint-24 entry above); Floor is a real, fully-
+  wired domain model but has no field dictionary or importer yet —
+  lower priority than Developments/Buildings since a portfolio has far
+  fewer floors than buildings, but the same pattern would close it.
 - **The ingestion pipeline has no background job queue yet.**
   VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
   for the small CSVs used in testing; will not hold up against the
