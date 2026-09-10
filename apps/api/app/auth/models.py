@@ -15,6 +15,13 @@ class MembershipStatus(str, enum.Enum):
     REMOVED = "REMOVED"
 
 
+class InvitationStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REVOKED = "REVOKED"
+    EXPIRED = "EXPIRED"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -61,6 +68,32 @@ class Membership(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(foreign_keys=[user_id])
+    role: Mapped[Role] = relationship()
+
+
+class Invitation(Base):
+    """A pending offer to join an organisation, for someone who may not
+    have a DataLume account yet — Membership (above) can't represent that
+    since user_id is required. token is an unguessable
+    secrets.token_urlsafe(32) value and is the entire authorization for
+    the public accept endpoints (app/organisations/router.py); there is
+    no real email transport in this build (see app/integrations/
+    billing_provider.py's NullBillingProvider for the same "adapter
+    that's honestly unconfigured, not faked" precedent), so the inviter
+    is handed the accept link directly to share themselves."""
+
+    __tablename__ = "invitations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    email: Mapped[str] = mapped_column(String(320))
+    role_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("roles.id"))
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    status: Mapped[InvitationStatus] = mapped_column(Enum(InvitationStatus), default=InvitationStatus.PENDING)
+    invited_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
     role: Mapped[Role] = relationship()
 
 

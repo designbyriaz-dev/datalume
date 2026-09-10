@@ -905,6 +905,30 @@ export type ReportJobOut = {
   file_size_bytes: number | null;
 };
 
+export type Member = {
+  user_id: string;
+  name: string;
+  email: string;
+  role_code: string;
+  status: string;
+};
+
+export type Invitation = {
+  id: string;
+  email: string;
+  role_code: string;
+  status: string;
+  expires_at: string;
+  invite_url: string;
+};
+
+export type PublicInvitation = {
+  organisation_name: string;
+  email: string;
+  role_code: string;
+  account_exists: boolean;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -1770,6 +1794,23 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, "Download failed");
     return res.blob();
   },
+  listMembers: (organisationId: string) => request<Member[]>("/api/v1/organisations/members", { organisationId }),
+  listInvitations: (organisationId: string) =>
+    request<Invitation[]>("/api/v1/organisations/invitations", { organisationId }),
+  inviteMember: (organisationId: string, email: string, roleCode: string) =>
+    request<Invitation>("/api/v1/organisations/invitations", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify({ email, role_code: roleCode }),
+    }),
+  revokeInvitation: (organisationId: string, invitationId: string) =>
+    request<void>(`/api/v1/organisations/invitations/${invitationId}`, { method: "DELETE", organisationId }),
+  getInvitation: (token: string) => request<PublicInvitation>(`/api/v1/invitations/${token}`),
+  acceptInvitation: (token: string, payload: { name?: string; password?: string }) =>
+    request<{ organisation_id: string; user_id: string }>(`/api/v1/invitations/${token}/accept`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
 
 export const ORGANISATION_TYPES = [
@@ -1784,3 +1825,33 @@ export const ORGANISATION_TYPES = [
   { value: "PROPERTY_INVESTOR", label: "Property Investor" },
   { value: "OTHER", label: "Other" },
 ] as const;
+
+// Mirrors SYSTEM_ROLE_CODES in apps/api/app/auth/rbac.py — every role
+// code the backend will accept for an invitation. Labels are just the
+// code title-cased, matching how _get_or_create_role names a Role row
+// the first time a code is used.
+export const MEMBER_ROLES = [
+  "OWNER",
+  "ADMIN",
+  "DATA_ANALYST",
+  "MANAGER",
+  "VIEWER",
+  "DEVELOPMENT_MANAGER",
+  "HANDOVER_MANAGER",
+  "ASSET_MANAGER",
+  "REPAIRS_MANAGER",
+  "COMPLIANCE_MANAGER",
+  "BUILDING_SAFETY_MANAGER",
+  "PROPERTY_MANAGER",
+  "COMMERCIAL_PROPERTY_MANAGER",
+  "LEASE_MANAGER",
+  "RENT_MANAGER",
+  "FINANCE_VIEWER",
+  "EXECUTIVE",
+].map((code) => ({
+  value: code,
+  label: code
+    .split("_")
+    .map((w) => w[0] + w.slice(1).toLowerCase())
+    .join(" "),
+}));

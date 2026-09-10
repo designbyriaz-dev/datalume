@@ -12,7 +12,11 @@ from app.documents.router import router as documents_router
 from app.identifiers.router import router as identifiers_router
 from app.ingestion.router import router as ingestion_router
 from app.intelligence.ask.router import router as ask_router
-from app.organisations.router import router as organisations_router
+from app.organisations.router import (
+    invitations_router,
+    members_router,
+    router as organisations_router,
+)
 from app.platform.router import router as billing_router
 from app.reports.router import router as reports_router
 
@@ -53,6 +57,8 @@ app.include_router(auth_router)
 app.include_router(attention_router)
 app.include_router(commercial_router)
 app.include_router(organisations_router)
+app.include_router(members_router)
+app.include_router(invitations_router)
 app.include_router(billing_router)
 app.include_router(ingestion_router)
 app.include_router(documents_router)

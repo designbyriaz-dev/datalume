@@ -50,6 +50,22 @@ def get_current_user(
     return user
 
 
+def get_current_user_optional(
+    session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Same resolution as get_current_user, but returns None instead of
+    raising — for the invitation-accept endpoint, which must work for a
+    signed-out visitor (the common case) as well as someone already
+    signed in under the invited email address."""
+    if not session_token:
+        return None
+    user_id = redis_client.get(f"session:{hash_session_token(session_token)}")
+    if not user_id:
+        return None
+    return db.get(User, uuid.UUID(user_id))
+
+
 class TenantScopedSession:
     """Wraps a SQLAlchemy Session bound to exactly one organisation_id.
 

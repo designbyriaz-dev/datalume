@@ -1829,6 +1829,61 @@ webhook state machine is real and tested; the two calls that actually
 talk to Stripe's API are not. Needs a Stripe test-mode secret key +
 webhook signing secret to close that gap for real.
 
+**Post-Sprint-24 — the membership-invite flow:** closes the gap this
+same document used to flag under "Not yet done" — signup could only
+ever create a single OWNER, with no way for them to add a colleague.
+`app/auth/models.py` already had `Membership.status` (including an
+unused `INVITED` value) and `invited_by` anticipating this since
+Sprint 1, but `Membership.user_id` is required, so it can't represent
+someone who doesn't have a DataLume account yet — the common case for
+a real invite. A new `Invitation` table (migration `0022_invitations`)
+holds the pending offer instead: organisation, email, role, an
+unguessable `secrets.token_urlsafe(32)` token, and a 7-day expiry.
+
+There's no email-sending integration anywhere in this codebase (same
+gap Stripe had until this session) — rather than fake one, the invite
+endpoint hands the accept link straight back in the response, and
+`/organisation/users` shows it as a copy-to-share link with an
+explicit "no email configured" note, the same honest degradation
+Stripe's checkout/portal buttons use. The public accept endpoints
+(`GET/POST /api/v1/invitations/{token}...`) have no auth dependency at
+all — the token itself is the entire authorization, the same role the
+Stripe webhook signature plays for that endpoint. Deliberately no
+Postgres RLS on the `invitations` table either, and the migration says
+why: the accept flow needs to look a row up by token before the
+visitor has any org membership to scope by, so there's no
+`app.current_org_id` yet at that point — the authenticated
+list/create/revoke endpoints filter by organisation in application
+code instead, same as every route already does at the app layer.
+
+Accept handles three cases: a brand-new email creates the account
+(name + password) and auto-logs in; an already-registered email
+requires the visitor to be signed in as that exact address (never
+silently logs anyone into an existing account); and being signed in as
+a *different* account is refused with a clear "sign out first"
+message rather than silently doing the wrong thing. `org.manage_members`
+is gated the same way `billing.manage` already was — never spelled out
+per role in `rbac.py`, so it only resolves true through the OWNER/ADMIN
+wildcard.
+
+`/organisation/users` (previously a bare `ComingSoon` stub) is now a
+real page: an invite form, a pending-invitations table with copy-link
+and revoke actions, and a members table. A new public
+`/accept-invite` page (`apps/web/src/app/(marketing)/`) renders all
+three accept states.
+
+10 new backend tests (330 total passing), covering: invite/list/revoke,
+duplicate-pending and already-a-member conflicts, an unknown role code,
+permission denial for a non-owner, the full accept flow for a new
+account, the existing-account sign-in-first flow (and successfully
+accepting a second organisation's invite once signed in as that user),
+an expired invitation, and cross-organisation isolation. `npm run
+build`/`lint` both clean. Verified live in-browser end to end: signed
+up an OWNER, invited a colleague as Manager, opened the link as a
+second, signed-out session, created their account, confirmed they
+landed in the org — and confirmed the Manager (correctly) can't see
+the Users management screen themselves, only Owners/Admins can.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -1916,11 +1971,6 @@ Specifically flagged as gaps to close early, not deferred to "later":
   been exercised against a real Stripe account — this sandbox has no
   `STRIPE_SECRET_KEY`. Needs a real test-mode key to confirm those two
   calls for real. See `app/integrations/billing_provider.py`.
-- **There's no membership-invite flow.** Signup creates exactly one
-  OWNER; there's no way yet for an OWNER to add a second person to their
-  org with a chosen role. The Sprint 2 billing-permission test
-  (`test_viewer_cannot_start_checkout`) has to create that membership
-  directly via the DB session because no API for it exists.
 - MFA fields exist on `User` but there's no enrolment/verification flow
   yet — `mfa_enabled` will always be `False` until that's built.
 - No CI pipeline wired up yet (backend pytest + frontend build/lint/test
