@@ -181,7 +181,7 @@ export default function DataAndUploadsPage() {
       setMapping(result.proposed_mapping);
       await refreshDatasets();
     } catch {
-      setFormError("Upload failed — check the file is a valid CSV.");
+      setFormError("Upload failed — check the file is a valid CSV or XLSX.");
     } finally {
       setSubmitting(false);
     }
@@ -225,8 +225,7 @@ export default function DataAndUploadsPage() {
     <div style={{ maxWidth: 960 }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, marginBottom: 4 }}>Data & Uploads</h1>
       <p style={{ color: "var(--text-secondary)", marginBottom: 24 }}>
-        Upload → Validate → Understand → Map → Review → Import. CSV only for now — XLSX support is
-        planned but not built yet.
+        Upload → Validate → Understand → Map → Review → Import. Accepts CSV and Excel (.xlsx) files.
       </p>
 
       <div
@@ -268,13 +267,13 @@ export default function DataAndUploadsPage() {
             </div>
             <div>
               <label htmlFor="upload-csv-file" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
-                CSV file
+                CSV or Excel (.xlsx) file
               </label>
               <input
                 id="upload-csv-file"
                 style={inputStyle}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
               />
             </div>

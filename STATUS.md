@@ -2030,6 +2030,48 @@ types, including the fuzzy column-mapping correctly auto-matching
 every header with no manual correction needed, and the
 development_reference linking resolving to the right Development.
 
+**Post-Sprint-24 — XLSX upload:** closes a real onboarding barrier
+this document used to flag honestly rather than paper over — most UK
+housing-association teams work in Excel day to day, and CSV-only meant
+every real dataset needed a manual export step before it could reach
+DataLume at all. `openpyxl` was already a dependency (used for report
+export since Sprint 23) but nothing used it for *reading* a file.
+
+`parse_xlsx` (`ingestion/pipeline.py`) returns the exact same
+`(headers, ParsedRow list)` shape `parse_csv` always has, so every
+downstream stage — VALIDATE, field-dictionary matching, cleaning,
+every importer — is genuinely format-agnostic; a new `parse_upload`
+dispatches on the filename's `.xlsx` extension (a convenience, not a
+security control — `UploadFile.content_type` is client-supplied and
+spoofable, same reasoning `core/uploads.py` already documents for why
+this pipeline doesn't do content-type allow-listing). `CsvParseError`
+is renamed `FileParseError` since it's no longer CSV-specific.
+
+The real complexity wasn't the parsing call itself but the type
+boundary: openpyxl hands back real Python `int`/`float`/`date`/`bool`
+values per cell, while every downstream consumer (field validation,
+`_parse_int`/`_parse_iso_date` in the domain importers) expects plain
+strings the way a CSV cell always is. A `_xlsx_cell_to_str` normaliser
+handles this once at the parse boundary rather than leaking openpyxl's
+types into the rest of the pipeline — including collapsing an
+integer-valued float (openpyxl's usual shape for a whole-number cell)
+to `"6"`, not `"6.0"`, so `storeys`/`number_of_planned_properties`
+parse identically regardless of which format the row came from.
+Legacy binary `.xls` stays out of scope — a different, largely-
+unmaintained library for a format Office hasn't defaulted to since
+2007.
+
+6 new backend tests (356 total): a real property import from an XLSX
+workbook end to end, typed-cell conversion, a corrupt file returning a
+clean 400 rather than a 500, an empty workbook, and blank-row
+skipping. `/data-and-uploads` accepts `.xlsx` in its file picker and
+no longer tells users XLSX isn't supported. Verified live against a
+running smoketest server (not just pytest's TestClient) with a real
+openpyxl-built workbook: property import including a comma-containing
+address value that would need CSV-quoting but needs nothing special in
+a spreadsheet cell, and the same typed-storeys conversion confirmed
+over the real HTTP path.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2085,8 +2127,6 @@ Specifically flagged as gaps to close early, not deferred to "later":
   "tens of thousands of properties" performance requirement (spec §72)
   until it moves to `worker/jobs/ingestion.py` behind a real RQ+Redis
   queue — architecture/02 §2 explains why this matters.
-- **XLSX/XLS upload isn't supported**, only CSV — needs a real parsing
-  library (openpyxl/Polars), deferred rather than half-wired.
 - **Data Health v1 only checks Property fields.** The full spec §42 list
   (missing building relationships, duplicate components, missing
   handover information, orphan components, ...) needs the domain models

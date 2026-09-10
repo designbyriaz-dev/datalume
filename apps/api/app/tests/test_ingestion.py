@@ -28,6 +28,33 @@ def _upload_csv(client, org_id: str, csv_text: str, dataset_type: str = "PROPERT
     )
 
 
+def _build_xlsx_bytes(rows: list[list]) -> bytes:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    for row in rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _upload_xlsx(client, org_id: str, rows: list[list], dataset_type: str = "PROPERTIES", name: str = "My upload"):
+    return client.post(
+        "/api/v1/uploads",
+        headers={"X-Organisation-Id": org_id},
+        data={"dataset_type": dataset_type, "name": name},
+        files={
+            "file": (
+                "properties.xlsx",
+                io.BytesIO(_build_xlsx_bytes(rows)),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+
 GOOD_CSV = (
     "Property Address,Post Code,Type\n"
     "12 Elm Street,SW1A 1AA,House\n"
@@ -464,3 +491,95 @@ def test_dataset_from_other_org_is_not_found(client):
         headers={"X-Organisation-Id": signup_b["organisation_id"]},
     )
     assert resp.status_code == 404
+
+
+# --- XLSX ---------------------------------------------------------------
+
+
+def test_field_dictionaries_endpoint_still_correct_after_xlsx(client):
+    """Sanity check that adding XLSX support didn't change what dataset
+    types exist — it's a new input format for the same set, not a new
+    dataset type of its own."""
+    resp = client.get("/api/v1/datasets/field-dictionaries")
+    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS"}
+
+
+def test_ingestion_imports_real_property_entities_from_xlsx(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    rows = [
+        ["Property Address", "Post Code", "Type"],
+        ["12 Elm Street", "SW1A 1AA", "House"],
+        ["Flat 4, Oak House", "SW1A 1AB", "Flat"],
+    ]
+    upload = _upload_xlsx(client, org_id, rows).json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Property Address": "address", "Post Code": "postcode", "Type": "property_type"}},
+    )
+
+    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rows_processed"] == 2
+    assert body["entities_created"] == 2
+
+    properties = client.get("/api/v1/properties", headers={"X-Organisation-Id": org_id}).json()
+    addresses = {p["address"] for p in properties}
+    assert addresses == {"12 Elm Street", "Flat 4, Oak House"}
+
+
+def test_xlsx_typed_cells_convert_to_expected_strings(client):
+    """openpyxl hands back real Python int/float values for numeric
+    cells, not text — an integer-valued Storeys column must land as
+    "6", not "6.0", for BUILDINGS' storeys field (parsed with int())
+    to work the same way it does from a CSV upload."""
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    rows = [
+        ["Building Name", "Storeys"],
+        ["Block A", 6],  # a real int cell, not a string
+    ]
+    upload = _upload_xlsx(client, org_id, rows, dataset_type="BUILDINGS").json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Building Name": "name", "Storeys": "storeys"}},
+    )
+    client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+
+    buildings = client.get("/api/v1/buildings", headers={"X-Organisation-Id": org_id}).json()
+    assert buildings[0]["storeys"] == 6
+
+
+def test_corrupt_xlsx_upload_is_rejected_not_500(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    resp = client.post(
+        "/api/v1/uploads",
+        headers={"X-Organisation-Id": org_id},
+        data={"dataset_type": "PROPERTIES", "name": "Bad file"},
+        files={"file": ("properties.xlsx", io.BytesIO(b"this is not a real xlsx file"), "application/octet-stream")},
+    )
+    assert resp.status_code == 400
+
+
+def test_empty_xlsx_is_rejected(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    resp = _upload_xlsx(client, signup["organisation_id"], rows=[])
+    assert resp.status_code == 400
+
+
+def test_xlsx_blank_rows_are_skipped_like_csv(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    rows = [
+        ["Property Address", "Post Code", "Type"],
+        ["12 Elm Street", "SW1A 1AA", "House"],
+        [None, None, None],  # openpyxl represents a fully blank row as all-None cells
+        ["2 Oak Lane", "SW1A 1AB", "Flat"],
+    ]
+    upload = _upload_xlsx(client, org_id, rows).json()
+    assert upload["row_count"] == 2

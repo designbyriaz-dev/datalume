@@ -13,8 +13,11 @@ What's real in Sprint 3, and what's deliberately simplified:
   is exactly what the architecture specifies, so moving VALIDATE/
   UNDERSTAND into worker/jobs/ingestion.py behind an RQ enqueue later is
   a call-site change, not a data-model or pipeline-logic change.
-- CSV only. XLSX/XLS (spec §13) need a real parsing library
-  (openpyxl/Polars) — deferred rather than half-wired.
+- CSV and XLSX (spec §13). Legacy binary .xls is deliberately still
+  out of scope — it needs a different, largely-unmaintained library
+  (xlrd dropped .xls-adjacent support years ago) for a format Office
+  hasn't defaulted to since 2007; every real housing-association
+  spreadsheet this build's demo data models is XLSX.
 - IMPORT (committing staged rows into canonical domain entities) is a
   registered-importer seam (IMPORTERS dict below) that is empty in
   Sprint 3, because no canonical domain tables exist yet (those start
@@ -30,15 +33,17 @@ What's real in Sprint 3, and what's deliberately simplified:
 import csv
 import io
 import re
+from datetime import date, datetime
 from typing import Callable
 
+import openpyxl
 from sqlalchemy.orm import Session
 
 from app.ingestion.field_dictionary import get_field_dictionary
 from app.ingestion.models import Dataset, DatasetStatus, ImportJob, ImportJobStatus, ImportRow, ImportRowStatus, MappingTemplate
 
 
-class CsvParseError(ValueError):
+class FileParseError(ValueError):
     pass
 
 
@@ -63,16 +68,16 @@ def parse_csv(raw_bytes: bytes) -> tuple[list[str], list[ParsedRow]]:
     try:
         text = raw_bytes.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        raise CsvParseError("File is not valid UTF-8 text") from exc
+        raise FileParseError("File is not valid UTF-8 text") from exc
 
     reader = csv.reader(io.StringIO(text))
     rows = list(reader)
     if not rows:
-        raise CsvParseError("File is empty")
+        raise FileParseError("File is empty")
 
     headers = [h.strip() for h in rows[0]]
     if not any(headers):
-        raise CsvParseError("File has no column headers")
+        raise FileParseError("File has no column headers")
 
     data_rows: list[ParsedRow] = []
     for raw_row in rows[1:]:
@@ -88,6 +93,59 @@ def parse_csv(raw_bytes: bytes) -> tuple[list[str], list[ParsedRow]]:
         padded = raw_row + [""] * (len(headers) - len(raw_row))
         cells = dict(zip(headers, padded[: len(headers)]))
         data_rows.append(ParsedRow(cells, structural_error))
+    return headers, data_rows
+
+
+def _xlsx_cell_to_str(value: object) -> str:
+    # openpyxl hands back typed Python values (str/int/float/bool/date/
+    # datetime/None), not text — every downstream consumer (field
+    # validation, the per-domain importers' own _parse_int/
+    # _parse_iso_date helpers) expects the same plain strings parse_csv
+    # already produces, so cells are normalised here, once, rather than
+    # leaking openpyxl's types into the rest of the pipeline.
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def parse_xlsx(raw_bytes: bytes) -> tuple[list[str], list[ParsedRow]]:
+    """Same (headers, ParsedRow list) contract as parse_csv, so every
+    caller downstream of UPLOAD is format-agnostic. Only the first
+    (active) worksheet is read — multi-sheet workbooks aren't a
+    documented gap this pipeline claims to solve. openpyxl always
+    returns every row padded to the sheet's used-column width, so the
+    comma-in-an-unquoted-field misalignment parse_csv guards against
+    (ParsedRow.structural_error) has no real equivalent here."""
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+    except Exception as exc:  # openpyxl raises several different exception types for a bad/corrupt file
+        raise FileParseError("File is not a valid XLSX workbook") from exc
+
+    worksheet = workbook.active
+    rows = list(worksheet.iter_rows(values_only=True))
+    if not rows:
+        raise FileParseError("File is empty")
+
+    headers = [_xlsx_cell_to_str(h).strip() for h in rows[0]]
+    if not any(headers):
+        raise FileParseError("File has no column headers")
+
+    data_rows: list[ParsedRow] = []
+    for raw_row in rows[1:]:
+        str_cells = [_xlsx_cell_to_str(c) for c in raw_row]
+        if not any(cell.strip() for cell in str_cells):
+            continue  # skip fully-blank rows rather than staging noise
+        padded = str_cells + [""] * (len(headers) - len(str_cells))
+        cells = dict(zip(headers, padded[: len(headers)]))
+        data_rows.append(ParsedRow(cells, structural_error=None))
     return headers, data_rows
 
 
@@ -195,6 +253,19 @@ def save_mapping_template(db: Session, organisation_id, dataset_type: str, colum
 # original_reference) back to the exact row it came from, not just a
 # bare organisation scope — and returns (entity_type, entity_id).
 IMPORTERS: dict[str, Callable] = {}
+
+
+def parse_upload(filename: str | None, raw_bytes: bytes) -> tuple[list[str], list[ParsedRow]]:
+    """Dispatches by file extension — the only signal a browser upload
+    reliably carries; UploadFile.content_type is client-supplied and
+    spoofable (same reasoning app/core/uploads.py already documents for
+    why this pipeline doesn't attempt content-type allow-listing as a
+    security control). This is a format-detection convenience, not a
+    security gate: parse_xlsx still rejects anything that isn't a real
+    XLSX workbook regardless of what the filename claimed."""
+    if (filename or "").lower().endswith(".xlsx"):
+        return parse_xlsx(raw_bytes)
+    return parse_csv(raw_bytes)
 
 
 def import_dataset(db: Session, dataset: Dataset, import_job: ImportJob) -> dict:

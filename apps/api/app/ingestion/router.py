@@ -19,7 +19,7 @@ from app.ingestion.models import (
     ImportRowStatus,
     MappingTemplate,
 )
-from app.ingestion.pipeline import CsvParseError, apply_mapping, import_dataset, parse_csv, propose_mapping, save_mapping_template, stage_rows
+from app.ingestion.pipeline import FileParseError, apply_mapping, import_dataset, parse_upload, propose_mapping, save_mapping_template, stage_rows
 from app.ingestion.schemas import (
     ApplyMappingRequest,
     DatasetDetailOut,
@@ -73,8 +73,8 @@ def upload_dataset(
 
     raw_bytes = read_upload_within_limit(file)
     try:
-        headers, data_rows = parse_csv(raw_bytes)
-    except CsvParseError as exc:
+        headers, data_rows = parse_upload(file.filename, raw_bytes)
+    except FileParseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
     document_id = uuid.uuid4()
