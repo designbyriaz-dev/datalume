@@ -1,5 +1,8 @@
 # DataLume — Property Intelligence
 
+[![CI](https://github.com/designbyriaz-dev/datalume/actions/workflows/ci.yml/badge.svg)](https://github.com/designbyriaz-dev/datalume/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A multi-tenant B2B SaaS platform for UK housing associations, local
 authorities, managing agents, and commercial landlords: a single golden
 thread from development through handover into day-to-day operations —
