@@ -106,6 +106,7 @@ export default function OrganisationPage() {
                   <td style={{ padding: "8px" }}>{ENTITY_LABELS[p.entity_type] ?? p.entity_type}</td>
                   <td style={{ padding: "8px" }}>
                     <input
+                      aria-label={`${ENTITY_LABELS[p.entity_type] ?? p.entity_type} identifier pattern`}
                       style={{ ...inputStyle, fontFamily: "monospace" }}
                       value={drafts[p.entity_type] ?? ""}
                       onChange={(e) => setDrafts((prev) => ({ ...prev, [p.entity_type]: e.target.value }))}

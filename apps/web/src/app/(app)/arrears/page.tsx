@@ -99,7 +99,7 @@ export default function ArrearsPage() {
         <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>No leases recorded yet.</div>
       ) : (
         <>
-          <select style={{ ...inputStyle, maxWidth: 300, marginBottom: 16 }} value={leaseId} onChange={(e) => onSelectLease(e.target.value)}>
+          <select aria-label="Lease" style={{ ...inputStyle, maxWidth: 300, marginBottom: 16 }} value={leaseId} onChange={(e) => onSelectLease(e.target.value)}>
             {leases.map((l) => (
               <option key={l.id} value={l.id}>
                 {l.lease_reference}

@@ -169,23 +169,26 @@ function InspectionsPanel({
       {showForm ? (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <input
+            aria-label="Inspector"
             style={{ ...inputStyle, fontSize: 12, maxWidth: 140 }}
             placeholder="Inspector"
             value={inspector}
             onChange={(e) => setInspector(e.target.value)}
           />
           <input
+            aria-label="Inspection date"
             style={{ ...inputStyle, fontSize: 12, maxWidth: 130 }}
             type="date"
             value={inspectionDate}
             onChange={(e) => setInspectionDate(e.target.value)}
           />
-          <select style={{ ...inputStyle, fontSize: 12, width: "auto" }} value={result} onChange={(e) => setResult(e.target.value)}>
+          <select aria-label="Result" style={{ ...inputStyle, fontSize: 12, width: "auto" }} value={result} onChange={(e) => setResult(e.target.value)}>
             <option value="SATISFACTORY">Satisfactory</option>
             <option value="UNSATISFACTORY">Unsatisfactory</option>
             <option value="ADVISORY">Advisory</option>
           </select>
           <input
+            aria-label="Next due date"
             style={{ ...inputStyle, fontSize: 12, maxWidth: 130 }}
             type="date"
             title="Next due date"

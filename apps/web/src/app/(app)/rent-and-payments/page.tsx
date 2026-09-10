@@ -64,14 +64,14 @@ function ResolveAllocationRow({
         <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>No obligations recorded on this lease to resolve against yet.</div>
       ) : (
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <select style={{ ...inputStyle, fontSize: 12 }} value={obligationId} onChange={(e) => setObligationId(e.target.value)}>
+          <select aria-label="Obligation to resolve against" style={{ ...inputStyle, fontSize: 12 }} value={obligationId} onChange={(e) => setObligationId(e.target.value)}>
             {leaseObligations.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.obligation_type} due {o.due_date} — outstanding {money(o.outstanding_pence)}
               </option>
             ))}
           </select>
-          <input style={{ ...inputStyle, fontSize: 12, maxWidth: 100 }} type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input aria-label="Amount to resolve" style={{ ...inputStyle, fontSize: 12, maxWidth: 100 }} type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
           <button style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={onResolve} disabled={submitting}>
             Resolve
           </button>

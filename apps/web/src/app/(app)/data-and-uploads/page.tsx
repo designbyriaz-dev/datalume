@@ -308,6 +308,7 @@ export default function DataAndUploadsPage() {
                     <td style={{ padding: "6px 8px" }}>{header}</td>
                     <td style={{ padding: "6px 8px" }}>
                       <select
+                        aria-label={`Map ${header} to`}
                         style={inputStyle}
                         value={mapping[header] ?? ""}
                         onChange={(e) =>

@@ -100,12 +100,13 @@ function HazardActionsPanel({ organisationId, hazard }: { organisationId: string
       )}
       <div style={{ display: "flex", gap: 6 }}>
         <input
+          aria-label="Hazard action description"
           style={{ ...inputStyle, fontSize: 12 }}
           placeholder="e.g. Install extractor fan"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-        <input style={{ ...inputStyle, fontSize: 12, maxWidth: 150 }} type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+        <input aria-label="Hazard action deadline" style={{ ...inputStyle, fontSize: 12, maxWidth: 150 }} type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
         <button style={{ ...secondaryBtn, padding: "6px 10px", fontSize: 12 }} onClick={onAdd} disabled={submitting}>
           Raise
         </button>
@@ -136,12 +137,13 @@ function InvestigationForm({ organisationId, hazard, onDone }: { organisationId:
 
   return (
     <div style={{ marginTop: 8, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      <select style={{ ...inputStyle, width: "auto" }} value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+      <select aria-label="Investigation outcome" style={{ ...inputStyle, width: "auto" }} value={outcome} onChange={(e) => setOutcome(e.target.value)}>
         <option value="CONFIRMED">Confirmed</option>
         <option value="NOT_CONFIRMED">Not confirmed</option>
         <option value="INCONCLUSIVE">Inconclusive</option>
       </select>
       <input
+        aria-label="Findings"
         style={{ ...inputStyle, flex: 1, minWidth: 220 }}
         placeholder="Findings"
         value={findings}
