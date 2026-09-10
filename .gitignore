@@ -6,6 +6,11 @@ next-env.d.ts
 npm-debug.log*
 .turbo/
 
+# Playwright (apps/web/e2e)
+test-results/
+playwright-report/
+blob-report/
+
 # Python
 __pycache__/
 *.pyc

@@ -4,10 +4,12 @@ name: CI
 # (backend pytest + frontend build/lint/test should all gate merges
 # once this repo has a remote)." It now has one.
 #
-# Neither job needs Postgres/Redis as service containers — the backend
-# test suite runs entirely against SQLite + an in-process fake Redis
-# (see apps/api/app/tests/conftest.py), the same pattern used for every
-# live smoketest verification throughout this build. Real Postgres/RLS
+# None of the three jobs need Postgres/Redis as service containers —
+# everything (including the e2e job's two live servers) runs entirely
+# against SQLite + an in-process fake Redis (see
+# apps/api/app/tests/conftest.py and apps/api/scripts/
+# run_smoketest_server.py), the same pattern used for every live
+# smoketest verification throughout this build. Real Postgres/RLS
 # verification is still a documented, separate gap (see STATUS.md).
 
 on:
@@ -47,3 +49,31 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run lint
+
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+        working-directory: apps/api
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run test:e2e
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7

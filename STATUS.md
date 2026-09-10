@@ -1694,6 +1694,50 @@ weight inputs, confirming no id collisions), and `/ask` — all resolved
 to the correct label text. `npm run build`/`lint` both clean; no
 backend changes, so the existing 308 backend tests are unaffected.
 
+**Post-Sprint-24 — publishing the repo and closing the CI gap:** the
+repo is now public on GitHub with a real README (the old one was a
+Claude Code handoff-package doc from before the build started),
+CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, CHANGELOG.md,
+CODEOWNERS, and a PR template — all grounded in this codebase's actual
+conventions rather than generic boilerplate. `.github/workflows/ci.yml`
+closes the "no CI pipeline wired up yet" gap for real (verified before
+first push: a genuinely fresh venv install ran all 308 tests clean).
+`.github/workflows/codeql.yml` adds static analysis for both languages
+in this repo. `.github/dependabot.yml` covers all three dependency
+surfaces (pip, npm, GitHub Actions); once enabled it opened 5 PRs, 4 of
+which were verified (locally, not just trusting the green badge — see
+below) and merged, and one left open on purpose:
+`typescript-eslint` doesn't yet support the TypeScript 7.0 it was
+trying to bump to (`npm run build` passes, `npm run lint` doesn't) — a
+real, current upstream gap, not a bug here, reproduced locally before
+deciding not to merge it. The python-dependencies PR turned out to be
+a no-op for what actually installs (`pyproject.toml` has no lockfile,
+so `pip install` was already resolving to those same versions) — still
+verified with a fresh venv + full 308-test run before merging, same
+discipline as everything else in this build, not just because CI
+showed green.
+
+**Post-Sprint-24 — a first real Playwright E2E suite
+(`apps/web/e2e/`):** closes part of the gap above. Three specs: sign-up
+lands on the home dashboard and reflects the real org name (auth.spec),
+sign-out actually blocks re-entry to `/home` (auth.spec), a
+Development->Building->Property chain created through the real UI
+shows up correctly in the portfolio summary's `properties_by_status`
+badge (golden-thread.spec), and an unanswerable question gets Sprint
+22's fixed "I don't have data" message with no explainability panel,
+never a guess (ask-datalume.spec). `apps/api/scripts/
+run_smoketest_server.py` is the SQLite+fake-Redis smoketest pattern
+used for every live verification all through this build, finally
+promoted from a throwaway `/tmp` script into a real, checked-in one —
+`playwright.config.ts`'s `webServer` starts both it and `next dev`
+automatically, so `npm run test:e2e` (or the new `e2e` CI job) needs
+nothing beyond the repo itself, no Docker/Postgres/Redis. Explicitly
+not spec §76-78's full 50-step acceptance suite — see the "Not yet
+done" note for what's still unwritten. Verified twice before pushing:
+once in normal dev mode, once with `CI=true` (forces fresh servers
+instead of reusing a running dev server, and switches to the `github`
+annotation reporter) — both runs, all 4 tests passed.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -1724,11 +1768,15 @@ punch list for whoever takes this toward a real pilot:
   here, but didn't add span-based tracing, since there's no real
   collector in this sandbox to send spans to and a half-wired tracer
   would be worse than a documented gap.
-- **The Playwright E2E acceptance suite** (spec §76-78's 50 New Build
-  steps encoded as scenarios) — not started; the pytest integration
-  and security suites cover the equivalent assertions at the API
-  layer, but nothing exercises the actual browser UI end-to-end as an
-  automated, repeatable suite.
+- **The Playwright E2E acceptance suite covers a real first slice, not
+  the full 50 steps.** See the dedicated note below for what exists
+  now (auth, the Development->Building->Property golden thread, Ask
+  DataLume's ungrounded-question guarantee) and what's still
+  genuinely unwritten — most of spec §76-78's Housing Operations and
+  Commercial acceptance scenarios, and the deeper New Build steps
+  (handover, compliance, defects/warranties end-to-end through the
+  UI).
+
 Specifically flagged as gaps to close early, not deferred to "later":
 
 - **The Reference Engine's first-ever pattern row per org+entity_type
