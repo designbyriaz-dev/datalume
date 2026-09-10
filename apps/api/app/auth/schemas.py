@@ -32,6 +32,7 @@ class MeResponse(BaseModel):
     name: str
     email: str
     mfa_enabled: bool
+    mfa_backup_codes_remaining: int
     memberships: list[MembershipSummary]
 
 
@@ -44,10 +45,26 @@ class MfaVerifyRequest(BaseModel):
     code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
+class MfaVerifyResponse(BaseModel):
+    mfa_enabled: bool
+    backup_codes: list[str]
+
+
+# Accepts either a 6-digit TOTP code or a backup code (XXXXX-XXXXX,
+# 11 chars including the separator) — the endpoint tries TOTP first,
+# then falls back to backup codes, so the shape has to fit both.
 class MfaChallengeRequest(BaseModel):
     mfa_token: str
-    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    code: str = Field(min_length=6, max_length=16)
 
 
 class MfaDisableRequest(BaseModel):
     password: str
+
+
+class MfaRegenerateBackupCodesRequest(BaseModel):
+    password: str
+
+
+class MfaBackupCodesResponse(BaseModel):
+    backup_codes: list[str]

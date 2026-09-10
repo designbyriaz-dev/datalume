@@ -53,16 +53,15 @@ export default function SignInPage() {
       <AuthCard>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Enter your code</h1>
         <p style={{ color: "var(--text-on-dark-muted)", fontSize: 14, marginTop: 6, marginBottom: 24 }}>
-          Open your authenticator app and enter the 6-digit code for DataLume.
+          Open your authenticator app and enter the 6-digit code for DataLume, or use one of your backup
+          codes if you don&rsquo;t have access to it.
         </p>
         <form onSubmit={onChallenge}>
-          <FieldLabel htmlFor="sign-in-mfa-code">Authentication code</FieldLabel>
+          <FieldLabel htmlFor="sign-in-mfa-code">Authentication or backup code</FieldLabel>
           <input
             id="sign-in-mfa-code"
             style={darkInputStyle}
-            inputMode="numeric"
-            pattern="\d{6}"
-            maxLength={6}
+            maxLength={16}
             required
             autoFocus
             value={code}

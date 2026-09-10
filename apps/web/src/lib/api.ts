@@ -44,6 +44,7 @@ export type Me = {
   name: string;
   email: string;
   mfa_enabled: boolean;
+  mfa_backup_codes_remaining: number;
   memberships: Membership[];
 };
 
@@ -54,6 +55,11 @@ export type LoginResult =
 export type MfaEnrollment = {
   secret: string;
   otpauth_url: string;
+};
+
+export type MfaVerifyResult = {
+  mfa_enabled: boolean;
+  backup_codes: string[];
 };
 
 export type NavSection = {
@@ -964,9 +970,14 @@ export const api = {
     }),
   mfaEnroll: () => request<MfaEnrollment>("/api/v1/auth/mfa/enroll", { method: "POST" }),
   mfaVerify: (code: string) =>
-    request<{ mfa_enabled: boolean }>("/api/v1/auth/mfa/verify", {
+    request<MfaVerifyResult>("/api/v1/auth/mfa/verify", {
       method: "POST",
       body: JSON.stringify({ code }),
+    }),
+  mfaRegenerateBackupCodes: (password: string) =>
+    request<{ backup_codes: string[] }>("/api/v1/auth/mfa/backup-codes/regenerate", {
+      method: "POST",
+      body: JSON.stringify({ password }),
     }),
   mfaDisable: (password: string) =>
     request<{ mfa_enabled: boolean }>("/api/v1/auth/mfa/disable", {

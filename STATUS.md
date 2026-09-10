@@ -1931,11 +1931,38 @@ real computed TOTP code, signed out, and confirmed a plain password
 was no longer enough to sign back in until the second code was
 entered correctly.
 
-**What's still a known gap**: no backup/recovery codes — losing the
-authenticator device with no way back in is a real usability
-consequence of this first cut, not yet addressed. No QR code
-rendering for enrolment (manual-entry key only, which every
-authenticator app supports, just less convenient than a scan).
+**What's still a known gap**: no QR code rendering for enrolment
+(manual-entry key only, which every authenticator app supports, just
+less convenient than a scan).
+
+**Post-Sprint-24 — MFA backup/recovery codes:** closes the gap the
+entry above flagged immediately after shipping MFA — until now, losing
+the authenticator device meant permanent lockout, a real usability
+consequence with no recovery path at all.
+
+`/mfa/verify` (turning MFA on) and a new `/mfa/backup-codes/regenerate`
+(password-confirmed, for topping up or resetting after a lost device)
+both replace the user's whole code set with ten fresh ones —
+`XXXXX-XXXXX`, drawn from an alphabet with `0/O/1/I` excluded so a
+handwritten copy stays unambiguous — and hand them back in plaintext
+exactly once; only the bcrypt hash is stored (`MfaBackupCode`,
+migration `0023`, no RLS for the same reason `sessions`/`users`/`roles`
+don't get it: this is user-level data, not organisation-scoped).
+`/mfa/challenge` tries the submitted code as TOTP first, then as a
+backup code if that fails, so login needs no separate "I don't have my
+app" path — the same field just accepts either shape. A used code is
+marked (not deleted, so misuse is still auditable) and can never work
+again; regenerating invalidates every code from the previous batch,
+used or not.
+
+7 new backend tests (346 total). `/settings` shows the backup codes
+once right after enabling (with a "copy all" and an explicit "I've
+saved these" acknowledgement before continuing) and a running "N
+backup codes remaining" count with a regenerate action afterward;
+`/sign-in`'s challenge step now says a backup code works too and
+accepts the longer format. Verified live end to end: enabled MFA, saw
+the 10 codes, signed out, signed back in with one of them instead of a
+TOTP code, and confirmed the remaining count dropped to 9.
 
 ## Not yet done
 

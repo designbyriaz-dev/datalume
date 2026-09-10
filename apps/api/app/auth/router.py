@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -5,15 +6,18 @@ import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
-from app.auth.models import Membership, MembershipStatus, Role, Session as SessionModel, User
+from app.auth.models import MfaBackupCode, Membership, MembershipStatus, Role, Session as SessionModel, User
 from app.auth.schemas import (
     LoginRequest,
     MeResponse,
     MembershipSummary,
+    MfaBackupCodesResponse,
     MfaChallengeRequest,
     MfaDisableRequest,
     MfaEnrollResponse,
+    MfaRegenerateBackupCodesRequest,
     MfaVerifyRequest,
+    MfaVerifyResponse,
     SignupRequest,
 )
 from app.core.config import get_settings
@@ -30,6 +34,37 @@ settings = get_settings()
 # How long a password-verified-but-not-yet-2FA-verified login has to
 # complete the MFA challenge before it has to restart from /login.
 MFA_PENDING_TTL_SECONDS = 300
+
+BACKUP_CODE_COUNT = 10
+# Excludes 0/O/1/I — ambiguous on a printed/handwritten copy, which is
+# exactly how these are meant to be kept (spec's own "write these down
+# and store them somewhere safe" instruction only works if every
+# character is unambiguous when re-typed from paper).
+BACKUP_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _generate_backup_codes(db: Session, user: User) -> list[str]:
+    """Replaces the user's whole backup-code set with a fresh batch of
+    BACKUP_CODE_COUNT codes. Returns them in plaintext — the only time
+    they're ever available outside a bcrypt hash, so the caller must
+    hand them to the user right away; there's no "view again" later."""
+    db.query(MfaBackupCode).filter(MfaBackupCode.user_id == user.id).delete()
+    codes = []
+    for _ in range(BACKUP_CODE_COUNT):
+        raw = "".join(secrets.choice(BACKUP_CODE_ALPHABET) for _ in range(10))
+        codes.append(raw)
+        db.add(MfaBackupCode(user_id=user.id, code_hash=hash_password(raw)))
+    return [f"{code[:5]}-{code[5:]}" for code in codes]
+
+
+def _consume_backup_code(db: Session, user: User, code: str) -> bool:
+    normalized = code.strip().upper().replace("-", "").replace(" ", "")
+    unused = db.query(MfaBackupCode).filter(MfaBackupCode.user_id == user.id, MfaBackupCode.used_at.is_(None)).all()
+    for candidate in unused:
+        if verify_password(normalized, candidate.code_hash):
+            candidate.used_at = datetime.now(timezone.utc)
+            return True
+    return False
 
 
 def _slugify(name: str) -> str:
@@ -153,8 +188,23 @@ def mfa_challenge(payload: MfaChallengeRequest, response: Response, db: Session 
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This sign-in attempt has expired — sign in again")
 
     user = db.get(User, uuid.UUID(user_id))
-    if user is None or not user.mfa_secret or not pyotp.TOTP(user.mfa_secret).verify(payload.code, valid_window=1):
+    if user is None or not user.mfa_secret:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect code")
+
+    is_totp_valid = pyotp.TOTP(user.mfa_secret).verify(payload.code, valid_window=1)
+    used_backup_code = False if is_totp_valid else _consume_backup_code(db, user, payload.code)
+    if not is_totp_valid and not used_backup_code:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect code")
+
+    if used_backup_code:
+        record_audit_event(
+            db,
+            organisation_id=None,
+            actor_user_id=user.id,
+            action_code="user.mfa_backup_code_used",
+            entity_type="user",
+            entity_id=str(user.id),
+        )
 
     redis_client.delete(key)
     _issue_session(db, response, user)
@@ -177,11 +227,19 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
         .filter(Membership.user_id == user.id, Membership.status == MembershipStatus.ACTIVE)
         .all()
     )
+    backup_codes_remaining = (
+        db.query(MfaBackupCode)
+        .filter(MfaBackupCode.user_id == user.id, MfaBackupCode.used_at.is_(None))
+        .count()
+        if user.mfa_enabled
+        else 0
+    )
     return MeResponse(
         id=user.id,
         name=user.name,
         email=user.email,
         mfa_enabled=user.mfa_enabled,
+        mfa_backup_codes_remaining=backup_codes_remaining,
         memberships=[
             MembershipSummary(organisation_id=org.id, organisation_name=org.name, role_code=role.code)
             for _m, org, role in memberships
@@ -205,13 +263,14 @@ def mfa_enroll(user: User = Depends(get_current_user), db: Session = Depends(get
     return MfaEnrollResponse(secret=secret, otpauth_url=otpauth_url)
 
 
-@router.post("/mfa/verify")
+@router.post("/mfa/verify", response_model=MfaVerifyResponse)
 def mfa_verify(payload: MfaVerifyRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not user.mfa_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Start enrolment first")
     if not pyotp.TOTP(user.mfa_secret).verify(payload.code, valid_window=1):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Incorrect code — check your authenticator app and try again")
     user.mfa_enabled = True
+    backup_codes = _generate_backup_codes(db, user)
     record_audit_event(
         db,
         organisation_id=None,
@@ -221,7 +280,30 @@ def mfa_verify(payload: MfaVerifyRequest, user: User = Depends(get_current_user)
         entity_id=str(user.id),
     )
     db.commit()
-    return {"mfa_enabled": True}
+    return MfaVerifyResponse(mfa_enabled=True, backup_codes=backup_codes)
+
+
+@router.post("/mfa/backup-codes/regenerate", response_model=MfaBackupCodesResponse)
+def mfa_regenerate_backup_codes(
+    payload: MfaRegenerateBackupCodesRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not user.mfa_enabled:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Two-factor authentication isn't enabled")
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect password")
+    codes = _generate_backup_codes(db, user)
+    record_audit_event(
+        db,
+        organisation_id=None,
+        actor_user_id=user.id,
+        action_code="user.mfa_backup_codes_regenerated",
+        entity_type="user",
+        entity_id=str(user.id),
+    )
+    db.commit()
+    return MfaBackupCodesResponse(backup_codes=codes)
 
 
 @router.post("/mfa/disable")
@@ -230,6 +312,7 @@ def mfa_disable(payload: MfaDisableRequest, user: User = Depends(get_current_use
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect password")
     user.mfa_enabled = False
     user.mfa_secret = None
+    db.query(MfaBackupCode).filter(MfaBackupCode.user_id == user.id).delete()
     record_audit_event(
         db,
         organisation_id=None,

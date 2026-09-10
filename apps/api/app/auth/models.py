@@ -97,6 +97,24 @@ class Invitation(Base):
     role: Mapped[Role] = relationship()
 
 
+class MfaBackupCode(Base):
+    """One-time codes for the "I lost my authenticator device" case —
+    without these, MFA (see app/auth/router.py's mfa_* endpoints) would
+    have no recovery path at all. Only the bcrypt hash is stored, same
+    as User.password_hash — a DB dump alone can't be used to sign in.
+    Generated as a batch whenever MFA is verified-on or the set is
+    explicitly regenerated; a fresh batch replaces (does not append to)
+    whatever set existed before."""
+
+    __tablename__ = "mfa_backup_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(255))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Session(Base):
     """Redis is the source of truth for live sessions (fast revocation);
     this table is the durable audit record of session issuance, matching
