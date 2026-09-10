@@ -51,6 +51,20 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
+      // Started second (Playwright starts webServer entries in array
+      // order, each waiting on its own readiness signal before the
+      // next begins), so the API's `--fresh` table (re)creation has
+      // already finished before the worker's own first tick — no race
+      // on table existence. No url/port here: this process serves no
+      // HTTP, Playwright just spawns it and moves on. Same SQLite file
+      // as the API server above — report generation (Sprint 23) is
+      // worker-driven, so without this, a report job would sit PENDING
+      // forever and reports.spec.ts would never see it go READY.
+      command: `${apiPython} scripts/run_smoketest_worker.py --db-path e2e-smoketest.db`,
+      cwd: "../api",
+      reuseExistingServer: !process.env.CI,
+    },
+    {
       command: "npm run dev",
       cwd: __dirname,
       url: "http://localhost:3100",

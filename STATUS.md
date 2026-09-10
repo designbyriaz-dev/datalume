@@ -1718,25 +1718,60 @@ discipline as everything else in this build, not just because CI
 showed green.
 
 **Post-Sprint-24 — a first real Playwright E2E suite
-(`apps/web/e2e/`):** closes part of the gap above. Three specs: sign-up
-lands on the home dashboard and reflects the real org name (auth.spec),
-sign-out actually blocks re-entry to `/home` (auth.spec), a
-Development->Building->Property chain created through the real UI
-shows up correctly in the portfolio summary's `properties_by_status`
-badge (golden-thread.spec), and an unanswerable question gets Sprint
-22's fixed "I don't have data" message with no explainability panel,
-never a guess (ask-datalume.spec). `apps/api/scripts/
-run_smoketest_server.py` is the SQLite+fake-Redis smoketest pattern
-used for every live verification all through this build, finally
-promoted from a throwaway `/tmp` script into a real, checked-in one —
-`playwright.config.ts`'s `webServer` starts both it and `next dev`
-automatically, so `npm run test:e2e` (or the new `e2e` CI job) needs
-nothing beyond the repo itself, no Docker/Postgres/Redis. Explicitly
-not spec §76-78's full 50-step acceptance suite — see the "Not yet
-done" note for what's still unwritten. Verified twice before pushing:
-once in normal dev mode, once with `CI=true` (forces fresh servers
-instead of reusing a running dev server, and switches to the `github`
-annotation reporter) — both runs, all 4 tests passed.
+(`apps/web/e2e/`):** closes part of the gap above. Seven specs across
+five files: sign-up lands on the home dashboard and reflects the real
+org name (auth.spec), sign-out actually blocks re-entry to `/home`
+(auth.spec), a Development->Building->Property chain created through
+the real UI shows up correctly in the portfolio summary's
+`properties_by_status` badge (golden-thread.spec), an unanswerable
+question gets Sprint 22's fixed "I don't have data" message with no
+explainability panel, never a guess (ask-datalume.spec), adding a
+requirement under a pre-seeded compliance domain (Gas Safety, not a
+throwaway one — Sprint 15's 21 global domains are real seed data)
+shows up in its list (compliance.spec), an unpaid rent obligation
+shows as fully outstanding on the arrears page (commercial-
+arrears.spec, Sprints 19-20), and a requested report genuinely goes
+PENDING -> READY with no page reload and downloads a real file
+(reports.spec, Sprint 23's own background-job guarantee, watched
+through the worker's real 5s poll tick, not a mock).
+
+`apps/api/scripts/run_smoketest_server.py` (the SQLite+fake-Redis
+pattern used for every live verification all through this build) and
+its new sibling `run_smoketest_worker.py` are both real, checked-in
+scripts now — `playwright.config.ts`'s `webServer` array starts the
+API, then the worker, then `next dev`, in that order (Playwright starts
+array entries sequentially, each waiting on its own readiness signal,
+so the worker never starts before the API's `--fresh` table
+(re)creation has finished). Without the worker, `reports.spec.ts`
+would watch a report job sit PENDING forever — this is genuinely
+worker-driven, not simulated. `npm run test:e2e` (or the `e2e` CI job)
+needs nothing beyond the repo itself, no Docker/Postgres/Redis.
+Explicitly not spec §76-78's full 50-step acceptance suite — see the
+"Not yet done" note for what's still unwritten.
+
+Two real bugs found while building this, not just the tests
+themselves:
+- The first CI run of the original 4-spec suite failed immediately
+  (exit code 127) — `playwright.config.ts` hardcoded
+  `apps/api/.venv/bin/python`, which only exists in local dev; CI's
+  `pip install -e ".[dev]"` has no venv at all and installs onto
+  `actions/setup-python`'s own Python. Fixed by detecting the venv at
+  config-load time and falling back to `python3`. Verified on GitHub's
+  own runner afterward, not just locally.
+- Writing `commercial-arrears.spec.ts` required reading `/arrears`'s
+  actual source, which turned up a lease `<select>` with no label at
+  all — not caught by Sprint 24's original 17-file sweep (a
+  single-line grep pattern) or its own follow-up (18 files), since
+  there was nothing for either to match on. A properly AST-shaped
+  check (matching the full multi-line `<input>`/`<select>` tag, not a
+  single grep line) found 7 more of the same kind across the app —
+  dense, per-row inline-editing controls with no visible label at all.
+  All fixed with `aria-label`.
+
+Verified repeatedly before pushing: normal dev mode and `CI=true`
+(fresh servers, `github` reporter) both green, run twice each to check
+for timing flakiness in the worker-dependent reports test — no
+flakiness observed across 4 total local runs.
 
 ## Not yet done
 
@@ -1769,13 +1804,16 @@ punch list for whoever takes this toward a real pilot:
   collector in this sandbox to send spans to and a half-wired tracer
   would be worse than a documented gap.
 - **The Playwright E2E acceptance suite covers a real first slice, not
-  the full 50 steps.** See the dedicated note below for what exists
+  the full 50 steps.** See the dedicated note above for what exists
   now (auth, the Development->Building->Property golden thread, Ask
-  DataLume's ungrounded-question guarantee) and what's still
-  genuinely unwritten — most of spec §76-78's Housing Operations and
-  Commercial acceptance scenarios, and the deeper New Build steps
-  (handover, compliance, defects/warranties end-to-end through the
-  UI).
+  DataLume's ungrounded-question guarantee, a compliance requirement
+  against a seeded domain, commercial arrears, and worker-driven
+  report generation) and what's still genuinely unwritten — handover
+  authorisation, defects/warranties, repeat-repair detection, the
+  attention engine (there's no scan-trigger button in the UI at all,
+  only the nightly worker job — not currently E2E-testable without
+  either adding one or a much longer-running test), and most of spec
+  §76-78's deeper Housing Operations and Commercial scenarios.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
