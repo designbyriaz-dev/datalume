@@ -1773,6 +1773,62 @@ Verified repeatedly before pushing: normal dev mode and `CI=true`
 for timing flakiness in the worker-dependent reports test — no
 flakiness observed across 4 total local runs.
 
+**Post-Sprint-24 — the real `StripeBillingProvider`:** closes the
+Sprint 2 deferral. `app/integrations/billing_provider.py` now has a
+full implementation behind the same `BillingProvider` Protocol
+`NullBillingProvider` always used, so nothing above the adapter
+boundary changed shape. `create_checkout_session` uses inline
+`price_data` (currency/amount/recurring/product) rather than requiring
+Price/Product objects pre-created in a Stripe dashboard, so there's no
+manual dashboard setup step before this works against a real test-mode
+key. `create_billing_portal_session` opens Stripe's own hosted portal.
+
+The webhook handler (`POST /api/v1/subscriptions/webhook`, unauthenticated
+by design — signature verification is the entire auth mechanism, per
+architecture/09 §1's threat table) is the sole writer of billing state
+derived from Stripe, matching architecture/07 §2. Because Stripe
+doesn't guarantee webhook delivery order, `organisation_id` is written
+into the Checkout Session's `subscription_data.metadata` at creation
+time so it lands on the resulting Stripe Subscription object itself —
+every `customer.subscription.*` event can resolve the DataLume org
+directly from the event payload, whether or not `checkout.session.completed`
+has been processed yet. Handles `checkout.session.completed`,
+`customer.subscription.created/updated/deleted`, and
+`invoice.payment_failed/succeeded`.
+
+Fully tested offline, no live Stripe account needed: `stripe.WebhookSignature.
+generate_signature_header` generates a validly-signed test payload with
+zero network calls, so `test_billing.py` exercises real signature
+verification (`stripe.Webhook.construct_event`) and the entire
+event-dispatch state machine, not a mock of it — ~15 new tests, all
+passing (320 backend tests total). Two real bugs found and fixed while
+building this:
+- Stripe's current API moved `current_period_end` off the top-level
+  Subscription object onto `subscription["items"]["data"][0]` (multiple
+  prices per subscription support) — confirmed by grepping the
+  installed SDK's own type stubs, not assumed from memory.
+- The SDK's `StripeObject` deliberately doesn't support `.get()` like a
+  plain dict (`AttributeError: 'get' is a dict method, but a
+  StripeObject is not a dict`) — the webhook dispatcher now converts
+  via `.to_dict()` before handing the event object to a handler
+  function.
+
+`apps/web/organisation/billing/page.tsx` already called `/checkout`;
+this pass added the missing "Manage billing" button wired to
+`/portal` (the API client already had `startBillingPortal`, unused
+until now) — without it there was no way for a subscriber to reach
+Stripe's portal to update a card, cancel, or see invoices. Both
+buttons degrade the same way against `NullBillingProvider`: a 503
+becomes an inline "isn't wired up yet, contact us" message, not a
+broken redirect. `npm run build`/`lint` both clean.
+
+**What's still genuinely unverified**: `create_checkout_session` and
+`create_billing_portal_session` have never been called against a real
+Stripe account — this sandbox has no live `STRIPE_SECRET_KEY`. The
+webhook state machine is real and tested; the two calls that actually
+talk to Stripe's API are not. Needs a Stripe test-mode secret key +
+webhook signing secret to close that gap for real.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -1853,10 +1909,13 @@ Specifically flagged as gaps to close early, not deferred to "later":
   they confirm the *application*-layer tenant scoping, not the second,
   Postgres-only layer. Treat RLS itself as still unconfirmed until
   that same suite (or an equivalent) runs against real Postgres.
-- **Stripe is not wired up.** `StripeBillingProvider` doesn't exist yet;
-  `STRIPE_SECRET_KEY` must be set and that class implemented before
-  checkout/portal/webhooks do anything real. See
-  `app/integrations/billing_provider.py`.
+- **Stripe checkout/portal are unverified against a live account.**
+  `StripeBillingProvider` is now implemented (see the Post-Sprint-24
+  entry above) and its webhook logic is fully tested offline, but
+  `create_checkout_session`/`create_billing_portal_session` have never
+  been exercised against a real Stripe account — this sandbox has no
+  `STRIPE_SECRET_KEY`. Needs a real test-mode key to confirm those two
+  calls for real. See `app/integrations/billing_provider.py`.
 - **There's no membership-invite flow.** Signup creates exactly one
   OWNER; there's no way yet for an OWNER to add a second person to their
   org with a chosen role. The Sprint 2 billing-permission test

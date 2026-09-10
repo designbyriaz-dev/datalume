@@ -31,6 +31,7 @@ export default function BillingPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+  const [portalPending, setPortalPending] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -70,6 +71,27 @@ export default function BillingPage() {
       }
     } finally {
       setPendingPlan(null);
+    }
+  }
+
+  async function onManageBilling() {
+    const orgId = window.localStorage.getItem(SELECTED_ORG_KEY);
+    if (!orgId) return;
+    setPortalPending(true);
+    setActionMessage(null);
+    try {
+      const { portal_url } = await api.startBillingPortal(orgId);
+      redirectTo(portal_url);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        setActionMessage(
+          "Billing isn't wired up to Stripe yet in this environment — get in touch and we'll manage your plan manually.",
+        );
+      } else {
+        setActionMessage("Something went wrong opening the billing portal. Please try again.");
+      }
+    } finally {
+      setPortalPending(false);
     }
   }
 
@@ -114,7 +136,25 @@ export default function BillingPage() {
               </div>
             )}
           </div>
-          <StatusBadge label={subscription.status} variant={statusVariant(subscription.status)} />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12 }}>
+            <StatusBadge label={subscription.status} variant={statusVariant(subscription.status)} />
+            <button
+              onClick={onManageBilling}
+              disabled={portalPending}
+              style={{
+                padding: "7px 14px",
+                borderRadius: 8,
+                border: "1px solid var(--border-subtle)",
+                background: "var(--bg-app)",
+                color: "var(--text-primary)",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: portalPending ? "default" : "pointer",
+              }}
+            >
+              {portalPending ? "Opening…" : "Manage billing"}
+            </button>
+          </div>
         </div>
       )}
 

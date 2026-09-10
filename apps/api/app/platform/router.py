@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -6,6 +6,7 @@ from app.core.tenancy import AuthContext, get_auth_context, require_permission
 from app.integrations.billing_provider import (
     BillingNotConfiguredError,
     BillingProvider,
+    WebhookVerificationError,
     get_billing_provider,
 )
 from app.organisations.models import Organisation
@@ -75,3 +76,32 @@ def start_billing_portal(
     except BillingNotConfiguredError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return {"portal_url": url}
+
+
+@router.post("/webhook")
+async def stripe_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+    provider: BillingProvider = Depends(get_billing_provider),
+):
+    """Deliberately no `AuthContext`/tenant scoping — this is called by
+    Stripe's own servers, not a logged-in DataLume user. The webhook
+    signature (verified inside `handle_webhook_event`) is the entire
+    authentication mechanism, per Stripe's own integration model and
+    architecture/09 §1's threat table ("Webhook spoofing (Stripe) |
+    Signature verification on every webhook before any billing state
+    write"). Needs the *raw* request body — signature verification
+    hashes the exact bytes Stripe sent, so this can't go through a
+    Pydantic-parsed body."""
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature", "")
+    try:
+        provider.handle_webhook_event(payload, signature, db)
+    except BillingNotConfiguredError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except WebhookVerificationError as exc:
+        # Not a 5xx: an unsigned/mis-signed request isn't something
+        # Stripe should retry, and a 5xx here would make Stripe keep
+        # resending a request that will never succeed.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"received": True}

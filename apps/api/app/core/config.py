@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
+    # Where Stripe Checkout/the billing portal redirect back to — see
+    # app/integrations/billing_provider.py's StripeBillingProvider.
+    web_app_url: str = "http://localhost:3100"
 
     # Ask DataLume — architecture/06-intelligence-layer.md §1-2. See
     # app/integrations/llm_provider.py: unset means NullLLMProvider,
