@@ -1,0 +1,49 @@
+name: CI
+
+# Closes the gap STATUS.md documented: "No CI pipeline wired up yet
+# (backend pytest + frontend build/lint/test should all gate merges
+# once this repo has a remote)." It now has one.
+#
+# Neither job needs Postgres/Redis as service containers — the backend
+# test suite runs entirely against SQLite + an in-process fake Redis
+# (see apps/api/app/tests/conftest.py), the same pattern used for every
+# live smoketest verification throughout this build. Real Postgres/RLS
+# verification is still a documented, separate gap (see STATUS.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api:
+    name: API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # the version this build was actually developed/verified against
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  web:
+    name: Web build & lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
