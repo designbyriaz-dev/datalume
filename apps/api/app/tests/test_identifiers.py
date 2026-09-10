@@ -131,6 +131,54 @@ def test_reference_pattern_must_include_sequence_placeholder(client):
     assert resp.status_code == 400
 
 
+def test_bootstrap_race_recovers_from_concurrent_first_insert(client, monkeypatch):
+    """Real threaded concurrency against SQLite can't reproduce this race
+    faithfully — SQLite serializes writers at the whole-database level
+    (raising OperationalError for the loser) rather than Postgres's
+    row-lock + unique-constraint model this fix targets. So the race is
+    simulated directly: the first _select_pattern call is forced to miss
+    a row that a "concurrent" transaction has already committed, exactly
+    what a real SELECT-before-the-other-transaction's-commit would see
+    under Postgres, and the bootstrap insert must then hit the unique
+    constraint and recover by re-reading that row instead of raising."""
+    import app.core.db as db_module
+    import app.identifiers.service as service_module
+    from app.identifiers.models import ReferencePattern
+
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = uuid.UUID(signup["organisation_id"])
+
+    db = db_module.SessionLocal()
+    try:
+        winning_row = ReferencePattern(
+            organisation_id=org_id, entity_type="PROPERTY", pattern="PROP-{sequence:06d}", next_sequence=1
+        )
+        db.add(winning_row)
+        db.commit()
+
+        real_select = service_module._select_pattern
+        calls = {"n": 0}
+
+        def flaky_select(db_arg, organisation_id, entity_type):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None  # simulate missing the row the "other" transaction just committed
+            return real_select(db_arg, organisation_id, entity_type)
+
+        monkeypatch.setattr(service_module, "_select_pattern", flaky_select)
+
+        pattern = service_module._get_or_create_pattern(db, org_id, "PROPERTY")
+        assert pattern.id == winning_row.id  # recovered the real row, didn't raise or duplicate
+
+        db.commit()
+        all_patterns = db.query(ReferencePattern).filter(
+            ReferencePattern.organisation_id == org_id, ReferencePattern.entity_type == "PROPERTY"
+        ).all()
+        assert len(all_patterns) == 1
+    finally:
+        db.close()
+
+
 def test_list_reference_patterns_shows_every_known_type(client):
     signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
     resp = client.get("/api/v1/reference-patterns", headers={"X-Organisation-Id": signup["organisation_id"]})

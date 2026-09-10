@@ -21,6 +21,7 @@ table itself — see identifiers/models.py).
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
@@ -42,37 +43,49 @@ DEFAULT_PATTERNS: dict[str, str] = {
 }
 
 
-def _get_or_create_pattern(db: Session, organisation_id: uuid.UUID, entity_type: str) -> ReferencePattern:
-    # Row-locked read on the common path (pattern already exists — true
-    # for every generate_reference call after an org's first entity of
-    # this type). The one-time bootstrap insert below has a narrow,
-    # documented race: two simultaneous *first-ever* creates of the same
-    # entity_type for the same org could both attempt to insert this row.
-    # The unique constraint on (organisation_id, entity_type) turns that
-    # into a clean IntegrityError rather than a silent duplicate; it is
-    # not caught/retried here because it is a one-time-per-org-per-type
-    # edge case, not the steady-state path this function exists to fix.
-    pattern = (
+def _select_pattern(db: Session, organisation_id: uuid.UUID, entity_type: str) -> ReferencePattern | None:
+    return (
         db.query(ReferencePattern)
         .filter(ReferencePattern.organisation_id == organisation_id, ReferencePattern.entity_type == entity_type)
         .with_for_update()
         .first()
     )
+
+
+def _get_or_create_pattern(db: Session, organisation_id: uuid.UUID, entity_type: str) -> ReferencePattern:
+    # Row-locked read on the common path (pattern already exists — true
+    # for every generate_reference call after an org's first entity of
+    # this type). The one-time bootstrap insert below has a narrow race:
+    # two simultaneous *first-ever* creates of the same entity_type for
+    # the same org could both miss the row on this SELECT and both
+    # attempt the insert. Under Postgres, the unique constraint on
+    # (organisation_id, entity_type) turns the loser's insert into an
+    # IntegrityError rather than a silent duplicate — recovered below by
+    # re-reading the row the winner just committed, with the same row
+    # lock the common path takes, rather than letting the error surface
+    # to the caller for a one-time-per-org-per-type edge case.
+    pattern = _select_pattern(db, organisation_id, entity_type)
     if pattern is not None:
         return pattern
 
     if entity_type not in DEFAULT_PATTERNS:
         raise ValueError(f"No default reference pattern for entity_type: {entity_type}")
 
-    pattern = ReferencePattern(
-        organisation_id=organisation_id,
-        entity_type=entity_type,
-        pattern=DEFAULT_PATTERNS[entity_type],
-        next_sequence=1,
-        is_active=True,
-    )
-    db.add(pattern)
-    db.flush()
+    try:
+        with db.begin_nested():
+            pattern = ReferencePattern(
+                organisation_id=organisation_id,
+                entity_type=entity_type,
+                pattern=DEFAULT_PATTERNS[entity_type],
+                next_sequence=1,
+                is_active=True,
+            )
+            db.add(pattern)
+            db.flush()
+    except IntegrityError:
+        pattern = _select_pattern(db, organisation_id, entity_type)
+        if pattern is None:
+            raise
     return pattern
 
 
