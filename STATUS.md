@@ -2199,6 +2199,18 @@ underneath and completed verification with it, confirming the QR
 encodes a genuinely working `otpauth://` URI, not just that an image
 tag renders.
 
+**Post-Sprint-24 — a real Playwright spec for the Attention Engine's
+manual scan:** closes the E2E gap the manual-trigger entry above left
+open. Three repairs of the same category against one property — the
+exact repeat-failure pattern `test_attention.py`'s own worker test
+already uses to get a real `signals_created == 1` — reported through
+the actual `/repairs` form, then "Run scan now" clicked on Home:
+asserts the "1 new, 0 updated." result text, the signal's real
+explanation copy ("... repairs reported against this property..."),
+and "Needs attention (1)". 8 E2E specs total now. Verified both ways
+this suite always is: normal dev mode and `CI=true`, run twice each,
+no flakiness.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2233,14 +2245,12 @@ punch list for whoever takes this toward a real pilot:
   the full 50 steps.** See the dedicated note above for what exists
   now (auth, the Development->Building->Property golden thread, Ask
   DataLume's ungrounded-question guarantee, a compliance requirement
-  against a seeded domain, commercial arrears, and worker-driven
-  report generation) and what's still genuinely unwritten — handover
-  authorisation, defects/warranties, repeat-repair detection, and most
-  of spec §76-78's deeper Housing Operations and Commercial scenarios.
-  The attention engine now has a manual trigger (see the Post-Sprint-24
-  entry below) so it's no longer blocked on "only the nightly worker
-  job runs this," but a dedicated Playwright spec for it still hasn't
-  been written.
+  against a seeded domain, commercial arrears, worker-driven report
+  generation, and — as of Post-Sprint-24 — a manual attention-engine
+  scan that genuinely detects a repeat-repair pattern) and what's
+  still genuinely unwritten — handover authorisation, defects/
+  warranties, and most of spec §76-78's deeper Housing Operations and
+  Commercial scenarios.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
