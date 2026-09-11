@@ -38,7 +38,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, JSON, String, func, text
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, JSON, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -66,6 +66,12 @@ class AttentionRule(Base):
     in rules.py's Python code."""
 
     __tablename__ = "attention_rules"
+    # Matches alembic/versions/0020_attention_engine.py's migration-level
+    # constraint of the same name — declared here too (previously it
+    # only existed in the migration) so SQLite's Base.metadata.create_all
+    # (what every test actually runs against, not the migration) enforces
+    # it too. See get_or_create_rule's IntegrityError recovery below.
+    __table_args__ = (UniqueConstraint("organisation_id", "code", name="uq_attention_rule_org_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

@@ -21,28 +21,43 @@ class UnknownRuleCodeError(ValueError):
     404."""
 
 
-def get_or_create_rule(
-    db: Session, organisation_id: uuid.UUID, code: str, *, name: str, domain_scope: str, default_definition: dict, default_severity: AttentionSeverity
-) -> AttentionRule:
-    rule = (
+def _select_rule(db: Session, organisation_id: uuid.UUID, code: str) -> AttentionRule | None:
+    return (
         db.query(AttentionRule)
         .filter(AttentionRule.organisation_id == organisation_id, AttentionRule.code == code)
         .with_for_update()
         .first()
     )
+
+
+def get_or_create_rule(
+    db: Session, organisation_id: uuid.UUID, code: str, *, name: str, domain_scope: str, default_definition: dict, default_severity: AttentionSeverity
+) -> AttentionRule:
+    # Row-locked read on the common path (true for every call after an
+    # org's first-ever rule listing). The one-time bootstrap insert
+    # below has the same narrow race app/identifiers/service.py's
+    # _get_or_create_pattern documents: two simultaneous first-ever
+    # seedings for the same (org, code) could both miss this SELECT.
+    rule = _select_rule(db, organisation_id, code)
     if rule is not None:
         return rule
-    rule = AttentionRule(
-        organisation_id=organisation_id,
-        code=code,
-        name=name,
-        domain_scope=domain_scope,
-        rule_definition=default_definition,
-        severity_default=default_severity,
-        is_active=True,
-    )
-    db.add(rule)
-    db.flush()
+    try:
+        with db.begin_nested():
+            rule = AttentionRule(
+                organisation_id=organisation_id,
+                code=code,
+                name=name,
+                domain_scope=domain_scope,
+                rule_definition=default_definition,
+                severity_default=default_severity,
+                is_active=True,
+            )
+            db.add(rule)
+            db.flush()
+    except IntegrityError:
+        rule = _select_rule(db, organisation_id, code)
+        if rule is None:
+            raise
     return rule
 
 

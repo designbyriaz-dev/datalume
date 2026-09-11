@@ -495,3 +495,64 @@ def test_upsert_signal_recovers_from_a_concurrent_scan_race(client, monkeypatch)
         assert len(live_rows) == 1
     finally:
         db.close()
+
+
+def test_get_or_create_rule_recovers_from_a_concurrent_bootstrap_race(client, monkeypatch):
+    """Same class of race as upsert_signal above, one level up: two
+    simultaneous first-ever rule seedings for the same (org, code) —
+    e.g. a manual "Run scan now" click racing GET /attention/rules for
+    the same fresh org — could both miss the row-locked SELECT and
+    both attempt the bootstrap insert. Deterministically simulated the
+    same way, for the same SQLite-vs-Postgres-concurrency reason."""
+    import app.attention.service as attention_service
+    import app.core.db as db_module
+    from app.attention.models import AttentionRule, AttentionSeverity
+
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = uuid.UUID(signup["organisation_id"])
+
+    db = db_module.SessionLocal()
+    try:
+        winning_rule = AttentionRule(
+            organisation_id=org_id,
+            code="REPEAT_FAILURE",
+            name="Repeat failure",
+            domain_scope="operations",
+            rule_definition={},
+            severity_default=AttentionSeverity.MEDIUM,
+            is_active=True,
+        )
+        db.add(winning_rule)
+        db.commit()
+
+        real_select = attention_service._select_rule
+        calls = {"n": 0}
+
+        def flaky_select(db_arg, organisation_id_arg, code_arg):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None  # simulate missing the row a "concurrent" seeding just committed
+            return real_select(db_arg, organisation_id_arg, code_arg)
+
+        monkeypatch.setattr(attention_service, "_select_rule", flaky_select)
+
+        rule = attention_service.get_or_create_rule(
+            db,
+            org_id,
+            "REPEAT_FAILURE",
+            name="Repeat failure",
+            domain_scope="operations",
+            default_definition={},
+            default_severity=AttentionSeverity.MEDIUM,
+        )
+        assert rule.id == winning_rule.id  # recovered the real row, didn't raise or duplicate
+
+        db.commit()
+        all_rules = (
+            db.query(AttentionRule)
+            .filter(AttentionRule.organisation_id == org_id, AttentionRule.code == "REPEAT_FAILURE")
+            .all()
+        )
+        assert len(all_rules) == 1
+    finally:
+        db.close()

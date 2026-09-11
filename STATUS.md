@@ -2136,16 +2136,25 @@ Reference Engine's analogous bootstrap race was closed earlier this
 sprint: a partial unique index (live OPEN/ACKNOWLEDGED rows only —
 unlimited RESOLVED/DISMISSED history for the same (org, rule, entity)
 is legitimate) now declared directly on `AttentionSignal.__table_args__`
-(migration `0024`, and — unlike `AttentionRule`'s pre-existing
-`uq_attention_rule_org_code`, which turned out to only exist in the
-migration and was never enforced in SQLite tests, a separate,
-un-investigated gap noted here rather than silently left for someone
-to trip over later) actually enforced in both dialects. `upsert_signal`
+(migration `0024`) actually enforced in both dialects. `upsert_signal`
 recovers from the resulting `IntegrityError` by re-reading the
 winner's row rather than surfacing the error, deterministically tested
 the same way as the Reference Engine fix (SQLite can't reproduce true
 Postgres-style concurrency, so the race is simulated: the first lookup
 is forced to miss a row a "concurrent" scan already committed).
+
+Fixing that surfaced a second, identical gap right next to it:
+`AttentionRule`'s own `uq_attention_rule_org_code` constraint — which
+`get_or_create_rule` has the exact same unprotected-bootstrap-insert
+race around as `upsert_signal` did — turned out to only ever exist in
+`0020_attention_engine.py`'s migration, never declared on the model
+itself, so SQLite's `Base.metadata.create_all` (what every test
+actually runs against) never enforced it either. Fixed the same way,
+immediately rather than left as a noted-but-unfixed gap: the
+constraint now lives on `AttentionRule.__table_args__` too (no new
+migration needed — Postgres already has it via `0020`), and
+`get_or_create_rule` recovers from the same `IntegrityError` class,
+with its own deterministic race test.
 
 Also fixed, unrelated but found the same way the Stripe key exposed
 the conftest.py gap below: `apps/api/.env` now holding a real Stripe
@@ -2160,9 +2169,10 @@ to empty strings before `app.main` is ever imported, so tests stay
 hermetic regardless of whatever a developer's local `.env` holds for
 manual verification.
 
-1 new backend test (357 total) — the race-recovery test; the existing
-attention suite's 14 tests all still pass untouched by the refactor.
-`npm run build`/`lint` both clean. Verified live end to end:
+2 new backend tests (358 total) — one race-recovery test for each of
+`upsert_signal` and `get_or_create_rule`; the rest of the existing
+attention suite passes untouched by the refactor. `npm run build`/
+`lint` both clean. Verified live end to end:
 signed up, saw "Run scan now" on Home with "Nothing needs attention
 right now", clicked it, and got back "No new signals — everything
 checked out" with no error — the same result a passing backend test
