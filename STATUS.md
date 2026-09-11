@@ -2325,6 +2325,20 @@ properties existed with correct provenance.
 364 backend tests, all still passing — 12 existing call sites adapted
 to the new async contract, no new test functions needed.
 
+**Post-Sprint-24 — a real Playwright spec for handover authorisation:**
+closes one of the two named gaps in the Playwright suite's own "still
+genuinely unwritten" list. `HANDOVER_READINESS_THRESHOLD_PCT` is 100%
+and a freshly created property has none of the stock-condition-survey/
+documentation history the readiness score reads, so this deliberately
+doesn't contrive an "already ready" property — it drives the real
+Development -> Building -> Property setup through the UI (the same
+pattern `golden-thread.spec.ts` established), flips a property to
+`READY_FOR_HANDOVER`, confirms authorising with no override reason is
+genuinely rejected server-side (not just gated in the UI), then
+authorises with one and confirms the property really becomes
+`HANDED_OVER` and the handover history shows the record with its
+override reason. 10 Playwright specs total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2361,11 +2375,12 @@ punch list for whoever takes this toward a real pilot:
   DataLume's ungrounded-question guarantee, a compliance requirement
   against a seeded domain, commercial arrears, worker-driven report
   generation, a manual attention-engine scan that genuinely detects a
-  repeat-repair pattern, and — as of Post-Sprint-24 — a worker-driven
-  CSV import going MAPPED -> IMPORTING -> COMPLETED) and what's still
-  genuinely unwritten — handover authorisation, defects/
-  warranties, and most of spec §76-78's deeper Housing Operations and
-  Commercial scenarios.
+  repeat-repair pattern, a worker-driven CSV import going
+  MAPPED -> IMPORTING -> COMPLETED, and — as of Post-Sprint-24 — handover
+  authorisation exercising the real below-threshold rejection and
+  override-reason path, not a synthetic "already ready" shortcut) and
+  what's still genuinely unwritten — defects/warranties, and most of
+  spec §76-78's deeper Housing Operations and Commercial scenarios.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
