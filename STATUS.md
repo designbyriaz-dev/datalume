@@ -2466,6 +2466,26 @@ just this component, proving both views read the same
 `related_entity_type`/`related_entity_id`, not a coincidence of local
 component state. 14 Playwright specs total, all passing.
 
+**Post-Sprint-24 — a real Playwright spec for Property 360's new-build
+history (spec §76 step 43):** unlike the last two entries, this wasn't
+a "backend built, frontend incomplete" fix — both the development/
+building lineage breadcrumb and the post-handover readiness record were
+already fully built and rendering real data on
+`PropertyDetailClient.tsx`, just never given dedicated E2E coverage.
+`golden-thread.spec.ts` already proves the portfolio summary counts a
+fresh Development -> Building -> Property chain, and
+`handover-authorisation.spec.ts` already proves a development's own
+handover UI genuinely flips a property to `HANDED_OVER` — neither
+checks what Property 360 itself shows afterwards. This closes that:
+confirms the property's own page renders its lineage as real linked
+entities (not a raw ID), and that after handover the readiness score
+and override reason the development recorded persist into the
+property's own "Handover" field — the same read the property keeps
+carrying long after the development itself may be archived, exactly
+the "new-build history stays with the property" guarantee spec §76
+step 40 ("Preserve development history") names. 15 Playwright specs
+total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2508,14 +2528,15 @@ punch list for whoever takes this toward a real pilot:
   defect's real server-validated status transition plus a warranty
   being added and voided, a change control request being approved and
   implemented against a specification, a component's real age driving
-  a non-trivial Planned Investment Intelligence score, and — as of
-  Post-Sprint-24 — construction evidence genuinely linked to the exact
-  component it belongs to) and what's still genuinely unwritten — most
-  of spec §76-78's deeper Housing Operations and Commercial scenarios
-  beyond the slices above (Property 360's new-build history,
-  CONDITION_SIGNAL's Inspection-driven half of Planned Investment
-  Intelligence, Ask DataLume grounded against
-  a development, generating a handover report).
+  a non-trivial Planned Investment Intelligence score, construction
+  evidence genuinely linked to the exact component it belongs to, and
+  — as of Post-Sprint-24 — Property 360 showing a real development/
+  building lineage and the readiness record persisting after handover)
+  and what's still genuinely unwritten — most of spec §76-78's deeper
+  Housing Operations and Commercial scenarios beyond the slices above
+  (CONDITION_SIGNAL's Inspection-driven half of Planned Investment
+  Intelligence, Ask DataLume grounded against a development, generating
+  a handover report).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
