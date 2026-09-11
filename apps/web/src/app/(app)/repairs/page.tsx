@@ -5,7 +5,7 @@ import Link from "next/link";
 import { KpiStatCard } from "@/components/KpiStatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type PropertyOut, type RepairOut, type RepairsIntelligence } from "@/lib/api";
+import { api, type ComponentOut, type PropertyOut, type RepairOut, type RepairsIntelligence } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -38,6 +38,8 @@ export default function RepairsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [propertyId, setPropertyId] = useState("");
+  const [components, setComponents] = useState<ComponentOut[]>([]);
+  const [componentId, setComponentId] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("ROUTINE");
@@ -80,6 +82,23 @@ export default function RepairsPage() {
     })();
   }, []);
 
+  // Components are scoped to whichever property is currently selected
+  // — a repair can only sensibly link to a component actually located
+  // there, not any component in the organisation.
+  useEffect(() => {
+    (async () => {
+      const id = orgId();
+      if (!id || !propertyId) {
+        setComponents([]);
+        setComponentId("");
+        return;
+      }
+      const componentList = await api.listComponents(id, { property_id: propertyId });
+      setComponents(componentList);
+      setComponentId("");
+    })();
+  }, [propertyId]);
+
   async function onAddRepair() {
     const id = orgId();
     if (!id || !propertyId || !category.trim() || !description.trim()) {
@@ -91,6 +110,7 @@ export default function RepairsPage() {
     try {
       await api.createRepair(id, {
         property_id: propertyId,
+        component_id: componentId || undefined,
         category: category.trim(),
         description: description.trim(),
         reported_date: new Date().toISOString().slice(0, 10),
@@ -179,7 +199,7 @@ export default function RepairsPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Report a repair</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr 1.5fr 1fr 1fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1.5fr 1fr 1.5fr", marginBottom: 12 }}>
           <div>
             <label htmlFor="repair-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Property
@@ -193,16 +213,17 @@ export default function RepairsPage() {
             </select>
           </div>
           <div>
-            <label htmlFor="repair-category" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
-              Category
+            <label htmlFor="repair-component" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Component (optional)
             </label>
-            <input id="repair-category" style={inputStyle} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Plumbing" />
-          </div>
-          <div>
-            <label htmlFor="repair-description" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
-              Description
-            </label>
-            <input id="repair-description" style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} />
+            <select id="repair-component" style={inputStyle} value={componentId} onChange={(e) => setComponentId(e.target.value)}>
+              <option value="">— None —</option>
+              {components.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.component_reference} — {c.component_type_name}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label htmlFor="repair-priority" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
@@ -221,6 +242,20 @@ export default function RepairsPage() {
               Contractor
             </label>
             <input id="repair-contractor" style={inputStyle} value={contractor} onChange={(e) => setContractor(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1.5fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="repair-category" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Category
+            </label>
+            <input id="repair-category" style={inputStyle} value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Plumbing" />
+          </div>
+          <div>
+            <label htmlFor="repair-description" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Description
+            </label>
+            <input id="repair-description" style={inputStyle} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddRepair} disabled={submitting}>
             {submitting ? "Reporting…" : "Report"}
@@ -251,6 +286,14 @@ export default function RepairsPage() {
                   </Link>
                   {" · "}
                   {r.category}
+                  {r.component_id && (
+                    <>
+                      {" · "}
+                      <Link href={`/components/${r.component_id}`} style={{ color: "var(--color-primary)" }}>
+                        Component {r.component_id.slice(0, 8)}
+                      </Link>
+                    </>
+                  )}
                 </span>
                 <span style={{ display: "flex", gap: 6 }}>
                   <StatusBadge label={r.priority} variant={priorityVariant(r.priority)} />

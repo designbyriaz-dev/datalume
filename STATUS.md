@@ -2571,6 +2571,40 @@ smaller, honestly-documented residual gap rather than folded into this
 fix, since nothing currently reads them at the development level the
 way the readiness check reads the building-level pair.
 
+**Post-Sprint-24 — spec §76 step 45, "Link repair to component":** the
+repairs page's own copy has always promised this ("optionally linked
+to the component that failed"), `api.createRepair`/`RepairOut` have
+always carried `component_id`, and `REPAIR_FREQUENCY`
+(`planned_investment.py`) has always read `Repair.component_id` — but
+the "Report a repair" form never had a field for it, so no repair any
+real user created could ever be linked to a component; the factor
+could never show anything but "0 repair(s)".
+
+Wiring this surfaced a second, one-level-deeper instance of the same
+gap: the "Add a component" form had no `property_id` field either
+(despite `api.createComponent` always accepting one), so a component
+could never be placed anywhere a repair's own property-scoped dropdown
+could find it — the fix was inert without also closing that one.
+Fixed both: a "Component (optional)" selector on the repairs form,
+scoped to whichever property is currently selected (not every
+component in the org), and a "Property (optional)" selector on the
+component form. The repairs register now also shows the linked
+component as a real link when one exists.
+
+New Playwright spec drives the full chain for real: creates a property,
+creates a component placed at it, reports a repair against both, then
+confirms both that the register row shows the resolved component link
+*and* that the component's own Planned Investment widget shows a real
+"1 repair(s) in the last 18 months" — not the permanent zero the UI
+gap had made unavoidable. 19 Playwright specs total, all passing.
+
+A component still can't be placed at a specific building/space, or
+made a child of another component, through any UI form (only
+`property_id` was added here) — `api.createComponent` already accepts
+`building_id`/`parent_component_id` too, same "backend ahead of
+frontend" shape, left open rather than chased indefinitely in one
+sitting.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is

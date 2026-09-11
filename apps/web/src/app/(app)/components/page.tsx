@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
-import { api, type ComponentOut, type ComponentType } from "@/lib/api";
+import { api, type ComponentOut, type ComponentType, type PropertyOut } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -17,9 +17,11 @@ function statusVariant(status: string) {
 export default function ComponentsPage() {
   const [components, setComponents] = useState<ComponentOut[] | null>(null);
   const [types, setTypes] = useState<ComponentType[]>([]);
+  const [properties, setProperties] = useState<PropertyOut[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [componentTypeId, setComponentTypeId] = useState("");
+  const [propertyId, setPropertyId] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [model, setModel] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
@@ -46,9 +48,14 @@ export default function ComponentsPage() {
         return;
       }
       try {
-        const [componentList, typeList] = await Promise.all([api.listComponents(id), api.listComponentTypes(id)]);
+        const [componentList, typeList, propertyList] = await Promise.all([
+          api.listComponents(id),
+          api.listComponentTypes(id),
+          api.listProperties(id),
+        ]);
         setComponents(componentList);
         setTypes(typeList);
+        setProperties(propertyList);
         if (typeList[0]) setComponentTypeId(typeList[0].id);
       } catch {
         setLoadError("Couldn't load components.");
@@ -67,12 +74,14 @@ export default function ComponentsPage() {
     try {
       await api.createComponent(id, {
         component_type_id: componentTypeId,
+        property_id: propertyId || undefined,
         manufacturer: manufacturer.trim() || undefined,
         model: model.trim() || undefined,
         serial_number: serialNumber.trim() || undefined,
         installation_date: installationDate || undefined,
         expected_life_years: expectedLifeYears ? Number(expectedLifeYears) : undefined,
       });
+      setPropertyId("");
       setManufacturer("");
       setModel("");
       setSerialNumber("");
@@ -112,7 +121,7 @@ export default function ComponentsPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a component</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1fr 1fr 1fr", marginBottom: 12 }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", marginBottom: 12 }}>
           <div>
             <label htmlFor="component-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
@@ -121,6 +130,19 @@ export default function ComponentsPage() {
               {types.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="component-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Property (optional)
+            </label>
+            <select id="component-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+              <option value="">— None —</option>
+              {properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.address}
                 </option>
               ))}
             </select>
