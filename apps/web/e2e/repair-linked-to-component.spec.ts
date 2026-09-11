@@ -20,14 +20,29 @@ test("linking a repair to a component drives its REPAIR_FREQUENCY factor", async
   await expect(page.getByText("E2E Repair Link Property")).toBeVisible();
 
   await page.goto("/components");
-  await page.getByLabel("Type").selectOption({ label: "Boilers" });
+  // The form's own useEffect sets an initial default type as soon as
+  // the list loads; on a slower runner that default selection can
+  // still be in flight when selectOption fires, so retry the whole
+  // select-and-verify step rather than trusting one attempt.
+  await expect(async () => {
+    await page.getByLabel("Type").selectOption({ label: "Boilers" });
+    await expect(page.getByLabel("Type").locator("option:checked")).toHaveText("Boilers");
+  }).toPass({ timeout: 10_000 });
   await page.getByLabel("Property (optional)").selectOption({ label: "E2E Repair Link Property" });
   await page.locator("#component-manufacturer").fill("E2E Repair Link Boiler Co");
   await page.getByRole("button", { name: "Add" }).click();
-  await expect(page.getByText("E2E Repair Link Boiler Co")).toBeVisible();
+  const componentRow = page.getByRole("row", { name: /E2E Repair Link Boiler Co/ });
+  await expect(componentRow).toBeVisible();
+  await expect(componentRow).toContainText("Boilers");
 
   await page.goto("/repairs");
-  await page.getByLabel("Property").selectOption({ label: "E2E Repair Link Property" });
+  // Same defaulted-select race as the Type field above — the repairs
+  // form auto-selects the first property as soon as its own list
+  // loads.
+  await expect(async () => {
+    await page.getByLabel("Property").selectOption({ label: "E2E Repair Link Property" });
+    await expect(page.getByLabel("Property").locator("option:checked")).toHaveText("E2E Repair Link Property");
+  }).toPass({ timeout: 10_000 });
   await expect(page.getByLabel("Component (optional)")).toContainText("Boilers");
   // The only real component in the dropdown besides "— None —".
   await page.getByLabel("Component (optional)").selectOption({ index: 1 });
