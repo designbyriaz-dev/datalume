@@ -2392,6 +2392,19 @@ genuine conflict, two document uploads with identical bytes to
 reproduce a genuine duplicate, no raw DB construction needed for any
 of the five.
 
+**Post-Sprint-24 — a real Playwright spec for defects and warranties:**
+closes the second of the two gaps the Playwright suite's own note
+named as "still genuinely unwritten" (handover authorisation was the
+first — see the dedicated entry above). Defects and warranties share a
+building detail page (spec §34-35, architecture 03 §8) — this exercises
+a real server-validated status transition (`DEFECT_TRANSITIONS` gates
+which next-states the UI even offers, backed by
+`InvalidDefectTransitionError` on the API side) rather than just the
+creation form, then adds a warranty and voids it, confirming the
+badge/day-count the API computes (`is_expired`/`days_until_expiry`)
+actually reflects the real expiry date entered. 11 Playwright specs
+total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2423,17 +2436,18 @@ punch list for whoever takes this toward a real pilot:
   collector in this sandbox to send spans to and a half-wired tracer
   would be worse than a documented gap.
 - **The Playwright E2E acceptance suite covers a real first slice, not
-  the full 50 steps.** See the dedicated note above for what exists
+  the full 50 steps.** See the dedicated notes above for what exists
   now (auth, the Development->Building->Property golden thread, Ask
   DataLume's ungrounded-question guarantee, a compliance requirement
   against a seeded domain, commercial arrears, worker-driven report
   generation, a manual attention-engine scan that genuinely detects a
   repeat-repair pattern, a worker-driven CSV import going
-  MAPPED -> IMPORTING -> COMPLETED, and — as of Post-Sprint-24 — handover
-  authorisation exercising the real below-threshold rejection and
-  override-reason path, not a synthetic "already ready" shortcut) and
-  what's still genuinely unwritten — defects/warranties, and most of
-  spec §76-78's deeper Housing Operations and Commercial scenarios.
+  MAPPED -> IMPORTING -> COMPLETED, handover authorisation exercising
+  the real below-threshold rejection and override-reason path, and —
+  as of Post-Sprint-24 — a defect's real server-validated status
+  transition plus a warranty being added and voided) and what's still
+  genuinely unwritten — most of spec §76-78's deeper Housing Operations
+  and Commercial scenarios beyond the slices above.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
