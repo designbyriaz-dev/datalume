@@ -23,7 +23,10 @@ test("approving and implementing a change control replaces the specification wit
   await expect(page).toHaveURL(/\/components\/.+/);
 
   await page.locator("#component-spec-title").fill("Original roofing specification");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  // Several "Add" buttons exist on this detail page (specifications,
+  // compliance requirements) — scope to the specification form's own
+  // container.
+  await page.locator("#component-spec-title").locator("xpath=../..").getByRole("button", { name: "Add" }).click();
   await expect(page.getByText(/Original roofing specification rev A/)).toBeVisible();
 
   await page.locator("#change-proposed-title").fill("Updated roofing specification");

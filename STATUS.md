@@ -2508,6 +2508,36 @@ genuine building/property counts and a handover readiness score — not
 the templated no-data message, and not a hardcoded 100%. 16 Playwright
 specs total, all passing.
 
+**Post-Sprint-24 — closed Planned Investment Intelligence's last gap:
+CONDITION_SIGNAL, via a real Compliance section on the component page,
+not a UI-field fix this time:** `list_compliance_statuses_for_entity`
+and the `Inspection` table have always supported
+`entity_type="component"` (the Ask DataLume `get_compliance_status`
+tool's own `applicable_entity_types` names it), but
+`ComponentDetailClient.tsx` had no compliance/applicability/inspection
+UI at all — only the Building page did. Extracted the Building page's
+`InspectionsPanel` (previously a private, non-exported function) into
+`src/components/InspectionsPanel.tsx` so both pages share one
+implementation instead of two copies drifting apart, and added the
+same "Add a compliance requirement" + applicability list the Building
+page already has, scoped to the component. Recording an inspection now
+also refreshes the Planned Investment widget (`onInspectionChanged`),
+not just the compliance list — the priority score would otherwise go
+stale the moment CONDITION_SIGNAL became applicable. With this, every
+one of the five Planned Investment factors is genuinely UI-drivable —
+AGE_RATIO and CONDITION_SIGNAL were the two "backend built, no way to
+feed it" gaps this session found and closed; REPAIR_FREQUENCY/
+FAILURE_PATTERN/COMPLIANCE_LINKED were already always-applicable and
+needed no fix.
+
+New Playwright spec: records a real inspection against a component and
+confirms the priority widget's CONDITION_SIGNAL factor flips from
+"not applicable — excluded" (the true baseline for an uninspected
+component — the UI only ever renders `f.detail` when `f.applicable` is
+true, so the earlier `planned-investment.spec.ts` never actually
+exercised this factor's positive path) to the real inspection result
+and date. 17 Playwright specs total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2549,17 +2579,20 @@ punch list for whoever takes this toward a real pilot:
   the real below-threshold rejection and override-reason path, a
   defect's real server-validated status transition plus a warranty
   being added and voided, a change control request being approved and
-  implemented against a specification, a component's real age driving
-  a non-trivial Planned Investment Intelligence score, construction
-  evidence genuinely linked to the exact component it belongs to,
-  Property 360 showing a real development/building lineage and the
-  readiness record persisting after handover, and — as of
-  Post-Sprint-24 — Ask DataLume answering a real, grounded question
-  about a development instead of the honest-but-permanent "I don't
-  have data" message) and what's still genuinely unwritten — most of
-  spec §76-78's deeper Housing Operations and Commercial scenarios
-  beyond the slices above (CONDITION_SIGNAL's Inspection-driven half of
-  Planned Investment Intelligence, generating a handover report).
+  implemented against a specification, a component's real age *and*
+  a real inspection driving every applicable factor of Planned
+  Investment Intelligence, construction evidence genuinely linked to
+  the exact component it belongs to, Property 360 showing a real
+  development/building lineage and the readiness record persisting
+  after handover, and Ask DataLume answering a real, grounded question
+  about a development) and what's still genuinely unwritten — spec
+  §76-78's remaining deeper Housing Operations and Commercial
+  scenarios beyond the slices above (generating a handover report is
+  not one of them — `HANDOVER_READINESS` is a real, backend-tested
+  report type, see `test_reports.py`; it's simply never been given its
+  own Playwright spec, the same "already built, needs a first UI test"
+  gap the earlier entries in this list closed one by one, not a
+  missing feature).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
