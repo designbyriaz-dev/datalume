@@ -2605,6 +2605,21 @@ made a child of another component, through any UI form (only
 frontend" shape, left open rather than chased indefinitely in one
 sitting.
 
+**Post-Sprint-24 — UPRN can finally be entered at property creation:**
+UPRN is the flagship "never fabricate an official identifier" example
+throughout the spec, and `MISSING_UPRN` has been a Data Health check
+since Sprint 5 — `api.createProperty` has always accepted `uprn`
+(Property 360 has always displayed it), but the "Add a property" form
+never had a field for it. A manually-created property could never
+satisfy `MISSING_UPRN` at all — only CSV import or a raw
+`POST /external-references` call could set one, neither of which is
+"enter it" the way someone working a new development by hand would
+expect. Added the field, following the exact same shape as `postcode`
+next to it. New Playwright spec confirms a property created without a
+UPRN genuinely shows "—" (not a silent default) and one created with a
+UPRN shows the real value on its own Property 360 page. 20 Playwright
+specs total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is

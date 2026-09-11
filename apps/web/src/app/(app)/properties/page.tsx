@@ -21,6 +21,7 @@ export default function PropertiesPage() {
 
   const [address, setAddress] = useState("");
   const [postcode, setPostcode] = useState("");
+  const [uprn, setUprn] = useState("");
   const [propertyType, setPropertyType] = useState("");
   const [buildingId, setBuildingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -65,11 +66,13 @@ export default function PropertiesPage() {
       await api.createProperty(id, {
         address: address.trim(),
         postcode: postcode.trim() || undefined,
+        uprn: uprn.trim() || undefined,
         property_type: propertyType.trim() || undefined,
         building_id: buildingId || undefined,
       });
       setAddress("");
       setPostcode("");
+      setUprn("");
       setPropertyType("");
       setBuildingId("");
       await refresh();
@@ -105,7 +108,7 @@ export default function PropertiesPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a property</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr 1.5fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 1fr 1fr", marginBottom: 12 }}>
           <div>
             <label htmlFor="property-address" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Address
@@ -118,6 +121,14 @@ export default function PropertiesPage() {
             </label>
             <input id="property-postcode" style={inputStyle} value={postcode} onChange={(e) => setPostcode(e.target.value)} />
           </div>
+          <div>
+            <label htmlFor="property-uprn" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              UPRN (optional)
+            </label>
+            <input id="property-uprn" style={inputStyle} value={uprn} onChange={(e) => setUprn(e.target.value)} placeholder="Supplied externally" />
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1.5fr auto", alignItems: "end" }}>
           <div>
             <label htmlFor="property-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
