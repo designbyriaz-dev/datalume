@@ -10,9 +10,16 @@ deliberately the simplest version that's still transparent (every
 contributing check_code and its own pass ratio is returned, not just
 the headline number).
 
-Sprint 5 only has Property to check against — component/development/
-compliance rules from the full spec §42 list get added the same way,
-one function each, as their domain models land.
+Sprint 5 only had Property to check against; component and handover
+checks landed Post-Sprint-24, once those domain models existed. Spec
+§42's full 15-item list still has more unimplemented than done —
+missing component types/serial numbers/installation dates/warranties/
+specifications/evidence, conflicting references, invalid dates,
+duplicate documents — added the same way, one function each, as the
+next one is worth the real query logic it needs (several genuinely
+need new tracking this codebase doesn't have yet, e.g. no evidence
+document is currently linked to a specific compliance requirement in
+a way "missing evidence" could query).
 """
 
 from collections import Counter
@@ -22,7 +29,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
-from app.development.models import Property
+from app.development.models import Component, HandoverRecord, Property, PropertyStatus
 from app.identifiers.service import get_external_references_bulk
 from app.operations.stock_condition.models import StockConditionSurvey
 
@@ -180,6 +187,100 @@ def check_stale_stock_condition_survey(db: Session, organisation_id) -> CheckRes
     return CheckResult("STALE_STOCK_CONDITION_SURVEY", len(applicable), len(findings), findings)
 
 
+def check_orphan_components(db: Session, organisation_id) -> CheckResult:
+    """spec §42's "Orphan components". Component can attach to any
+    combination of development/building/property/space (models.py's own
+    docstring — a lift might belong to a building with no specific
+    property) plus an optional parent_component_id for the sub-component
+    hierarchy — a row with *all five* unset isn't "loosely scoped",
+    it's disconnected from the property hierarchy entirely, which spec
+    §24's whole point (every asset traceable to where it physically is)
+    depends on."""
+    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
+    findings = [
+        Finding(
+            "ORPHAN_COMPONENT",
+            FindingSeverity.HIGH,
+            "component",
+            str(c.id),
+            f"{c.component_reference} has no development, building, property, space, or parent "
+            "component linked — it isn't traceable to anywhere in the portfolio.",
+        )
+        for c in components
+        if not any((c.development_id, c.building_id, c.property_id, c.space_id, c.parent_component_id))
+    ]
+    return CheckResult("ORPHAN_COMPONENT", len(components), len(findings), findings)
+
+
+def check_duplicate_components(db: Session, organisation_id) -> CheckResult:
+    """Same "identical key seen more than once" shape as
+    check_duplicate_properties above, but the key is location + type +
+    make/model rather than an address — two components at the exact
+    same place, of the exact same type and manufacturer/model, are a
+    near-certain accidental double-entry (a real duplicate boiler two
+    rows apart), not two genuinely different assets that happen to
+    match."""
+    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
+
+    def key(c: Component) -> tuple:
+        return (
+            c.component_type_id,
+            c.development_id,
+            c.building_id,
+            c.property_id,
+            c.space_id,
+            (c.manufacturer or "").strip().lower(),
+            (c.model or "").strip().lower(),
+        )
+
+    counts = Counter(key(c) for c in components)
+    findings = [
+        Finding(
+            "DUPLICATE_COMPONENT",
+            FindingSeverity.MEDIUM,
+            "component",
+            str(c.id),
+            f"{c.component_reference} matches {counts[key(c)] - 1} other component(s) of the same type, "
+            "make and model at the same location.",
+        )
+        for c in components
+        if counts[key(c)] > 1
+    ]
+    return CheckResult("DUPLICATE_COMPONENT", len(components), len(findings), findings)
+
+
+def check_missing_handover_information(db: Session, organisation_id) -> CheckResult:
+    """spec §42's "Missing handover information". HandoverRecord
+    (development/models.py) is written in the same transaction as a
+    property's READY_FOR_HANDOVER -> HANDED_OVER flip
+    (development/service.py.authorise_handover) — the permanent
+    evidence handover actually happened and what was known at the time.
+    A property already marked HANDED_OVER with no such row means that
+    evidence is missing, whatever the reason (a status set some other
+    way, a migrated/imported record, ...)."""
+    properties = (
+        db.query(Property)
+        .filter(Property.organisation_id == organisation_id, Property.status == PropertyStatus.HANDED_OVER)
+        .all()
+    )
+    recorded_property_ids = {
+        row[0]
+        for row in db.query(HandoverRecord.property_id).filter(HandoverRecord.organisation_id == organisation_id).distinct()
+    }
+    findings = [
+        Finding(
+            "MISSING_HANDOVER_INFORMATION",
+            FindingSeverity.HIGH,
+            "property",
+            str(p.id),
+            f"{p.property_reference} is marked HANDED_OVER but has no handover record on file.",
+        )
+        for p in properties
+        if p.id not in recorded_property_ids
+    ]
+    return CheckResult("MISSING_HANDOVER_INFORMATION", len(properties), len(findings), findings)
+
+
 RULES = [
     check_missing_property_type,
     check_missing_uprn,
@@ -187,6 +288,9 @@ RULES = [
     check_duplicate_properties,
     check_missing_stock_condition_survey,
     check_stale_stock_condition_survey,
+    check_orphan_components,
+    check_duplicate_components,
+    check_missing_handover_information,
 ]
 
 

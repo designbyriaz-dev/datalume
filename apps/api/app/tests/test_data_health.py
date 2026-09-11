@@ -135,3 +135,106 @@ def test_data_health_recompute_clears_stale_findings(client):
     second = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
     assert second["findings"] == []
     assert second["score_pct"] == 100.0
+
+
+def _boiler_type_id(client, org_id):
+    types = client.get("/api/v1/component-types", headers={"X-Organisation-Id": org_id}).json()
+    return next(t["id"] for t in types if t["code"] == "BOILERS")
+
+
+def test_data_health_flags_orphan_components(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Anchored Close", postcode="SW1A 1AA", uprn="1", property_type="House")
+
+    # Linked to a real property — not an orphan.
+    client.post(
+        "/api/v1/components",
+        headers={"X-Organisation-Id": org_id},
+        json={"component_type_id": boiler_type_id, "property_id": prop["id"]},
+    )
+    # No development/building/property/space/parent link at all.
+    client.post(
+        "/api/v1/components",
+        headers={"X-Organisation-Id": org_id},
+        json={"component_type_id": boiler_type_id},
+    )
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    orphan_findings = [f for f in body["findings"] if f["check_code"] == "ORPHAN_COMPONENT"]
+    assert len(orphan_findings) == 1
+
+    orphan_check = next(c for c in body["checks"] if c["check_code"] == "ORPHAN_COMPONENT")
+    assert orphan_check["applicable_count"] == 2
+    assert orphan_check["failing_count"] == 1
+
+
+def test_data_health_flags_duplicate_components(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Duplicated Close", postcode="SW1A 1AA", uprn="1", property_type="House")
+
+    payload = {
+        "component_type_id": boiler_type_id,
+        "property_id": prop["id"],
+        "manufacturer": "Worcester",
+        "model": "Greenstar 8000",
+    }
+    client.post("/api/v1/components", headers={"X-Organisation-Id": org_id}, json=payload)
+    client.post("/api/v1/components", headers={"X-Organisation-Id": org_id}, json=payload)
+    # Different model at the same property — not a duplicate of the pair above.
+    client.post(
+        "/api/v1/components",
+        headers={"X-Organisation-Id": org_id},
+        json={**payload, "model": "Greenstar 30i"},
+    )
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    duplicate_findings = [f for f in body["findings"] if f["check_code"] == "DUPLICATE_COMPONENT"]
+    assert len(duplicate_findings) == 2  # both sides of the one true duplicate pair
+
+
+def test_data_health_flags_missing_handover_information(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    prop_with_record = _add_property(client, org_id, address="1 Recorded Close")
+    prop_without_record = _add_property(client, org_id, address="2 Unrecorded Close")
+    development = client.post(
+        "/api/v1/developments", headers={"X-Organisation-Id": org_id}, json={"name": "Riverside Gardens"}
+    ).json()
+
+    import uuid as uuid_module
+
+    import app.core.db as db_module
+    from app.core.provenance import SourceType
+    from app.development.models import HandoverRecord, Property, PropertyStatus
+
+    db = db_module.SessionLocal()
+    try:
+        for prop_id in (prop_with_record["id"], prop_without_record["id"]):
+            row = db.get(Property, uuid_module.UUID(prop_id))
+            row.status = PropertyStatus.HANDED_OVER
+        db.add(
+            HandoverRecord(
+                organisation_id=uuid_module.UUID(org_id),
+                property_id=uuid_module.UUID(prop_with_record["id"]),
+                development_id=uuid_module.UUID(development["id"]),
+                readiness_score_pct=100.0,
+                readiness_snapshot=[],
+                source_type=SourceType.MANUAL,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_HANDOVER_INFORMATION"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == prop_without_record["id"]
+
+    check = next(c for c in body["checks"] if c["check_code"] == "MISSING_HANDOVER_INFORMATION")
+    assert check["applicable_count"] == 2
+    assert check["failing_count"] == 1

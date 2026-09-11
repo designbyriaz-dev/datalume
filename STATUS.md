@@ -2243,6 +2243,36 @@ right `building_id`, and confirmed the bad row's exact error message
 (`"No building found with reference 'BLD-999999'"`) rather than a
 generic failure.
 
+**Post-Sprint-24 — three more Data Health checks from spec §42's real
+15-item list:** Sprint 5 only had Property to check against; every
+domain model spec §42 names now exists, so this closes a real dent in
+the gap rather than the whole thing. All three follow `rules.py`'s own
+established shape exactly — a new function, appended to `RULES`, no
+router/schema/frontend change needed (the Home KPI card, Property 360,
+and `/api/v1/data-health` all already read the same registry).
+
+`ORPHAN_COMPONENT`: a `Component` with *all five* of its
+development/building/property/space/parent-component links unset isn't
+loosely scoped, it's disconnected from the property hierarchy entirely
+— spec §24's whole point. `DUPLICATE_COMPONENT`: the same
+Counter-over-a-normalised-key shape `check_duplicate_properties`
+already uses, keyed on type + exact location + manufacturer/model —
+two components at the same place, of the same type and make/model, is
+a near-certain accidental double-entry. `MISSING_HANDOVER_INFORMATION`:
+a property already marked `HANDED_OVER` with no matching
+`HandoverRecord` row (the permanent evidence a real handover happened,
+written in the same transaction as that status flip) — evidence
+missing, whatever the reason.
+
+3 new backend tests (364 total), following the existing suite's own
+pattern exactly (real HTTP calls through the actual endpoints; a raw
+session only for the one field — `HandoverRecord`, no dedicated
+"mark handed over" endpoint exists — with no API surface). Confirmed
+`scripts/seed_demo.py`'s own component/property data doesn't trip any
+of the three new checks — every seeded component has a real
+`property_id`, and nothing is marked `HANDED_OVER` — so the demo orgs'
+health scores don't shift.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2292,11 +2322,18 @@ Specifically flagged as gaps to close early, not deferred to "later":
   "tens of thousands of properties" performance requirement (spec §72)
   until it moves to `worker/jobs/ingestion.py` behind a real RQ+Redis
   queue — architecture/02 §2 explains why this matters.
-- **Data Health v1 only checks Property fields.** The full spec §42 list
-  (missing building relationships, duplicate components, missing
-  handover information, orphan components, ...) needs the domain models
-  those checks are about — added the same way, one function each, as
-  Sprint 6+ lands them.
+- **Data Health still doesn't cover all 15 items in spec §42.** Orphan
+  components, duplicate components, and missing handover information
+  closed post-Sprint-24 (see the dedicated entry above) — still open:
+  missing component types, missing serial numbers, missing installation
+  dates, missing warranties, missing specifications, missing evidence,
+  missing external references beyond UPRN, conflicting references,
+  invalid dates, duplicate documents, missing building relationships.
+  Several of these (missing evidence, conflicting references) need real
+  new tracking this codebase doesn't have yet — e.g. no evidence
+  document is currently linked to a specific compliance requirement in
+  a way "missing evidence" could query — not just a new function over
+  data that already exists the way the three closed ones were.
 
 
 ## How to run this locally
