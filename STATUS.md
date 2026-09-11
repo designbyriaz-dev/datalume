@@ -2211,6 +2211,38 @@ and "Needs attention (1)". 8 E2E specs total now. Verified both ways
 this suite always is: normal dev mode and `CI=true`, run twice each,
 no flakiness.
 
+**Post-Sprint-24 — CSV import for Floors, closing the trio:**
+Developments and Buildings closed earlier; Floor is the third and
+last hierarchy level a real portfolio needs bulk import for. Unlike
+Building's optional `development_reference`, Floor's `building_id` is
+a required FK — a floor genuinely cannot exist without a building, so
+an unmatched `building_reference` can't just leave the row unlinked
+the way an unmatched development link does.
+
+That forced a real, useful fix rather than a workaround: `import_dataset`
+had no per-row failure handling at all — a single row's importer
+raising anything would abort every remaining valid row in the job with
+a 500, a latent gap in every importer this pipeline has ever had, not
+new to this one. A new `ImporterRowError` (deliberately distinct from
+a bare exception, so a genuine bug still surfaces as a real 500 rather
+than being silently swallowed) lets `import_floor_row` mark just its
+own row `INVALID` with a clear message and move on. `ImportResultOut`
+gained `rows_failed`; `/data-and-uploads` shows it when nonzero.
+`create_floor` also didn't accept `source_dataset_id`/`import_job_id`/
+`original_reference` before this — the same gap `create_development`/
+`create_building` had until the CSV-import entry above fixed those two;
+now all three match `create_property`/`create_component`.
+
+3 new backend tests (361 total): a real two-floor import linked to an
+existing building, one unmatched reference failing only that row while
+the other still imports, and a missing-required-field rejection at the
+MAP+REVIEW stage. Verified live against a running smoketest server:
+uploaded a real 3-row CSV (two valid, one deliberately bad), got
+`rows_failed: 1` back, confirmed the two good floors exist with the
+right `building_id`, and confirmed the bad row's exact error message
+(`"No building found with reference 'BLD-999999'"`) rather than a
+generic failure.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2254,11 +2286,6 @@ punch list for whoever takes this toward a real pilot:
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **No CSV import for Floors.** Developments and Buildings are covered
-  now (see the Post-Sprint-24 entry above); Floor is a real, fully-
-  wired domain model but has no field dictionary or importer yet —
-  lower priority than Developments/Buildings since a portfolio has far
-  fewer floors than buildings, but the same pattern would close it.
 - **The ingestion pipeline has no background job queue yet.**
   VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
   for the small CSVs used in testing; will not hold up against the

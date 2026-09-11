@@ -47,6 +47,16 @@ class FileParseError(ValueError):
     pass
 
 
+class ImporterRowError(ValueError):
+    """An importer raises this for a row whose data is well-formed
+    (VALID at the VALIDATE stage — every required field present) but
+    doesn't resolve to something real — e.g. a FLOORS row whose
+    building_reference doesn't match any building in the org. Deliberately
+    a distinct type from a bare exception: import_dataset only recovers
+    from this one, so a genuine bug in an importer still surfaces as a
+    real 500 instead of being silently swallowed as "row failed"."""
+
+
 class ParsedRow:
     """A raw CSV row after structural parsing. `structural_error` is set
     when the cell count doesn't match the header count (almost always an
@@ -280,6 +290,7 @@ def import_dataset(db: Session, dataset: Dataset, import_job: ImportJob) -> dict
     )
 
     imported_count = 0
+    failed_count = 0
     for row in valid_rows:
         if importer is not None:
             mapped_fields = {
@@ -287,7 +298,17 @@ def import_dataset(db: Session, dataset: Dataset, import_job: ImportJob) -> dict
                 for header, field_key in (import_job.column_mapping or {}).items()
                 if field_key
             }
-            entity_type, entity_id = importer(db, dataset, import_job, row, mapped_fields)
+            try:
+                entity_type, entity_id = importer(db, dataset, import_job, row, mapped_fields)
+            except ImporterRowError as exc:
+                # This row's own data doesn't resolve to something real
+                # (e.g. an unmatched cross-reference) — mark it and move
+                # on rather than aborting every remaining valid row in
+                # the job over one bad row.
+                row.status = ImportRowStatus.INVALID
+                row.errors = [str(exc)]
+                failed_count += 1
+                continue
             row.mapped_entity_type = entity_type
             row.mapped_entity_id = str(entity_id)
             imported_count += 1
@@ -299,5 +320,6 @@ def import_dataset(db: Session, dataset: Dataset, import_job: ImportJob) -> dict
     return {
         "rows_processed": len(valid_rows),
         "entities_created": imported_count,
+        "rows_failed": failed_count,
         "importer_registered": importer is not None,
     }

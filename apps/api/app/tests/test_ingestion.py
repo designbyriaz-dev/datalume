@@ -65,7 +65,7 @@ GOOD_CSV = (
 def test_field_dictionaries_endpoint_lists_known_types(client):
     resp = client.get("/api/v1/datasets/field-dictionaries")
     assert resp.status_code == 200
-    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS"}
+    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS", "FLOORS"}
 
 
 def test_upload_stages_rows_and_proposes_mapping(client):
@@ -239,7 +239,7 @@ def test_import_with_no_registered_importer_is_an_honest_noop(client):
         result = import_dataset(db, dataset, import_job)
         db.commit()
 
-        assert result == {"rows_processed": 2, "entities_created": 0, "importer_registered": False}
+        assert result == {"rows_processed": 2, "entities_created": 0, "rows_failed": 0, "importer_registered": False}
 
         rows = db.query(ImportRow).filter(ImportRow.import_job_id == import_job.id).all()
         assert all(r.status == ImportRowStatus.IMPORTED for r in rows)
@@ -501,7 +501,7 @@ def test_field_dictionaries_endpoint_still_correct_after_xlsx(client):
     types exist — it's a new input format for the same set, not a new
     dataset type of its own."""
     resp = client.get("/api/v1/datasets/field-dictionaries")
-    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS"}
+    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS", "FLOORS"}
 
 
 def test_ingestion_imports_real_property_entities_from_xlsx(client):
@@ -583,3 +583,100 @@ def test_xlsx_blank_rows_are_skipped_like_csv(client):
     ]
     upload = _upload_xlsx(client, org_id, rows).json()
     assert upload["row_count"] == 2
+
+
+# --- FLOORS ---------------------------------------------------------------
+
+
+def test_ingestion_imports_floors_linked_to_an_existing_building(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    building = client.post(
+        "/api/v1/buildings", headers={"X-Organisation-Id": org_id}, json={"name": "Block A"}
+    ).json()
+
+    csv_text = (
+        "Floor Name,Level,Building Reference\n"
+        f"Ground Floor,0,{building['building_reference']}\n"
+        f"First Floor,1,{building['building_reference']}\n"
+    )
+    upload = _upload_csv(client, org_id, csv_text, dataset_type="FLOORS").json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Floor Name": "name", "Level": "level_index", "Building Reference": "building_reference"}},
+    )
+
+    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["entities_created"] == 2
+    assert body["rows_failed"] == 0
+
+    floors = client.get(
+        "/api/v1/floors", headers={"X-Organisation-Id": org_id}, params={"building_id": building["id"]}
+    ).json()
+    assert len(floors) == 2
+    names = {f["name"] for f in floors}
+    assert names == {"Ground Floor", "First Floor"}
+    assert all(f["building_id"] == building["id"] for f in floors)
+    ground = next(f for f in floors if f["name"] == "Ground Floor")
+    assert ground["level_index"] == 0
+
+
+def test_ingestion_floor_with_unmatched_building_reference_fails_that_row_only(client):
+    """Floor.building_id is a required FK, unlike Building's optional
+    development_reference — an unmatched reference can't just leave the
+    row unlinked, so the row must fail (ImporterRowError -> INVALID),
+    without aborting the rest of the job."""
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    building = client.post(
+        "/api/v1/buildings", headers={"X-Organisation-Id": org_id}, json={"name": "Block A"}
+    ).json()
+
+    csv_text = (
+        "Floor Name,Building Reference\n"
+        f"Ground Floor,{building['building_reference']}\n"
+        "Mystery Floor,BLD-999999\n"
+    )
+    upload = _upload_csv(client, org_id, csv_text, dataset_type="FLOORS").json()
+    client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Floor Name": "name", "Building Reference": "building_reference"}},
+    )
+
+    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rows_processed"] == 2
+    assert body["entities_created"] == 1
+    assert body["rows_failed"] == 1
+
+    floors = client.get(
+        "/api/v1/floors", headers={"X-Organisation-Id": org_id}, params={"building_id": building["id"]}
+    ).json()
+    assert len(floors) == 1
+    assert floors[0]["name"] == "Ground Floor"
+
+    rows = client.get(
+        f"/api/v1/datasets/{upload['dataset_id']}/rows",
+        headers={"X-Organisation-Id": org_id},
+        params={"row_status": "INVALID"},
+    ).json()
+    assert len(rows) == 1
+    assert "BLD-999999" in rows[0]["errors"][0]
+
+
+def test_floors_missing_building_reference_is_rejected_at_mapping_stage(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    upload = _upload_csv(client, org_id, "Floor Name\nGround Floor\n", dataset_type="FLOORS").json()
+    resp = client.post(
+        f"/api/v1/datasets/{upload['dataset_id']}/mapping",
+        headers={"X-Organisation-Id": org_id},
+        json={"column_mapping": {"Floor Name": "name"}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["row_status_counts"] == {"INVALID": 1}

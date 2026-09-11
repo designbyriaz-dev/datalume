@@ -15,10 +15,10 @@ from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
 from app.development.component_types import ensure_component_type_catalog_seeded, get_or_create_org_component_type
-from app.development.models import Development
-from app.development.service import create_building, create_component, create_development, create_property
+from app.development.models import Building, Development
+from app.development.service import create_building, create_component, create_development, create_floor, create_property
 from app.ingestion.models import Dataset, ImportJob, ImportRow
-from app.ingestion.pipeline import IMPORTERS
+from app.ingestion.pipeline import IMPORTERS, ImporterRowError
 
 
 def import_property_row(
@@ -112,6 +112,40 @@ def import_building_row(
     return "building", building.id
 
 
+def import_floor_row(
+    db: Session, dataset: Dataset, import_job: ImportJob, row: ImportRow, mapped_fields: dict
+) -> tuple[str, uuid.UUID]:
+    # Unlike BUILDINGS' development_reference, this link is required, not
+    # optional — Floor.building_id is a mandatory FK, so a row that can't
+    # resolve one has nothing valid to create. Raising ImporterRowError
+    # marks just this row INVALID and lets the rest of the job continue,
+    # rather than the whole request failing over one bad reference.
+    building_ref = (mapped_fields.get("building_reference") or "").strip()
+    if not building_ref:
+        raise ImporterRowError("building_reference is required to import a floor")
+    building = (
+        db.query(Building)
+        .filter(Building.organisation_id == dataset.organisation_id, Building.building_reference == building_ref)
+        .first()
+    )
+    if building is None:
+        raise ImporterRowError(f"No building found with reference {building_ref!r}")
+
+    floor = create_floor(
+        db,
+        dataset.organisation_id,
+        building.id,
+        name=mapped_fields.get("name") or "",
+        level_index=_parse_int(mapped_fields.get("level_index")),
+        source_type=SourceType.FILE_UPLOAD,
+        source_dataset_id=dataset.id,
+        import_job_id=import_job.id,
+        original_reference=f"row {row.row_number}",
+        actor_user_id=dataset.uploaded_by,
+    )
+    return "floor", floor.id
+
+
 def _parse_iso_date(value: str | None) -> date | None:
     # CSV dates arrive as free text. ISO format (YYYY-MM-DD) only for
     # now — flexible format detection/locale handling is real "cleaning"
@@ -160,3 +194,4 @@ IMPORTERS["PROPERTIES"] = import_property_row
 IMPORTERS["COMPONENTS"] = import_component_row
 IMPORTERS["DEVELOPMENTS"] = import_development_row
 IMPORTERS["BUILDINGS"] = import_building_row
+IMPORTERS["FLOORS"] = import_floor_row

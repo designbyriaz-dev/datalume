@@ -278,7 +278,7 @@ def test_csv_import_creates_components_and_custom_types(client):
     result = client.post(
         f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id}
     ).json()
-    assert result == {"rows_processed": 2, "entities_created": 2, "importer_registered": True}
+    assert result == {"rows_processed": 2, "entities_created": 2, "rows_failed": 0, "importer_registered": True}
 
     components = client.get("/api/v1/components", headers={"X-Organisation-Id": org_id}).json()
     assert len(components) == 2

@@ -48,4 +48,5 @@ class ApplyMappingRequest(BaseModel):
 class ImportResultOut(BaseModel):
     rows_processed: int
     entities_created: int
+    rows_failed: int
     importer_registered: bool

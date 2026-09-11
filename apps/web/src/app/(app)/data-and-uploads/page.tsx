@@ -367,8 +367,14 @@ export default function DataAndUploadsPage() {
         {importResult && (
           <div>
             <p style={{ fontSize: 13, marginBottom: 4 }}>
-              {importResult.rows_processed} rows processed, {importResult.entities_created} entities created.
+              {importResult.rows_processed} rows processed, {importResult.entities_created} entities created
+              {importResult.rows_failed > 0 ? `, ${importResult.rows_failed} failed` : ""}.
             </p>
+            {importResult.rows_failed > 0 && (
+              <p style={{ fontSize: 13, color: "var(--color-warning)", marginBottom: 12 }}>
+                Some rows couldn&rsquo;t be matched to existing records and weren&rsquo;t imported.
+              </p>
+            )}
             {!importResult.importer_registered && (
               <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
                 No domain model exists yet for &ldquo;{datasetType}&rdquo; — rows are validated and staged,

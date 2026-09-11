@@ -128,6 +128,7 @@ export type DatasetDetail = Dataset & {
 export type ImportResult = {
   rows_processed: number;
   entities_created: number;
+  rows_failed: number;
   importer_registered: boolean;
 };
 

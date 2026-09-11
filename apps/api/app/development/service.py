@@ -355,6 +355,9 @@ def create_floor(
     name: str,
     level_index: int | None = None,
     source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
     actor_user_id: uuid.UUID | None = None,
 ) -> Floor:
     _get_org_building(db, organisation_id, building_id)
@@ -365,6 +368,9 @@ def create_floor(
         name=name,
         level_index=level_index,
         source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )

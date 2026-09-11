@@ -71,6 +71,20 @@ FIELD_DICTIONARIES: dict[str, list[FieldSpec]] = {
         ),
         FieldSpec(key="bsr_reference", label="BSR Reference", required=False, aliases=["bsr_ref"]),
     ],
+    "FLOORS": [
+        FieldSpec(key="name", label="Name", required=True, aliases=["floor_name"]),
+        FieldSpec(key="level_index", label="Level Index", required=False, aliases=["level", "floor_number"]),
+        # Required, unlike BUILDINGS' development_reference — Floor.
+        # building_id is a mandatory FK (a floor cannot exist without a
+        # building), so this can't be an optional link the way a
+        # development link on a building can.
+        FieldSpec(
+            key="building_reference",
+            label="Building Reference",
+            required=True,
+            aliases=["building_ref"],
+        ),
+    ],
 }
 
 
