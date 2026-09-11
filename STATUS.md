@@ -2486,6 +2486,28 @@ the "new-build history stays with the property" guarantee spec §76
 step 40 ("Preserve development history") names. 15 Playwright specs
 total, all passing.
 
+**Post-Sprint-24 — a genuinely missing Ask DataLume tool, not a UI gap
+this time: "Ask questions about development" (spec §76 step 48):**
+unlike the Planned Investment/construction-evidence fixes, this wasn't
+backend-complete-frontend-incomplete — no tool in
+`app/intelligence/ask/tools.py` ever supported
+`entity_type="development"` (only building/property/component/lease),
+and `development` wasn't even an option in the `/ask` page's own
+dropdown, so every question about a development fell through to the
+fixed "I don't have data" message, honestly but permanently. Added
+`get_development_summary`, a thin wrapper around the exact same
+deterministic computations the Development detail page and the
+Handover Readiness report already use
+(`compute_handover_readiness`, `properties_in_development`) — no new
+calculation invented, same "every tool is an already-built engine"
+rule this module's own docstring states elsewhere. Wired `development`
+into the `/ask` page's entity-type dropdown and its record-loading
+switch. New backend test (`test_development_summary_question`, 370
+total) and a new Playwright spec confirm a real grounded answer with
+genuine building/property counts and a handover readiness score — not
+the templated no-data message, and not a hardcoded 100%. 16 Playwright
+specs total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2529,14 +2551,15 @@ punch list for whoever takes this toward a real pilot:
   being added and voided, a change control request being approved and
   implemented against a specification, a component's real age driving
   a non-trivial Planned Investment Intelligence score, construction
-  evidence genuinely linked to the exact component it belongs to, and
-  — as of Post-Sprint-24 — Property 360 showing a real development/
-  building lineage and the readiness record persisting after handover)
-  and what's still genuinely unwritten — most of spec §76-78's deeper
-  Housing Operations and Commercial scenarios beyond the slices above
-  (CONDITION_SIGNAL's Inspection-driven half of Planned Investment
-  Intelligence, Ask DataLume grounded against a development, generating
-  a handover report).
+  evidence genuinely linked to the exact component it belongs to,
+  Property 360 showing a real development/building lineage and the
+  readiness record persisting after handover, and — as of
+  Post-Sprint-24 — Ask DataLume answering a real, grounded question
+  about a development instead of the honest-but-permanent "I don't
+  have data" message) and what's still genuinely unwritten — most of
+  spec §76-78's deeper Housing Operations and Commercial scenarios
+  beyond the slices above (CONDITION_SIGNAL's Inspection-driven half of
+  Planned Investment Intelligence, generating a handover report).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

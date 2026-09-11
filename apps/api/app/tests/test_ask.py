@@ -175,6 +175,36 @@ def test_property_360_question(client):
     assert result["records"][0]["address"] == "Flat 1"
 
 
+def test_development_summary_question(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    development = client.post(
+        "/api/v1/developments", headers={"X-Organisation-Id": org_id}, json={"name": "Riverside Gardens"}
+    ).json()
+    building = client.post(
+        "/api/v1/buildings",
+        headers={"X-Organisation-Id": org_id},
+        json={"name": "Block A", "development_id": development["id"]},
+    ).json()
+    client.post(
+        "/api/v1/properties",
+        headers={"X-Organisation-Id": org_id},
+        json={"address": "Flat 1", "building_id": building["id"]},
+    )
+
+    body = _ask(client, org_id, "Give me a summary overview of this development.", "development", development["id"])
+    assert body["grounded"] is True
+    result = body["tool_results"][0]
+    assert result["tool_name"] == "get_development_summary"
+    record = result["records"][0]
+    assert record["buildings_count"] == 1
+    assert record["properties_count"] == 1
+    # A freshly created development is nowhere near handover-ready — no
+    # canned "everything's fine" answer.
+    assert record["handover_ready"] is False
+    assert record["handover_readiness_score_pct"] < 100.0
+
+
 def test_ask_requires_organisation_header(client):
     client.post("/api/v1/auth/signup", json=_signup_payload())
     resp = client.post("/api/v1/ask", json={"question": "test", "entity_type": "property", "entity_id": str(uuid.uuid4())})

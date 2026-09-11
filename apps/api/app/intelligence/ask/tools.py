@@ -28,7 +28,8 @@ from sqlalchemy.orm import Session
 from app.commercial.arrears import arrears_for_lease
 from app.commercial.models import Lease
 from app.development.composition import component_type_names_for
-from app.development.models import Component, Defect, Property
+from app.development.handover import compute_handover_readiness, properties_in_development
+from app.development.models import Building, Component, Defect, Development, Property
 from app.development.planned_investment import compute_investment_priority
 from app.development.property_360 import get_property_360
 from app.intelligence.ask.schemas import ToolResultOut
@@ -197,6 +198,45 @@ def tool_get_defects(db: Session, organisation_id: uuid.UUID, entity_type: str, 
     )
 
 
+def tool_get_development_summary(db: Session, organisation_id: uuid.UUID, entity_type: str, entity_id: uuid.UUID) -> ToolResultOut:
+    """A thin wrapper around the same deterministic computations the
+    Development detail page and the Handover Readiness report already
+    use (compute_handover_readiness, properties_in_development) — no
+    new calculation invented, same "every tool is an already-built
+    engine" rule this module's own docstring states."""
+    development = db.query(Development).filter(Development.id == entity_id, Development.organisation_id == organisation_id).first()
+    if development is None:
+        return _tool_result("get_development_summary", "development_summary", [], entity_type, entity_id, [], "get_development_summary(): development not found")
+
+    buildings_count = db.query(Building).filter(Building.development_id == development.id).count()
+    properties = properties_in_development(db, organisation_id, development.id)
+    score_pct, _checks = compute_handover_readiness(db, organisation_id, development.id)
+    status_counts: dict[str, int] = {}
+    for p in properties:
+        status_counts[p.status.value] = status_counts.get(p.status.value, 0) + 1
+
+    records = [
+        {
+            "development_reference": development.development_reference,
+            "name": development.name,
+            "buildings_count": buildings_count,
+            "properties_count": len(properties),
+            "properties_by_status": status_counts,
+            "handover_readiness_score_pct": score_pct,
+            "handover_ready": score_pct >= 100.0,
+        }
+    ]
+    return _tool_result(
+        "get_development_summary",
+        "development_summary",
+        list(records[0].keys()),
+        entity_type,
+        entity_id,
+        records,
+        f"{len(properties)} propert(y/ies) across {buildings_count} building(s); handover readiness {score_pct:.1f}%",
+    )
+
+
 @dataclass
 class ToolDefinition:
     name: str
@@ -255,5 +295,12 @@ TOOL_REGISTRY: dict[str, ToolDefinition] = {
         applicable_entity_types=("building", "property", "component"),
         keywords=("defect", "snag", "snagging", "fault"),
         execute=tool_get_defects,
+    ),
+    "get_development_summary": ToolDefinition(
+        name="get_development_summary",
+        description="A development's building/property counts and handover readiness score (Sprint 12).",
+        applicable_entity_types=("development",),
+        keywords=("overview", "summary", "tell me about", "handover", "ready", "readiness", "how many properties", "how many buildings"),
+        execute=tool_get_development_summary,
     ),
 }

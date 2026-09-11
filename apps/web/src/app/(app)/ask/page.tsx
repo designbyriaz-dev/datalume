@@ -8,13 +8,14 @@ import {
   type AskResponse,
   type BuildingOut,
   type ComponentOut,
+  type DevelopmentOut,
   type LeaseOut,
   type PropertyOut,
 } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
-const ENTITY_TYPES = ["building", "property", "component", "lease"] as const;
+const ENTITY_TYPES = ["development", "building", "property", "component", "lease"] as const;
 type EntityType = (typeof ENTITY_TYPES)[number];
 
 type EntityOption = { id: string; label: string };
@@ -84,7 +85,10 @@ export default function AskPage() {
     const id = orgId();
     if (!id) return;
     let opts: EntityOption[] = [];
-    if (type === "building") {
+    if (type === "development") {
+      const developments: DevelopmentOut[] = await api.listDevelopments(id);
+      opts = developments.map((d) => ({ id: d.id, label: d.name || d.development_reference }));
+    } else if (type === "building") {
       const buildings: BuildingOut[] = await api.listBuildings(id);
       opts = buildings.map((b) => ({ id: b.id, label: b.name || b.building_reference }));
     } else if (type === "property") {
