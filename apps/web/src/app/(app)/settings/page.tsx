@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { StatusBadge } from "@/components/StatusBadge";
 import { api, ApiError, type Me } from "@/lib/api";
 
@@ -101,6 +102,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   const [enrolling, setEnrolling] = useState<EnrollState>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [disabling, setDisabling] = useState(false);
   const [password, setPassword] = useState("");
@@ -129,7 +131,14 @@ export default function SettingsPage() {
     setError(null);
     setBusy(true);
     try {
-      setEnrolling(await api.mfaEnroll());
+      const enrollment = await api.mfaEnroll();
+      setEnrolling(enrollment);
+      try {
+        setQrDataUrl(await QRCode.toDataURL(enrollment.otpauth_url, { width: 200, margin: 1 }));
+      } catch {
+        // No QR code isn't fatal — the manual-entry key below still works.
+        setQrDataUrl(null);
+      }
     } catch {
       setError("Couldn't start MFA enrolment. Please try again.");
     } finally {
@@ -144,6 +153,7 @@ export default function SettingsPage() {
     try {
       const result = await api.mfaVerify(code);
       setEnrolling(null);
+      setQrDataUrl(null);
       setCode("");
       setNewBackupCodes(result.backup_codes);
       await refreshMe();
@@ -226,8 +236,18 @@ export default function SettingsPage() {
         {!newBackupCodes && enrolling && (
           <form onSubmit={onVerify}>
             <p style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 8 }}>
-              In your authenticator app, add a new account using this setup key:
+              Scan this with your authenticator app&rsquo;s camera, or enter the setup key manually:
             </p>
+            {qrDataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={qrDataUrl}
+                alt="Scan this QR code with your authenticator app to set up two-factor authentication"
+                width={160}
+                height={160}
+                style={{ display: "block", marginBottom: 16, borderRadius: 8 }}
+              />
+            )}
             <div
               style={{
                 background: "var(--bg-app)",
@@ -266,6 +286,7 @@ export default function SettingsPage() {
                 style={secondaryBtnStyle}
                 onClick={() => {
                   setEnrolling(null);
+                  setQrDataUrl(null);
                   setCode("");
                   setError(null);
                 }}

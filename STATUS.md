@@ -1967,10 +1967,6 @@ real computed TOTP code, signed out, and confirmed a plain password
 was no longer enough to sign back in until the second code was
 entered correctly.
 
-**What's still a known gap**: no QR code rendering for enrolment
-(manual-entry key only, which every authenticator app supports, just
-less convenient than a scan).
-
 **Post-Sprint-24 — MFA backup/recovery codes:** closes the gap the
 entry above flagged immediately after shipping MFA — until now, losing
 the authenticator device meant permanent lockout, a real usability
@@ -2179,6 +2175,29 @@ checked out" with no error — the same result a passing backend test
 suite already proves the scan logic itself produces correctly for a
 portfolio with actual repeat-failure/compliance/arrears/warranty
 patterns in it.
+
+**Post-Sprint-24 — QR code rendering for MFA enrolment:** closes the
+one remaining gap MFA's own entry above flagged — enrolment only ever
+showed the manual-entry setup key, which every authenticator app
+accepts but is meaningfully slower than a scan. `qrcode` (MIT,
+actively maintained) added to `apps/web`'s dependencies — the first
+new runtime dependency this frontend has needed since scaffolding —
+and rendered client-side via its browser-safe entry point
+(`QRCode.toDataURL`), directly from the same `otpauth_url` the manual
+key was already built from, so both encode identically; no backend
+change needed. The manual key stays visible underneath the code rather
+than being replaced by it — a real device without camera access, or a
+desktop-only authenticator, still works exactly as before. A failed
+QR render (`toDataURL` rejecting) degrades to manual-entry-only rather
+than blocking enrolment.
+
+`npm install qrcode @types/qrcode`; `npm run build`/`lint` both clean.
+Verified live end to end: enrolled, saw a real rendered QR code
+alongside the setup key, and — rather than just checking the image
+appeared — computed the TOTP code from the same secret text shown
+underneath and completed verification with it, confirming the QR
+encodes a genuinely working `otpauth://` URI, not just that an image
+tag renders.
 
 ## Not yet done
 
