@@ -19,12 +19,11 @@ from app.ingestion.models import (
     ImportRowStatus,
     MappingTemplate,
 )
-from app.ingestion.pipeline import FileParseError, apply_mapping, import_dataset, parse_upload, propose_mapping, save_mapping_template, stage_rows
+from app.ingestion.pipeline import FileParseError, apply_mapping, parse_upload, propose_mapping, save_mapping_template, stage_rows
 from app.ingestion.schemas import (
     ApplyMappingRequest,
     DatasetDetailOut,
     DatasetOut,
-    ImportResultOut,
     ImportRowOut,
     UploadResponse,
 )
@@ -197,6 +196,11 @@ def get_dataset(
         source_file_document_id=dataset.source_file_document_id,
         latest_job_status=job.status.value if job else None,
         row_status_counts=row_status_counts,
+        rows_processed=job.rows_processed if job else None,
+        entities_created=job.entities_created if job else None,
+        rows_failed=job.rows_failed if job else None,
+        importer_registered=job.importer_registered if job else None,
+        error_summary=job.error_summary if job else None,
     )
 
 
@@ -246,12 +250,17 @@ def apply_dataset_mapping(
     return get_dataset(dataset_id, ctx, db)
 
 
-@router.post("/datasets/{dataset_id}/import", response_model=ImportResultOut)
+@router.post("/datasets/{dataset_id}/import", response_model=DatasetDetailOut, status_code=status.HTTP_202_ACCEPTED)
 def trigger_dataset_import(
     dataset_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("uploads.write")),
     db: Session = Depends(get_db),
 ):
+    """Enqueues the IMPORT step rather than running it inline (spec §72's
+    "tens of thousands of properties" performance requirement) — flips
+    the job to IMPORTING and returns immediately; worker/jobs/ingestion.py
+    picks it up on its next tick and the caller polls GET
+    /datasets/{dataset_id} for the result."""
     dataset = _get_org_dataset(db, ctx.organisation_id, dataset_id)
     job = _latest_job(db, dataset.id)
     if job is None:
@@ -259,6 +268,6 @@ def trigger_dataset_import(
     if job.column_mapping is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Apply a column mapping before importing")
 
-    result = import_dataset(db, dataset, job)
+    job.status = ImportJobStatus.IMPORTING
     db.commit()
-    return ImportResultOut(**result)
+    return get_dataset(dataset_id, ctx, db)

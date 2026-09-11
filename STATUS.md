@@ -108,13 +108,16 @@ per instruction — "continue with sprint 2, billing later"):
   `COMPONENTS`) — enough to exercise the pipeline for real; the rest of
   spec §13's dataset list gets a dictionary each as its domain lands.
 - Simplifications, each documented at the point they matter (mainly
-  `pipeline.py`'s module docstring): **CSV only**, no XLSX/XLS yet.
-  VALIDATE/UNDERSTAND run **synchronously** in the upload request, not as
-  an RQ-backed background job — the DB shape already matches the
-  background-job design, so moving it later is a call-site change, not a
-  schema change; not done yet because there's no Redis available in this
-  environment to verify a real job queue against (same reasoning as
-  Sprint 2's Stripe deferral — build what's genuinely testable now).
+  `pipeline.py`'s module docstring): **CSV only**, no XLSX/XLS yet
+  (closed Post-Sprint-24 — see the dedicated entry below).
+  VALIDATE/UNDERSTAND/IMPORT all run **synchronously** in the upload
+  request for now, not as a background job — the DB shape already
+  matches the background-job design, so moving IMPORT later (done
+  Post-Sprint-24, see below — a plain DB-poll worker job, not the RQ
+  queue this note originally guessed at) was a call-site change, not a
+  schema change; not done yet in Sprint 3 because there was no working
+  background worker at all to move it onto (same reasoning as Sprint
+  2's Stripe deferral — build what's genuinely testable now).
   **No object storage** — uploaded files are parsed in memory and
   discarded, not persisted; real file retention is a Sprint 4 (Documents)
   concern. **IMPORT is a registered-importer seam** (`IMPORTERS` dict) —
@@ -2273,6 +2276,55 @@ of the three new checks — every seeded component has a real
 `property_id`, and nothing is marked `HANDED_OVER` — so the demo orgs'
 health scores don't shift.
 
+**Post-Sprint-24 — the ingestion pipeline's IMPORT step moved to the
+worker, closing the background-job-queue gap flagged since Sprint 3:**
+spec §72's "tens of thousands of properties" performance requirement
+was real — a synchronous `import_dataset` call blocked the request
+that triggered it for as long as the whole file took to commit. The
+gap's own earlier language ("behind a real RQ+Redis queue") was never
+accurate: this codebase has no `rq` dependency and never did. What
+actually exists — and what this uses — is the plain DB-poll worker
+already built for report generation (Sprint 23): `POST
+/datasets/{id}/import` now just flips the job to `IMPORTING` and
+returns `202`; `worker/jobs/ingestion.py`'s `process_pending_import_jobs`
+(this worker's third registered job) picks it up on the next 5s tick
+and runs the exact same `import_dataset` as before. `ImportJob` gained
+four nullable result columns (`rows_processed`, `entities_created`,
+`rows_failed`, `importer_registered` — migration `0025`) so the result
+survives past the request that started the job; `GET /datasets/{id}`
+already returned job status and now returns these too, so no new
+polling endpoint was needed. UPLOAD/VALIDATE/UNDERSTAND/MAP/REVIEW all
+stay synchronous — MAP+REVIEW's proposed mapping has to return to the
+browser immediately for a human to review, so only the step after
+human review moves to the background.
+
+Row-level failures (one bad row) were already handled inside
+`import_dataset` itself (`ImporterRowError` -> that row marked
+`INVALID`, the job carries on); what's new is a genuine exception now
+marks the whole *job* `FAILED` with `error_summary` set, since there's
+no HTTP request left to return a 500 to once this runs off-cycle —
+mirrors `app.reports.service.process_report_job`'s exact convention.
+
+12 existing test call sites across `test_ingestion.py`, `test_components.py`,
+and `test_development.py` updated to trigger the (now 202) import and
+drive it through `process_pending_import_jobs` directly against a raw
+session — the same pattern `test_reports.py` already established for
+report generation — rather than wait on a real ticking worker process.
+Frontend (`data-and-uploads/page.tsx`) gained the same poll-while-
+in-flight pattern `reports/page.tsx` already uses (2s interval while
+`latest_job_status === "IMPORTING"`), plus a new Playwright spec
+(`data-and-uploads.spec.ts`) watching a real upload go
+MAPPED -> IMPORTING -> COMPLETED with no page reload and confirming the
+imported property is real, not mocked. Verified live end-to-end outside
+the test suite too: ran the smoketest API + worker as two real
+processes, uploaded a CSV through curl, watched the job sit `IMPORTING`
+until the worker's own log line (`ingestion_import.tick`,
+`jobs_processed: 1`) showed it picked the job up, then confirmed both
+properties existed with correct provenance.
+
+364 backend tests, all still passing — 12 existing call sites adapted
+to the new async contract, no new test functions needed.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2308,20 +2360,15 @@ punch list for whoever takes this toward a real pilot:
   now (auth, the Development->Building->Property golden thread, Ask
   DataLume's ungrounded-question guarantee, a compliance requirement
   against a seeded domain, commercial arrears, worker-driven report
-  generation, and — as of Post-Sprint-24 — a manual attention-engine
-  scan that genuinely detects a repeat-repair pattern) and what's
-  still genuinely unwritten — handover authorisation, defects/
+  generation, a manual attention-engine scan that genuinely detects a
+  repeat-repair pattern, and — as of Post-Sprint-24 — a worker-driven
+  CSV import going MAPPED -> IMPORTING -> COMPLETED) and what's still
+  genuinely unwritten — handover authorisation, defects/
   warranties, and most of spec §76-78's deeper Housing Operations and
   Commercial scenarios.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **The ingestion pipeline has no background job queue yet.**
-  VALIDATE/UNDERSTAND run synchronously inside the upload request. Fine
-  for the small CSVs used in testing; will not hold up against the
-  "tens of thousands of properties" performance requirement (spec §72)
-  until it moves to `worker/jobs/ingestion.py` behind a real RQ+Redis
-  queue — architecture/02 §2 explains why this matters.
 - **Data Health still doesn't cover all 15 items in spec §42.** Orphan
   components, duplicate components, and missing handover information
   closed post-Sprint-24 (see the dedicated entry above) — still open:

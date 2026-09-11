@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   api,
@@ -8,7 +8,6 @@ import {
   type DatasetDetail,
   type DocumentOut,
   type FieldSpec,
-  type ImportResult,
   type UploadResponse,
 } from "@/lib/api";
 
@@ -79,7 +78,6 @@ export default function DataAndUploadsPage() {
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
   const [mapping, setMapping] = useState<Record<string, string | null>>({});
   const [datasetDetail, setDatasetDetail] = useState<DatasetDetail | null>(null);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
   const [docTitle, setDocTitle] = useState("");
@@ -162,7 +160,6 @@ export default function DataAndUploadsPage() {
     setUploadResult(null);
     setMapping({});
     setDatasetDetail(null);
-    setImportResult(null);
     setUploadName("");
     setFile(null);
   }
@@ -208,14 +205,44 @@ export default function DataAndUploadsPage() {
     setSubmitting(true);
     try {
       const result = await api.triggerImport(id, uploadResult.dataset_id);
-      setImportResult(result);
-      await refreshDatasets();
+      setDatasetDetail(result);
     } catch {
       setFormError("Import failed.");
     } finally {
       setSubmitting(false);
     }
   }
+
+  // The IMPORT step runs on the worker's poll loop (every 5s), not in
+  // the request/response cycle — spec §72's "tens of thousands of
+  // properties" performance requirement. Poll dataset status while the
+  // latest job is still IMPORTING, same pattern as reports/page.tsx.
+  const isImporting = datasetDetail?.latest_job_status === "IMPORTING";
+  const importPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    async function pollDataset() {
+      const id = orgId();
+      if (!id || !uploadResult) return;
+      const detail = await api.getDataset(id, uploadResult.dataset_id);
+      setDatasetDetail(detail);
+      if (detail.latest_job_status !== "IMPORTING") {
+        await refreshDatasets();
+      }
+    }
+    if (isImporting && !importPollRef.current) {
+      importPollRef.current = setInterval(pollDataset, 2000);
+    } else if (!isImporting && importPollRef.current) {
+      clearInterval(importPollRef.current);
+      importPollRef.current = null;
+    }
+    return () => {
+      if (importPollRef.current) {
+        clearInterval(importPollRef.current);
+        importPollRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isImporting]);
 
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
@@ -341,7 +368,7 @@ export default function DataAndUploadsPage() {
           </div>
         )}
 
-        {datasetDetail && !importResult && (
+        {datasetDetail && datasetDetail.latest_job_status === "MAPPED" && (
           <div>
             <p style={{ fontSize: 13, marginBottom: 12 }}>
               Mapping applied.{" "}
@@ -355,7 +382,7 @@ export default function DataAndUploadsPage() {
             )}
             <div style={{ display: "flex", gap: 8 }}>
               <button style={primaryBtn} onClick={onTriggerImport} disabled={submitting}>
-                {submitting ? "Importing…" : "Start import"}
+                {submitting ? "Starting…" : "Start import"}
               </button>
               <button style={secondaryBtn} onClick={resetUploadFlow}>
                 Cancel
@@ -364,18 +391,25 @@ export default function DataAndUploadsPage() {
           </div>
         )}
 
-        {importResult && (
+        {isImporting && (
+          <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+            Importing — this runs in the background and can take a while for a large file. This page
+            checks back every couple of seconds.
+          </p>
+        )}
+
+        {datasetDetail?.latest_job_status === "COMPLETED" && (
           <div>
             <p style={{ fontSize: 13, marginBottom: 4 }}>
-              {importResult.rows_processed} rows processed, {importResult.entities_created} entities created
-              {importResult.rows_failed > 0 ? `, ${importResult.rows_failed} failed` : ""}.
+              {datasetDetail.rows_processed} rows processed, {datasetDetail.entities_created} entities created
+              {(datasetDetail.rows_failed ?? 0) > 0 ? `, ${datasetDetail.rows_failed} failed` : ""}.
             </p>
-            {importResult.rows_failed > 0 && (
+            {(datasetDetail.rows_failed ?? 0) > 0 && (
               <p style={{ fontSize: 13, color: "var(--color-warning)", marginBottom: 12 }}>
                 Some rows couldn&rsquo;t be matched to existing records and weren&rsquo;t imported.
               </p>
             )}
-            {!importResult.importer_registered && (
+            {!datasetDetail.importer_registered && (
               <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
                 No domain model exists yet for &ldquo;{datasetType}&rdquo; — rows are validated and staged,
                 but nothing was created. This dataset type&rsquo;s canonical table lands in a later sprint.
@@ -383,6 +417,17 @@ export default function DataAndUploadsPage() {
             )}
             <button style={secondaryBtn} onClick={resetUploadFlow}>
               Upload another
+            </button>
+          </div>
+        )}
+
+        {datasetDetail?.latest_job_status === "FAILED" && (
+          <div>
+            <p style={{ fontSize: 13, color: "var(--color-critical)", marginBottom: 12 }}>
+              Import failed{datasetDetail.error_summary ? `: ${datasetDetail.error_summary}` : "."}
+            </p>
+            <button style={secondaryBtn} onClick={resetUploadFlow}>
+              Try again
             </button>
           </div>
         )}

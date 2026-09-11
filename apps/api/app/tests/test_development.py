@@ -63,7 +63,17 @@ def test_imported_property_carries_provenance_back_to_the_dataset(client):
         headers={"X-Organisation-Id": org_id},
         json={"column_mapping": {"Property Address": "address", "Type": "property_type"}},
     )
-    client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    trigger_resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert trigger_resp.status_code == 202
+
+    import app.core.db as db_module
+    from app.worker.jobs.ingestion import process_pending_import_jobs
+
+    db = db_module.SessionLocal()
+    try:
+        process_pending_import_jobs(db)
+    finally:
+        db.close()
 
     properties = client.get("/api/v1/properties", headers={"X-Organisation-Id": org_id}).json()
     assert len(properties) == 1

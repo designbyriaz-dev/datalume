@@ -11,8 +11,9 @@ What's real in Sprint 3, and what's deliberately simplified:
   requirement for large files, not yet met here. The DB shape (a
   persisted import_rows staging table, never a direct parse-and-insert)
   is exactly what the architecture specifies, so moving VALIDATE/
-  UNDERSTAND into worker/jobs/ingestion.py behind an RQ enqueue later is
-  a call-site change, not a data-model or pipeline-logic change.
+  UNDERSTAND into the same worker/jobs/ingestion.py poll loop that now
+  runs IMPORT (see that module) later is a call-site change, not a
+  data-model or pipeline-logic change.
 - CSV and XLSX (spec §13). Legacy binary .xls is deliberately still
   out of scope — it needs a different, largely-unmaintained library
   (xlrd dropped .xls-adjacent support years ago) for a format Office
@@ -33,7 +34,7 @@ What's real in Sprint 3, and what's deliberately simplified:
 import csv
 import io
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Callable
 
 import openpyxl
@@ -314,12 +315,48 @@ def import_dataset(db: Session, dataset: Dataset, import_job: ImportJob) -> dict
             imported_count += 1
         row.status = ImportRowStatus.IMPORTED
 
-    import_job.status = ImportJobStatus.COMPLETED
-    dataset.status = DatasetStatus.IMPORTED
-    db.flush()
-    return {
+    result = {
         "rows_processed": len(valid_rows),
         "entities_created": imported_count,
         "rows_failed": failed_count,
         "importer_registered": importer is not None,
     }
+
+    import_job.status = ImportJobStatus.COMPLETED
+    import_job.finished_at = datetime.now(timezone.utc)
+    import_job.rows_processed = result["rows_processed"]
+    import_job.entities_created = result["entities_created"]
+    import_job.rows_failed = result["rows_failed"]
+    import_job.importer_registered = result["importer_registered"]
+    dataset.status = DatasetStatus.IMPORTED
+    db.flush()
+    return result
+
+
+def process_import_job(db: Session, import_job_id) -> ImportJob | None:
+    """Idempotent-ish: only ever picks up a job still IMPORTING (the
+    worker's own query already filters on that), so re-invoking this on
+    an already-COMPLETED/FAILED job is a no-op that returns the job as
+    found rather than reprocessing it — mirrors
+    app.reports.service.process_report_job's same convention.
+
+    Row-level failures (a single bad row's data) are already handled
+    inside import_dataset itself via ImporterRowError, marking just that
+    row INVALID without raising. What lands here is a genuine bug — a
+    real exception means there's no per-row story to tell, so the whole
+    job is marked FAILED with the exception recorded."""
+    import_job = db.get(ImportJob, import_job_id)
+    if import_job is None or import_job.status != ImportJobStatus.IMPORTING:
+        return import_job
+
+    dataset = db.get(Dataset, import_job.dataset_id)
+    try:
+        import_dataset(db, dataset, import_job)
+    except Exception as exc:  # noqa: BLE001 — reported on the job row, not swallowed
+        import_job.status = ImportJobStatus.FAILED
+        import_job.error_summary = str(exc)[:1024]
+        import_job.finished_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(import_job)
+    return import_job

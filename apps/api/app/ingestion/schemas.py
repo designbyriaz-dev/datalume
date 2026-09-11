@@ -30,6 +30,14 @@ class DatasetOut(BaseModel):
 class DatasetDetailOut(DatasetOut):
     latest_job_status: str | None
     row_status_counts: dict[str, int]
+    # Populated once the latest job's IMPORT step has finished processing
+    # (worker/jobs/ingestion.py) — all None while AWAITING_MAPPING/MAPPED/
+    # IMPORTING, since there's no result yet to report.
+    rows_processed: int | None = None
+    entities_created: int | None = None
+    rows_failed: int | None = None
+    importer_registered: bool | None = None
+    error_summary: str | None = None
 
 
 class ImportRowOut(BaseModel):
@@ -43,10 +51,3 @@ class ImportRowOut(BaseModel):
 
 class ApplyMappingRequest(BaseModel):
     column_mapping: dict[str, str | None]
-
-
-class ImportResultOut(BaseModel):
-    rows_processed: int
-    entities_created: int
-    rows_failed: int
-    importer_registered: bool

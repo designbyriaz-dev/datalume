@@ -275,10 +275,23 @@ def test_csv_import_creates_components_and_custom_types(client):
             }
         },
     )
-    result = client.post(
-        f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id}
-    ).json()
-    assert result == {"rows_processed": 2, "entities_created": 2, "rows_failed": 0, "importer_registered": True}
+    trigger_resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    assert trigger_resp.status_code == 202
+
+    import app.core.db as db_module
+    from app.worker.jobs.ingestion import process_pending_import_jobs
+
+    db = db_module.SessionLocal()
+    try:
+        process_pending_import_jobs(db)
+    finally:
+        db.close()
+
+    result = client.get(f"/api/v1/datasets/{upload['dataset_id']}", headers={"X-Organisation-Id": org_id}).json()
+    assert result["rows_processed"] == 2
+    assert result["entities_created"] == 2
+    assert result["rows_failed"] == 0
+    assert result["importer_registered"] is True
 
     components = client.get("/api/v1/components", headers={"X-Organisation-Id": org_id}).json()
     assert len(components) == 2

@@ -27,6 +27,15 @@ next 2am scan, so it's polled on every heartbeat tick rather than
 gated by an hour check — the tick interval was shortened from 30s to
 5s accordingly, still a plain DB poll, no new dependency.
 
+This worker's third job, added later, moves the ingestion pipeline's
+IMPORT step here too (spec §72: "tens of thousands of properties" is a
+real performance requirement a synchronous import couldn't meet).
+Same on-demand shape as report generation — polled every tick, not
+gated by an hour check — and still no new dependency: STATUS.md's
+earlier notes describing this as pending on an RQ+Redis queue were
+aspirational, not real; the actual mechanism, here as everywhere else
+in this file, is the plain DB poll already documented above.
+
 `ReportJob.requested_by` is this worker's first foreign key to a table
 (`users`) outside the job code's own transitive imports — SQLAlchemy
 only resolves a string-based ForeignKey against classes actually
@@ -49,6 +58,7 @@ import structlog
 import app.main  # noqa: F401  (registers every domain's models in this process)
 from app.core.db import SessionLocal
 from app.worker.jobs.attention_scan import run_attention_scan_for_all_organisations
+from app.worker.jobs.ingestion import process_pending_import_jobs
 from app.worker.jobs.report_generation import process_pending_report_jobs
 
 logger = structlog.get_logger("datalume.worker")
@@ -87,10 +97,24 @@ def _run_report_generation() -> None:
         db.close()
 
 
+def _run_ingestion_import() -> None:
+    db = SessionLocal()
+    try:
+        result = process_pending_import_jobs(db)
+        if result.jobs_processed:
+            logger.info(
+                "ingestion_import.tick",
+                jobs_processed=result.jobs_processed,
+                jobs_failed=result.jobs_failed,
+            )
+    finally:
+        db.close()
+
+
 def main() -> None:
     logger.info(
         "worker.started",
-        jobs_registered=2,
+        jobs_registered=3,
         attention_scan_hour_utc=ATTENTION_SCAN_HOUR_UTC,
         worker_tick_seconds=WORKER_TICK_SECONDS,
     )
@@ -102,6 +126,11 @@ def main() -> None:
             _run_report_generation()
         except Exception:
             logger.exception("report_generation.failed")
+
+        try:
+            _run_ingestion_import()
+        except Exception:
+            logger.exception("ingestion_import.failed")
 
         now = datetime.now(timezone.utc)
         if now.hour == ATTENTION_SCAN_HOUR_UTC and last_scan_date != now.date():

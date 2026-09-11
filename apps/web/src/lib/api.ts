@@ -123,13 +123,14 @@ export type Dataset = {
 export type DatasetDetail = Dataset & {
   latest_job_status: string | null;
   row_status_counts: Record<string, number>;
-};
-
-export type ImportResult = {
-  rows_processed: number;
-  entities_created: number;
-  rows_failed: number;
-  importer_registered: boolean;
+  // Populated once the worker's IMPORT job (worker/jobs/ingestion.py)
+  // finishes processing — all null while AWAITING_MAPPING/MAPPED/
+  // IMPORTING, since there's no result yet to report.
+  rows_processed: number | null;
+  entities_created: number | null;
+  rows_failed: number | null;
+  importer_registered: boolean | null;
+  error_summary: string | null;
 };
 
 export type DocumentOut = {
@@ -1022,7 +1023,7 @@ export const api = {
       body: JSON.stringify({ column_mapping: columnMapping }),
     }),
   triggerImport: (organisationId: string, datasetId: string) =>
-    request<ImportResult>(`/api/v1/datasets/${datasetId}/import`, { method: "POST", organisationId }),
+    request<DatasetDetail>(`/api/v1/datasets/${datasetId}/import`, { method: "POST", organisationId }),
   listDocuments: (organisationId: string) =>
     request<DocumentOut[]>("/api/v1/documents", { organisationId }),
   getDocument: (organisationId: string, documentId: string) =>

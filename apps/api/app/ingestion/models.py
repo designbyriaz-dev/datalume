@@ -10,7 +10,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -74,6 +74,14 @@ class ImportJob(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_summary: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     column_mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Populated by worker/jobs/ingestion.py once the job moves out of
+    # IMPORTING — the same shape import_dataset() has always returned,
+    # now persisted so a client polling GET /datasets/{id} can see the
+    # outcome after the request that triggered it has long since returned.
+    rows_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    entities_created: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rows_failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    importer_registered: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class ImportRow(Base):

@@ -28,6 +28,27 @@ def _upload_csv(client, org_id: str, csv_text: str, dataset_type: str = "PROPERT
     )
 
 
+def _trigger_and_process_import(client, org_id: str, dataset_id: str) -> dict:
+    """Triggers the (now async) import, then drives it through the same
+    code path the real worker's tick loop uses — mirrors how the report-
+    generation tests exercise process_pending_report_jobs directly
+    against a raw session rather than waiting on a real ticking worker
+    process — and returns the dataset detail once it's finished."""
+    resp = client.post(f"/api/v1/datasets/{dataset_id}/import", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 202
+
+    import app.core.db as db_module
+    from app.worker.jobs.ingestion import process_pending_import_jobs
+
+    db = db_module.SessionLocal()
+    try:
+        process_pending_import_jobs(db)
+    finally:
+        db.close()
+
+    return client.get(f"/api/v1/datasets/{dataset_id}", headers={"X-Organisation-Id": org_id}).json()
+
+
 def _build_xlsx_bytes(rows: list[list]) -> bytes:
     from openpyxl import Workbook
 
@@ -263,12 +284,8 @@ def test_ingestion_imports_real_property_entities(client):
         json={"column_mapping": {"Property Address": "address", "Post Code": "postcode", "Type": "property_type"}},
     )
 
-    resp = client.post(
-        f"/api/v1/datasets/{upload['dataset_id']}/import",
-        headers={"X-Organisation-Id": org_id},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
+    assert body["latest_job_status"] == "COMPLETED"
     assert body["rows_processed"] == 2
     assert body["entities_created"] == 2
     assert body["importer_registered"] is True
@@ -311,9 +328,7 @@ def test_ingestion_imports_real_development_entities(client):
         },
     )
 
-    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
-    assert resp.status_code == 200
-    body = resp.json()
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
     assert body["rows_processed"] == 2
     assert body["entities_created"] == 2
     assert body["importer_registered"] is True
@@ -357,9 +372,8 @@ def test_ingestion_imports_buildings_and_links_to_existing_development(client):
         },
     )
 
-    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
-    assert resp.status_code == 200
-    assert resp.json()["entities_created"] == 2
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
+    assert body["entities_created"] == 2
 
     buildings = client.get("/api/v1/buildings", headers={"X-Organisation-Id": org_id}).json()
     assert len(buildings) == 2
@@ -380,7 +394,7 @@ def test_ingestion_building_with_unknown_development_reference_is_left_unlinked(
         headers={"X-Organisation-Id": org_id},
         json={"column_mapping": {"Building Name": "name", "Development Reference": "development_reference"}},
     )
-    client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    _trigger_and_process_import(client, org_id, upload["dataset_id"])
 
     buildings = client.get("/api/v1/buildings", headers={"X-Organisation-Id": org_id}).json()
     assert buildings[0]["development_id"] is None
@@ -469,11 +483,8 @@ def test_ragged_row_is_flagged_not_silently_misaligned(client):
     # The ragged row must stay INVALID through mapping, not flip to VALID.
     assert detail["row_status_counts"] == {"VALID": 1, "INVALID": 1}
 
-    import_resp = client.post(
-        f"/api/v1/datasets/{upload['dataset_id']}/import",
-        headers={"X-Organisation-Id": org_id},
-    ).json()
-    assert import_resp["rows_processed"] == 1  # only the well-formed row
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
+    assert body["rows_processed"] == 1  # only the well-formed row
 
 
 def test_dataset_from_other_org_is_not_found(client):
@@ -519,9 +530,7 @@ def test_ingestion_imports_real_property_entities_from_xlsx(client):
         json={"column_mapping": {"Property Address": "address", "Post Code": "postcode", "Type": "property_type"}},
     )
 
-    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
-    assert resp.status_code == 200
-    body = resp.json()
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
     assert body["rows_processed"] == 2
     assert body["entities_created"] == 2
 
@@ -547,7 +556,7 @@ def test_xlsx_typed_cells_convert_to_expected_strings(client):
         headers={"X-Organisation-Id": org_id},
         json={"column_mapping": {"Building Name": "name", "Storeys": "storeys"}},
     )
-    client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
+    _trigger_and_process_import(client, org_id, upload["dataset_id"])
 
     buildings = client.get("/api/v1/buildings", headers={"X-Organisation-Id": org_id}).json()
     assert buildings[0]["storeys"] == 6
@@ -607,9 +616,7 @@ def test_ingestion_imports_floors_linked_to_an_existing_building(client):
         json={"column_mapping": {"Floor Name": "name", "Level": "level_index", "Building Reference": "building_reference"}},
     )
 
-    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
-    assert resp.status_code == 200
-    body = resp.json()
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
     assert body["entities_created"] == 2
     assert body["rows_failed"] == 0
 
@@ -647,9 +654,7 @@ def test_ingestion_floor_with_unmatched_building_reference_fails_that_row_only(c
         json={"column_mapping": {"Floor Name": "name", "Building Reference": "building_reference"}},
     )
 
-    resp = client.post(f"/api/v1/datasets/{upload['dataset_id']}/import", headers={"X-Organisation-Id": org_id})
-    assert resp.status_code == 200
-    body = resp.json()
+    body = _trigger_and_process_import(client, org_id, upload["dataset_id"])
     assert body["rows_processed"] == 2
     assert body["entities_created"] == 1
     assert body["rows_failed"] == 1
