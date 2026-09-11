@@ -2651,16 +2651,16 @@ gaps closed:
   never actually split it across two. Added a "Split across
   obligations" control to the existing "Needs attention" resolve row.
 
-Two genuine, larger gaps found and *not* closed (real missing
-features, not quick fixes — flagged honestly rather than attempted in
-the same pass): no bulk/CSV import path exists for rent obligations or
-payments at all (only one-at-a-time manual entry, on either side —
-spec's own "Import rent obligations"/"Import payments" wording implies
-more than that); and there is no `LeaseEvent` concept anywhere —
-`Lease.break_date`/`rent_review_date`/`lease_expiry` are stored but
+Two genuine, larger gaps found and flagged rather than folded into
+this same pass: bulk/CSV import for rent obligations/payments (closed
+in the very next commit, see the dedicated entry below — the audit was
+right that this was a real gap, just one with a clear existing pattern
+to follow rather than needing new design); and `LeaseEvent` monitoring
+— `Lease.break_date`/`rent_review_date`/`lease_expiry` are stored but
 nothing computes or surfaces an upcoming one (no Attention Engine rule,
 no UI highlighting), unlike `LEASE_ARREARS` which is a real rule.
-"Monitor lease events" needs real design work, not a form fix.
+"Monitor lease events" genuinely needs real design work (what counts
+as "upcoming," what the UI should do about it), unlike the import gap.
 
 3 new Playwright specs (22 total, all passing): lease fields round-trip
 through creation and the register display; recording a payment with a
@@ -2672,6 +2672,49 @@ backend level), then the new Split control is used to peel off part of
 the payment to one obligation and Resolve is used for the real
 remainder — not the original £2500, proving the split actually reduced
 what still needed resolving.
+
+**Post-Sprint-24 — bulk CSV import for rent obligations and payments,
+closing the Commercial audit's other real gap the same day it was
+found:** `app/commercial/importers.py` registers `RENT_OBLIGATIONS`/
+`PAYMENTS` into the same ingestion seam (`app/ingestion/pipeline.py`
+`IMPORTERS`) every other domain's importer already uses — no new
+frontend work needed at all, since `data-and-uploads/page.tsx`'s
+dataset-type dropdown already reads its options from the field
+dictionary registry dynamically, the same "backend registry drives
+frontend automatically" pattern the whole ingestion pipeline was built
+on.
+
+Building this surfaced a real, separate bug: `RentObligation` was
+missing `ProvenanceMixin` entirely — `PaymentTransaction`, created in
+the exact same migration (`0019_rent_payments_arrears.py`), always had
+it; `RentObligation`, three lines above it in that same file, never
+did. Not a deliberate choice — CLAUDE.md's own "full data provenance
+on every important record" rule doesn't carve out an exception for
+"what is owed," and the importer genuinely needed
+`source_dataset_id`/`import_job_id` the same way every other importer
+records where a row came from. Backfilled via migration `0026`
+(nullable first, backfilled existing rows as `MANUAL` — accurate,
+since every rent obligation ever created so far came from the manual
+form — then enforced `NOT NULL` to match every sibling table exactly)
+rather than skipped or worked around.
+
+The `PAYMENTS` importer reuses the real deterministic reconciler
+(`match_payment`) per row — an imported payment gets the same genuine
+matching a manually-recorded one does, never a fabricated "imported
+therefore matched." `RENT_OBLIGATIONS` resolves `lease_reference` the
+same way `FLOORS` resolves `building_reference` (required FK,
+`ImporterRowError` marks just that row `INVALID` on a miss);
+`PAYMENTS`' own `lease_reference` stays optional, mirroring
+`PaymentTransaction.lease_id`'s genuine "not yet matched" case (spec
+§52).
+
+4 new backend tests (374 total) — including one that reconciles a real
+imported payment against a real imported-or-manual obligation and
+checks `outstanding_pence` actually reaches zero, and one confirming
+an unmatched payment lands honestly `UNALLOCATED`, not a fabricated
+match — plus a new Playwright spec driving the real
+`/data-and-uploads` upload flow end to end (23 Playwright specs total,
+all passing).
 
 ## Not yet done
 
@@ -2703,12 +2746,6 @@ punch list for whoever takes this toward a real pilot:
   here, but didn't add span-based tracing, since there's no real
   collector in this sandbox to send spans to and a half-wired tracer
   would be worse than a documented gap.
-- **Bulk/CSV import for rent obligations and payments doesn't exist.**
-  Spec §78 names "Import rent obligations"/"Import payments" as
-  distinct from one-at-a-time entry — only the latter is built, on
-  both frontend and backend. A real gap, not a UI-only one; would need
-  a new ingestion importer + field dictionary, the same shape as the
-  Developments/Buildings/Floors importers already built.
 - **Lease events aren't monitored.** `Lease.break_date`/
   `rent_review_date`/`lease_expiry` are real, captured fields (see the
   Commercial audit entry above) but nothing computes or surfaces an
@@ -2733,19 +2770,21 @@ punch list for whoever takes this toward a real pilot:
   the exact component it belongs to, Property 360 showing a real
   development/building lineage and the readiness record persisting
   after handover, Ask DataLume answering a real, grounded question
-  about a development, and — as of Post-Sprint-24 — a lease's break
-  date/rent review date/service charge being genuinely captured, a
-  payment method round-tripping, and an ambiguous payment being split
-  across two obligations rather than just resolved against one) and
-  what's still genuinely unwritten — most of spec §76-78's remaining
-  deeper Housing Operations scenarios (generating a handover report is
-  not one of them — `HANDOVER_READINESS` is a real, backend-tested
-  report type, see `test_reports.py`; it's simply never been given its
-  own Playwright spec, the same "already built, needs a first UI test"
-  gap the earlier entries in this list closed one by one, not a
-  missing feature), plus bulk import and lease-event monitoring on the
-  Commercial side (both genuinely missing, not UI gaps — see the
-  dedicated entries above).
+  about a development, a lease's break date/rent review date/service
+  charge being genuinely captured, a payment method round-tripping, an
+  ambiguous payment being split across two obligations rather than just
+  resolved against one, and — as of Post-Sprint-24 — a real rent
+  obligations CSV import going through the same worker-driven pipeline
+  every other importer uses) and what's still genuinely unwritten —
+  most of spec §76-78's remaining deeper Housing Operations scenarios
+  (generating a handover report is not one of them —
+  `HANDOVER_READINESS` is a real, backend-tested report type, see
+  `test_reports.py`; it's simply never been given its own Playwright
+  spec, the same "already built, needs a first UI test" gap the earlier
+  entries in this list closed one by one, not a missing feature), plus
+  lease-event monitoring on the Commercial side (genuinely missing, not
+  a UI gap — see the dedicated entry above; bulk import was the
+  Commercial side's other named gap and is closed now, also above).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

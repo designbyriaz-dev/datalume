@@ -243,6 +243,10 @@ def create_rent_obligation(
     currency: str,
     invoice_reference: str | None,
     actor_user_id: uuid.UUID | None,
+    source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
 ) -> RentObligation:
     _get_org_lease(db, organisation_id, lease_id)
 
@@ -257,6 +261,12 @@ def create_rent_obligation(
         currency=currency,
         invoice_reference=invoice_reference,
         status=RentObligationStatus.ACTIVE,
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
     )
     db.add(obligation)
     db.flush()

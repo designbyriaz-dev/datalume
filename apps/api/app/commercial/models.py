@@ -126,13 +126,19 @@ class RentObligationStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
-class RentObligation(Base):
+class RentObligation(Base, ProvenanceMixin):
     """architecture §1's own SQL sketch — "what is owed." `amount_due`
     is pence, never a float, same convention as every money column in
     this codebase. `invoice_reference` is an external, org-supplied
     identifier (e.g. from accounting software) — not an internally
     generated sequential reference the way Repair/Lease references
-    are, so it doesn't go through the Identifier & Reference Engine."""
+    are, so it doesn't go through the Identifier & Reference Engine.
+
+    Missing ProvenanceMixin from Sprint 20 through Post-Sprint-24 —
+    PaymentTransaction, created in the same migration, always had it;
+    this didn't. Backfilled in migration 0026 once the commercial CSV
+    importer (spec §78) needed source_dataset_id/import_job_id the
+    same way every other importer records where a row came from."""
 
     __tablename__ = "rent_obligations"
 

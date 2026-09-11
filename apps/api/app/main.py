@@ -20,6 +20,7 @@ from app.organisations.router import (
 from app.platform.router import router as billing_router
 from app.reports.router import router as reports_router
 
+import app.commercial.importers  # noqa: F401  (registers IMPORTERS["RENT_OBLIGATIONS", "PAYMENTS"] as a side effect)
 import app.development.importers  # noqa: F401  (registers IMPORTERS["PROPERTIES", "COMPONENTS"] as a side effect)
 from app.development.change_control_router import router as change_control_router
 from app.development.components_router import router as components_router

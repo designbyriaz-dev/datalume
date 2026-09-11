@@ -86,7 +86,7 @@ GOOD_CSV = (
 def test_field_dictionaries_endpoint_lists_known_types(client):
     resp = client.get("/api/v1/datasets/field-dictionaries")
     assert resp.status_code == 200
-    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS", "FLOORS"}
+    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS", "FLOORS", "RENT_OBLIGATIONS", "PAYMENTS"}
 
 
 def test_upload_stages_rows_and_proposes_mapping(client):
@@ -512,7 +512,7 @@ def test_field_dictionaries_endpoint_still_correct_after_xlsx(client):
     types exist — it's a new input format for the same set, not a new
     dataset type of its own."""
     resp = client.get("/api/v1/datasets/field-dictionaries")
-    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS", "FLOORS"}
+    assert set(resp.json().keys()) == {"PROPERTIES", "COMPONENTS", "DEVELOPMENTS", "BUILDINGS", "FLOORS", "RENT_OBLIGATIONS", "PAYMENTS"}
 
 
 def test_ingestion_imports_real_property_entities_from_xlsx(client):

@@ -85,6 +85,35 @@ FIELD_DICTIONARIES: dict[str, list[FieldSpec]] = {
             aliases=["building_ref"],
         ),
     ],
+    "RENT_OBLIGATIONS": [
+        # Required, unlike PAYMENTS' lease_reference below —
+        # RentObligation.lease_id is a mandatory FK, so a row that can't
+        # resolve one has nothing valid to create.
+        FieldSpec(key="lease_reference", label="Lease Reference", required=True, aliases=["lease_ref"]),
+        FieldSpec(
+            key="obligation_type",
+            label="Obligation Type",
+            required=False,
+            aliases=["type"],
+        ),
+        FieldSpec(key="due_date", label="Due Date", required=True, aliases=[]),
+        FieldSpec(key="period_start", label="Period Start", required=True, aliases=[]),
+        FieldSpec(key="period_end", label="Period End", required=True, aliases=[]),
+        FieldSpec(key="amount_due", label="Amount Due", required=True, aliases=["amount"]),
+        FieldSpec(key="currency", label="Currency", required=False, aliases=[]),
+        FieldSpec(key="invoice_reference", label="Invoice Reference", required=False, aliases=["invoice_ref"]),
+    ],
+    "PAYMENTS": [
+        FieldSpec(key="amount", label="Amount", required=True, aliases=["amount_received"]),
+        FieldSpec(key="received_date", label="Received Date", required=True, aliases=[]),
+        # Optional — PaymentTransaction.lease_id is nullable by design
+        # (spec §52's "unallocated" case: a payment can arrive before a
+        # human or the reconciler knows which lease it belongs to).
+        FieldSpec(key="lease_reference", label="Lease Reference", required=False, aliases=["lease_ref"]),
+        FieldSpec(key="payer_reference", label="Payer Reference", required=False, aliases=["reference"]),
+        FieldSpec(key="method", label="Method", required=False, aliases=["payment_method"]),
+        FieldSpec(key="currency", label="Currency", required=False, aliases=[]),
+    ],
 }
 
 
