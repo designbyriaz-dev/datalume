@@ -1,3 +1,15 @@
+import os
+
+# Must run before `from app.main import app` below — several modules bind
+# `settings = get_settings()` at import time, and get_settings() is
+# @lru_cache'd, so whatever real apps/api/.env holds (a live Stripe key
+# for local manual verification, see STATUS.md) would otherwise leak
+# into every test in this process and silently flip NullBillingProvider
+# over to the real one. Tests must stay hermetic regardless of the
+# developer's local .env.
+os.environ["STRIPE_SECRET_KEY"] = ""
+os.environ["STRIPE_WEBHOOK_SECRET"] = ""
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
