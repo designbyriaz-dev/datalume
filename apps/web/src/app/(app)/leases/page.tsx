@@ -49,6 +49,9 @@ export default function LeasesPage() {
   const [leaseExpiry, setLeaseExpiry] = useState("");
   const [rentAmount, setRentAmount] = useState("");
   const [rentFrequency, setRentFrequency] = useState<(typeof RENT_FREQUENCIES)[number]>("MONTHLY");
+  const [breakDate, setBreakDate] = useState("");
+  const [rentReviewDate, setRentReviewDate] = useState("");
+  const [serviceChargeAmount, setServiceChargeAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -97,6 +100,7 @@ export default function LeasesPage() {
       setFormError("Rent must be a positive amount.");
       return;
     }
+    const serviceChargePence = serviceChargeAmount ? Math.round(parseFloat(serviceChargeAmount) * 100) : undefined;
     setSubmitting(true);
     setFormError(null);
     try {
@@ -107,10 +111,16 @@ export default function LeasesPage() {
         lease_expiry: leaseExpiry,
         contractual_rent_pence: pence,
         rent_frequency: rentFrequency,
+        break_date: breakDate || undefined,
+        rent_review_date: rentReviewDate || undefined,
+        service_charge_amount_pence: serviceChargePence,
       });
       setLeaseStart("");
       setLeaseExpiry("");
       setRentAmount("");
+      setBreakDate("");
+      setRentReviewDate("");
+      setServiceChargeAmount("");
       await refreshLeases();
     } catch {
       setFormError("Couldn't add that lease.");
@@ -162,7 +172,7 @@ export default function LeasesPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a lease</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1.3fr 1fr 1fr 1fr 1fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1.3fr 1fr 1fr", marginBottom: 12 }}>
           <div>
             <label htmlFor="lease-property" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Property</label>
             <select id="lease-property" style={inputStyle} value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
@@ -191,6 +201,8 @@ export default function LeasesPage() {
             <label htmlFor="lease-expiry" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Expiry</label>
             <input id="lease-expiry" style={inputStyle} type="date" value={leaseExpiry} onChange={(e) => setLeaseExpiry(e.target.value)} />
           </div>
+        </div>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr auto", alignItems: "end" }}>
           <div>
             <label htmlFor="lease-rent" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Rent (£)</label>
             <input id="lease-rent" style={inputStyle} type="number" min="0" step="0.01" value={rentAmount} onChange={(e) => setRentAmount(e.target.value)} />
@@ -204,6 +216,18 @@ export default function LeasesPage() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label htmlFor="lease-break-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Break date (optional)</label>
+            <input id="lease-break-date" style={inputStyle} type="date" value={breakDate} onChange={(e) => setBreakDate(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="lease-rent-review-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Rent review (optional)</label>
+            <input id="lease-rent-review-date" style={inputStyle} type="date" value={rentReviewDate} onChange={(e) => setRentReviewDate(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="lease-service-charge" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Service charge £ (optional)</label>
+            <input id="lease-service-charge" style={inputStyle} type="number" min="0" step="0.01" value={serviceChargeAmount} onChange={(e) => setServiceChargeAmount(e.target.value)} />
           </div>
           <button style={primaryBtn} onClick={onAddLease} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}
@@ -240,6 +264,9 @@ export default function LeasesPage() {
               </div>
               <div style={{ color: "var(--text-secondary)", marginBottom: 8 }}>
                 {l.lease_start} → {l.lease_expiry} · {formatRent(l.contractual_rent_pence, l.rent_frequency)}
+                {l.break_date && ` · break ${l.break_date}`}
+                {l.rent_review_date && ` · rent review ${l.rent_review_date}`}
+                {l.service_charge_amount_pence != null && ` · service charge £${(l.service_charge_amount_pence / 100).toFixed(2)}`}
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {(LEASE_TRANSITIONS[l.lease_status] ?? []).map((next) => (

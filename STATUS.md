@@ -2620,6 +2620,59 @@ UPRN genuinely shows "—" (not a silent default) and one created with a
 UPRN shows the real value on its own Property 360 page. 20 Playwright
 specs total, all passing.
 
+**Post-Sprint-24 — a Commercial-side audit (spec §78), the same
+methodology applied to the New Build side extended to the other
+acceptance test:** ran the same per-capability check (does the backend
+genuinely support it, does the frontend actually expose it, is it
+E2E-tested) against all 13 items in "Commercial landlord must be able
+to." Most of it held up — properties/units/tenants/arrears/collection-
+rate/Property-360/Ask-DataLume/reports are all genuinely built and
+mostly already tested. Three real "backend built, frontend incomplete"
+gaps closed:
+
+- **Lease fields**: `break_date`, `rent_review_date`, and
+  `service_charge_amount_pence` were real `CreateLeaseRequest` columns
+  `api.ts`'s `createLease()` already typed and threaded through, but
+  the "Add a lease" form never exposed any of the three — a landlord
+  could never actually record a break clause, a rent review date, or a
+  service charge. Added all three to the form and to the register row
+  display.
+- **Payment method**: same shape, smaller — `CreatePaymentRequest.
+  method` (a plain free-text field, e.g. "BANK_TRANSFER", "CHEQUE" —
+  see `PaymentTransaction`'s own docstring for why it's not an enum)
+  was already accepted end-to-end but had no input on the "Record a
+  payment" form.
+- **Split-allocation UI**: `POST /payments/{id}/allocations`
+  (`add_manual_allocation`) — "splitting one payment across several
+  obligations... is a deliberate human act" per its own docstring —
+  already had a working `api.ts` client method
+  (`createManualAllocation`) but no UI ever called it; a landlord
+  could resolve one ambiguous payment against a single obligation but
+  never actually split it across two. Added a "Split across
+  obligations" control to the existing "Needs attention" resolve row.
+
+Two genuine, larger gaps found and *not* closed (real missing
+features, not quick fixes — flagged honestly rather than attempted in
+the same pass): no bulk/CSV import path exists for rent obligations or
+payments at all (only one-at-a-time manual entry, on either side —
+spec's own "Import rent obligations"/"Import payments" wording implies
+more than that); and there is no `LeaseEvent` concept anywhere —
+`Lease.break_date`/`rent_review_date`/`lease_expiry` are stored but
+nothing computes or surfaces an upcoming one (no Attention Engine rule,
+no UI highlighting), unlike `LEASE_ARREARS` which is a real rule.
+"Monitor lease events" needs real design work, not a form fix.
+
+3 new Playwright specs (22 total, all passing): lease fields round-trip
+through creation and the register display; recording a payment with a
+method succeeds; and — the most substantial of the three — two
+obligations sharing an invoice reference reliably reproduce a genuine
+`NEEDS_REVIEW` ambiguous allocation (the same repro
+`test_rule1_ambiguous_reference_needs_review` already uses at the
+backend level), then the new Split control is used to peel off part of
+the payment to one obligation and Resolve is used for the real
+remainder — not the original £2500, proving the split actually reduced
+what still needed resolving.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2650,6 +2703,19 @@ punch list for whoever takes this toward a real pilot:
   here, but didn't add span-based tracing, since there's no real
   collector in this sandbox to send spans to and a half-wired tracer
   would be worse than a documented gap.
+- **Bulk/CSV import for rent obligations and payments doesn't exist.**
+  Spec §78 names "Import rent obligations"/"Import payments" as
+  distinct from one-at-a-time entry — only the latter is built, on
+  both frontend and backend. A real gap, not a UI-only one; would need
+  a new ingestion importer + field dictionary, the same shape as the
+  Developments/Buildings/Floors importers already built.
+- **Lease events aren't monitored.** `Lease.break_date`/
+  `rent_review_date`/`lease_expiry` are real, captured fields (see the
+  Commercial audit entry above) but nothing computes or surfaces an
+  upcoming one — no Attention Engine rule alongside the real
+  `LEASE_ARREARS` one, no UI highlighting an approaching date. Needs
+  real design work (what counts as "upcoming," what the UI should do
+  about it), not a quick form fix.
 - **The Playwright E2E acceptance suite covers a real first slice, not
   the full 50 steps.** See the dedicated notes above for what exists
   now (auth, the Development->Building->Property golden thread, Ask
@@ -2666,15 +2732,20 @@ punch list for whoever takes this toward a real pilot:
   Investment Intelligence, construction evidence genuinely linked to
   the exact component it belongs to, Property 360 showing a real
   development/building lineage and the readiness record persisting
-  after handover, and Ask DataLume answering a real, grounded question
-  about a development) and what's still genuinely unwritten — spec
-  §76-78's remaining deeper Housing Operations and Commercial
-  scenarios beyond the slices above (generating a handover report is
+  after handover, Ask DataLume answering a real, grounded question
+  about a development, and — as of Post-Sprint-24 — a lease's break
+  date/rent review date/service charge being genuinely captured, a
+  payment method round-tripping, and an ambiguous payment being split
+  across two obligations rather than just resolved against one) and
+  what's still genuinely unwritten — most of spec §76-78's remaining
+  deeper Housing Operations scenarios (generating a handover report is
   not one of them — `HANDOVER_READINESS` is a real, backend-tested
   report type, see `test_reports.py`; it's simply never been given its
   own Playwright spec, the same "already built, needs a first UI test"
   gap the earlier entries in this list closed one by one, not a
-  missing feature).
+  missing feature), plus bulk import and lease-event monitoring on the
+  Commercial side (both genuinely missing, not UI gaps — see the
+  dedicated entries above).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

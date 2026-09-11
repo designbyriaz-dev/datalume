@@ -40,6 +40,12 @@ function ResolveAllocationRow({
   const [amount, setAmount] = useState((allocation.amount_allocated_pence / 100).toFixed(2));
   const [submitting, setSubmitting] = useState(false);
 
+  const [showSplit, setShowSplit] = useState(false);
+  const [splitObligationId, setSplitObligationId] = useState(leaseObligations[0]?.id ?? "");
+  const [splitAmount, setSplitAmount] = useState("");
+  const [splitSubmitting, setSplitSubmitting] = useState(false);
+  const [splitError, setSplitError] = useState<string | null>(null);
+
   async function onResolve() {
     if (!obligationId) return;
     setSubmitting(true);
@@ -51,6 +57,24 @@ function ResolveAllocationRow({
       onResolved();
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function onSplit() {
+    if (!splitObligationId || !splitAmount) return;
+    setSplitSubmitting(true);
+    setSplitError(null);
+    try {
+      await api.createManualAllocation(organisationId, allocation.payment_transaction_id, {
+        rent_obligation_id: splitObligationId,
+        amount_allocated_pence: Math.round(parseFloat(splitAmount) * 100),
+      });
+      setSplitAmount("");
+      onResolved();
+    } catch {
+      setSplitError("Couldn't add that split — it may exceed the amount actually received.");
+    } finally {
+      setSplitSubmitting(false);
     }
   }
 
@@ -75,6 +99,43 @@ function ResolveAllocationRow({
           <button style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={onResolve} disabled={submitting}>
             Resolve
           </button>
+          {!showSplit && (
+            <button
+              style={{ background: "none", border: "none", color: "var(--color-primary)", fontSize: 12, cursor: "pointer", padding: 0 }}
+              onClick={() => setShowSplit(true)}
+            >
+              Split across obligations
+            </button>
+          )}
+        </div>
+      )}
+      {showSplit && leaseObligations.length > 0 && (
+        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px dashed var(--border-subtle)" }}>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 4 }}>
+            Add part of this payment to a different obligation first — resolve whatever&rsquo;s left last, above.
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <select aria-label="Obligation to split into" style={{ ...inputStyle, fontSize: 12 }} value={splitObligationId} onChange={(e) => setSplitObligationId(e.target.value)}>
+              {leaseObligations.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.obligation_type} due {o.due_date} — outstanding {money(o.outstanding_pence)}
+                </option>
+              ))}
+            </select>
+            <input
+              aria-label="Amount to split"
+              style={{ ...inputStyle, fontSize: 12, maxWidth: 100 }}
+              type="number"
+              step="0.01"
+              value={splitAmount}
+              onChange={(e) => setSplitAmount(e.target.value)}
+              placeholder="0.00"
+            />
+            <button style={{ ...secondaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={onSplit} disabled={splitSubmitting}>
+              Add split
+            </button>
+          </div>
+          {splitError && <div style={{ color: "var(--color-critical)", fontSize: 12, marginTop: 4 }}>{splitError}</div>}
         </div>
       )}
     </li>
@@ -102,6 +163,7 @@ export default function RentAndPaymentsPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
   const [payerReference, setPayerReference] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [lastPaymentResult, setLastPaymentResult] = useState<string | null>(null);
@@ -204,10 +266,12 @@ export default function RentAndPaymentsPage() {
         amount_pence: Math.round(parseFloat(paymentAmount) * 100),
         received_date: paymentDate,
         payer_reference: payerReference.trim() || undefined,
+        method: paymentMethod.trim() || undefined,
       });
       setLastPaymentResult(`Recorded — reconciliation result: ${result.allocation.allocation_status.replace(/_/g, " ")}`);
       setPaymentAmount("");
       setPayerReference("");
+      setPaymentMethod("");
       if (selectedLeaseId) await refreshObligations(selectedLeaseId);
       await refreshPendingAllocations();
     } catch {
@@ -271,7 +335,7 @@ export default function RentAndPaymentsPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Record a payment</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1fr 1fr 1.3fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1fr 1fr 1.3fr 1fr auto", alignItems: "end" }}>
           <div>
             <label htmlFor="payment-lease" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Lease (optional)</label>
             <select id="payment-lease" style={inputStyle} value={paymentLeaseId} onChange={(e) => setPaymentLeaseId(e.target.value)}>
@@ -294,6 +358,10 @@ export default function RentAndPaymentsPage() {
           <div>
             <label htmlFor="payment-payer-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Payer reference</label>
             <input id="payment-payer-reference" style={inputStyle} value={payerReference} onChange={(e) => setPayerReference(e.target.value)} placeholder="e.g. INV-001" />
+          </div>
+          <div>
+            <label htmlFor="payment-method" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>Method (optional)</label>
+            <input id="payment-method" style={inputStyle} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} placeholder="e.g. BANK_TRANSFER" />
           </div>
           <button style={primaryBtn} onClick={onRecordPayment} disabled={paymentSubmitting}>
             {paymentSubmitting ? "Recording…" : "Record"}
