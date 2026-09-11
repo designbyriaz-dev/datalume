@@ -1,3 +1,6 @@
+import io
+
+
 def _signup_payload(**overrides):
     payload = {
         "name": "Jamie Ward",
@@ -238,3 +241,109 @@ def test_data_health_flags_missing_handover_information(client):
     check = next(c for c in body["checks"] if c["check_code"] == "MISSING_HANDOVER_INFORMATION")
     assert check["applicable_count"] == 2
     assert check["failing_count"] == 1
+
+
+def _add_component(client, org_id, boiler_type_id, prop_id, **overrides):
+    payload = {"component_type_id": boiler_type_id, "property_id": prop_id}
+    payload.update(overrides)
+    return client.post("/api/v1/components", headers={"X-Organisation-Id": org_id}, json=payload).json()
+
+
+def test_data_health_flags_missing_serial_number(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Serial Close")
+    _add_component(client, org_id, boiler_type_id, prop["id"], serial_number="WB-1")
+    unserialled = _add_component(client, org_id, boiler_type_id, prop["id"])
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_SERIAL_NUMBER"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == unserialled["id"]
+
+
+def test_data_health_flags_missing_installation_date(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Installed Close")
+    _add_component(client, org_id, boiler_type_id, prop["id"], installation_date="2024-01-15")
+    undated = _add_component(client, org_id, boiler_type_id, prop["id"])
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_INSTALLATION_DATE"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == undated["id"]
+
+
+def test_data_health_flags_invalid_installation_date(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Future Close")
+    _add_component(client, org_id, boiler_type_id, prop["id"], installation_date="2024-01-15")
+    future = _add_component(client, org_id, boiler_type_id, prop["id"], installation_date="2099-01-01")
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "INVALID_INSTALLATION_DATE"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == future["id"]
+
+    check = next(c for c in body["checks"] if c["check_code"] == "INVALID_INSTALLATION_DATE")
+    # Only the two dated components are applicable — the undated case is
+    # check_missing_installation_date's concern, not double-counted here.
+    assert check["applicable_count"] == 2
+    assert check["failing_count"] == 1
+
+
+def test_data_health_flags_conflicting_external_references(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    prop = _add_property(client, org_id, address="1 Conflicted Close")
+
+    client.post(
+        "/api/v1/external-references",
+        headers={"X-Organisation-Id": org_id},
+        json={"entity_type": "property", "entity_id": prop["id"], "reference_type": "UPRN", "value": "111"},
+    )
+    client.post(
+        "/api/v1/external-references",
+        headers={"X-Organisation-Id": org_id},
+        json={"entity_type": "property", "entity_id": prop["id"], "reference_type": "UPRN", "value": "222"},
+    )
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "CONFLICTING_EXTERNAL_REFERENCE"]
+    # Both conflicting rows are flagged, same "both sides" convention as
+    # check_duplicate_properties.
+    assert len(findings) == 2
+    assert all(f["affected_entity_id"] == prop["id"] for f in findings)
+
+
+def test_data_health_flags_duplicate_documents(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+
+    def upload(title):
+        return client.post(
+            "/api/v1/documents",
+            headers={"X-Organisation-Id": org_id},
+            data={"title": title, "document_type": "EVIDENCE"},
+            files={"file": ("evidence.pdf", io.BytesIO(b"identical content"), "application/pdf")},
+        ).json()
+
+    first = upload("Fire door certificate")
+    second = upload("Fire door certificate (copy)")
+    upload_other = client.post(
+        "/api/v1/documents",
+        headers={"X-Organisation-Id": org_id},
+        data={"title": "Unrelated certificate", "document_type": "EVIDENCE"},
+        files={"file": ("other.pdf", io.BytesIO(b"different content"), "application/pdf")},
+    ).json()
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "DUPLICATE_DOCUMENT"]
+    flagged_ids = {f["affected_entity_id"] for f in findings}
+    assert flagged_ids == {first["id"], second["id"]}
+    assert upload_other["id"] not in flagged_ids

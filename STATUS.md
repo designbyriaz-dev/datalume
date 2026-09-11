@@ -2339,6 +2339,59 @@ authorises with one and confirms the property really becomes
 `HANDED_OVER` and the handover history shows the record with its
 override reason. 10 Playwright specs total, all passing.
 
+**Post-Sprint-24 — five more Data Health checks: serial numbers,
+installation dates, conflicting references, duplicate documents:**
+closes as much of spec §42's remaining list as is real, not noisy, to
+implement right now — see `rules.py`'s own module docstring for the
+three items deliberately left out and why (missing component types is
+vacuous, missing evidence needs tracking this codebase doesn't have,
+missing warranties/specifications/building-relationships would be
+blanket rules with no per-type "should have one" flag to scope them,
+flagging components and properties that plausibly shouldn't have one).
+
+`MISSING_SERIAL_NUMBER` (LOW) and `MISSING_INSTALLATION_DATE` (MEDIUM)
+follow the exact established shape — the former identical to
+`check_missing_uprn`, since Component's serial number lives in
+`ExternalReference` for the same reason UPRN does (its own model
+docstring). `INVALID_INSTALLATION_DATE` (HIGH) catches a genuinely
+impossible value (installation dated in the future) on components that
+already have a date, the same "applies only to the present case, not
+double-counted with the missing check" pattern
+`check_stale_stock_condition_survey` established.
+
+`CONFLICTING_EXTERNAL_REFERENCE` (HIGH) surfaced a real, previously
+undetected data-integrity gap: `ExternalReference` has no uniqueness
+constraint on `(entity_type, entity_id, reference_type)` — two
+different UPRNs recorded for the same property is a state this schema
+has always allowed, silently masked in reads by
+`get_external_references_bulk`'s `dict.setdefault` quietly keeping
+only one of them. `DUPLICATE_DOCUMENT` (MEDIUM) catches identical
+content uploaded as two separate documents (different `lineage_id`)
+rather than a new revision of one, scoped to `ACTIVE` so genuine
+version history sharing a checksum isn't flagged.
+
+Writing `test_data_health_flags_missing_installation_date` surfaced a
+real pre-existing bug in `scripts/seed_demo.py`: it posted
+`"install_date"` instead of the schema's actual `installation_date`
+field when seeding Riverside Gardens' boiler components, so that value
+was silently dropped by every seeded boiler ever created — fixed
+alongside this sprint's own checks, the same way the Floor-import
+pipeline reliability fix surfaced from a stricter downstream
+constraint earlier this session. Confirmed the rest of
+`scripts/seed_demo.py` doesn't touch documents or external references
+at all, so the two new document/reference checks don't trip on demo
+data; `MISSING_SERIAL_NUMBER`/`MISSING_INSTALLATION_DATE` do fire
+against the demo org's components, honestly, since the demo data really
+doesn't set those fields — LOW/MEDIUM severity by design, not treated
+as a score-tanking problem.
+
+5 new backend tests (369 total), following the same real-HTTP-call
+pattern as every other Data Health test — `POST /external-references`
+twice with different values for the same reference to reproduce a
+genuine conflict, two document uploads with identical bytes to
+reproduce a genuine duplicate, no raw DB construction needed for any
+of the five.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2385,17 +2438,23 @@ punch list for whoever takes this toward a real pilot:
 Specifically flagged as gaps to close early, not deferred to "later":
 
 - **Data Health still doesn't cover all 15 items in spec §42.** Orphan
-  components, duplicate components, and missing handover information
-  closed post-Sprint-24 (see the dedicated entry above) — still open:
-  missing component types, missing serial numbers, missing installation
-  dates, missing warranties, missing specifications, missing evidence,
-  missing external references beyond UPRN, conflicting references,
-  invalid dates, duplicate documents, missing building relationships.
-  Several of these (missing evidence, conflicting references) need real
-  new tracking this codebase doesn't have yet — e.g. no evidence
-  document is currently linked to a specific compliance requirement in
-  a way "missing evidence" could query — not just a new function over
-  data that already exists the way the three closed ones were.
+  components, duplicate components, missing handover information,
+  missing serial numbers, missing/invalid installation dates,
+  conflicting external references, and duplicate documents are all
+  closed now (see the dedicated entries above) — still open: missing
+  warranties, missing specifications, missing evidence, missing
+  external references beyond UPRN, missing building relationships.
+  Missing component types is not really open — `Component.
+  component_type_id` is `NOT NULL` at the schema level, so no row can
+  ever fail that check; there's nothing to query. Missing evidence
+  needs real new tracking this codebase doesn't have yet (no document
+  is linked to a specific compliance requirement in a way "missing
+  evidence" could query). Missing warranties/specifications and missing
+  building relationships were deliberately left as gaps rather than
+  implemented as noisy blanket rules — see `rules.py`'s own module
+  docstring for why (no per-component-type "this should have one" flag
+  exists, and spec §19 explicitly says not to require every hierarchy
+  level).
 
 
 ## How to run this locally

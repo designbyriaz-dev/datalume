@@ -11,17 +11,23 @@ contributing check_code and its own pass ratio is returned, not just
 the headline number).
 
 Sprint 5 only had Property to check against; component and handover
-checks landed Post-Sprint-24, once those domain models existed. Spec
-§42's full 15-item list still has more unimplemented than done —
-missing component types/serial numbers/installation dates/warranties/
-specifications/evidence, conflicting references, invalid dates,
-duplicate documents — added the same way, one function each, as the
-next one is worth the real query logic it needs (several genuinely
-need new tracking this codebase doesn't have yet, e.g. no evidence
+checks landed Post-Sprint-24, once those domain models existed.
+Serial numbers/installation dates/conflicting references/invalid
+dates/duplicate documents closed Post-Sprint-24 too (see those
+functions' own docstrings). Still open, and deliberately not
+implemented as a blanket rule: missing component types (Component.
+component_type_id is NOT NULL at the schema level — no row can ever
+fail this, so there's nothing to query), missing warranties/
+specifications (no per-component-type flag exists for "this type is
+expected to have one" — a blanket check would flag components that
+plausibly shouldn't, e.g. structural elements), missing evidence (no
 document is currently linked to a specific compliance requirement in
-a way "missing evidence" could query).
+a way "missing evidence" could query), and external references beyond
+UPRN (no other reference type has a real "every X should have this"
+business rule the way UPRN does).
 """
 
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
@@ -30,6 +36,8 @@ from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
 from app.development.models import Component, HandoverRecord, Property, PropertyStatus
+from app.documents.models import Document, DocumentStatus
+from app.identifiers.models import ExternalReference
 from app.identifiers.service import get_external_references_bulk
 from app.operations.stock_condition.models import StockConditionSurvey
 
@@ -281,6 +289,133 @@ def check_missing_handover_information(db: Session, organisation_id) -> CheckRes
     return CheckResult("MISSING_HANDOVER_INFORMATION", len(properties), len(findings), findings)
 
 
+def check_missing_serial_number(db: Session, organisation_id) -> CheckResult:
+    """Component.serial_number lives in ExternalReference, not on
+    Component itself (see that model's own docstring for why) — same
+    UPRN-shaped check as check_missing_uprn, same LOW severity for the
+    same reason: a component genuinely might not carry one (still being
+    commissioned, or a non-serialised item like a fire door), not
+    necessarily a data problem."""
+    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
+    refs_by_id = get_external_references_bulk(db, organisation_id, "component", [c.id for c in components])
+    findings = [
+        Finding(
+            "MISSING_SERIAL_NUMBER",
+            FindingSeverity.LOW,
+            "component",
+            str(c.id),
+            f"{c.component_reference} has no manufacturer serial number recorded.",
+        )
+        for c in components
+        if not refs_by_id.get(str(c.id), {}).get("MANUFACTURER_SERIAL_NUMBER")
+    ]
+    return CheckResult("MISSING_SERIAL_NUMBER", len(components), len(findings), findings)
+
+
+def check_missing_installation_date(db: Session, organisation_id) -> CheckResult:
+    """installation_date feeds indicative_replacement_date (Component's
+    own docstring) — without it, spec §26's Component Lifecycle
+    Intelligence has nothing to compute a replacement date from."""
+    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
+    findings = [
+        Finding(
+            "MISSING_INSTALLATION_DATE",
+            FindingSeverity.MEDIUM,
+            "component",
+            str(c.id),
+            f"{c.component_reference} has no installation date recorded.",
+        )
+        for c in components
+        if c.installation_date is None
+    ]
+    return CheckResult("MISSING_INSTALLATION_DATE", len(components), len(findings), findings)
+
+
+def check_invalid_installation_date(db: Session, organisation_id) -> CheckResult:
+    """Applies only to components that HAVE an installation_date —
+    check_missing_installation_date's concern is the absent case, this
+    one's is a present-but-impossible value, so the same gap isn't
+    double-counted as failing two checks, same reasoning as
+    check_stale_stock_condition_survey above."""
+    components = (
+        db.query(Component)
+        .filter(Component.organisation_id == organisation_id, Component.installation_date.isnot(None))
+        .all()
+    )
+    findings = [
+        Finding(
+            "INVALID_INSTALLATION_DATE",
+            FindingSeverity.HIGH,
+            "component",
+            str(c.id),
+            f"{c.component_reference}'s installation date ({c.installation_date}) is in the future.",
+        )
+        for c in components
+        if c.installation_date > date.today()
+    ]
+    return CheckResult("INVALID_INSTALLATION_DATE", len(components), len(findings), findings)
+
+
+def check_conflicting_external_references(db: Session, organisation_id) -> CheckResult:
+    """ExternalReference has no uniqueness constraint on (entity_type,
+    entity_id, reference_type) — a real gap, not a hypothetical one: two
+    different UPRNs recorded for the same property (a correction that
+    added a row instead of updating one, or two separate imports) is
+    exactly the kind of silent problem get_external_references_bulk's
+    dict.setdefault would otherwise mask, by quietly keeping only
+    whichever row it happened to see last."""
+    references = db.query(ExternalReference).filter(ExternalReference.organisation_id == organisation_id).all()
+    values_by_key: dict[tuple[str, str, str], set[str]] = {}
+    for ref in references:
+        key = (ref.entity_type, ref.entity_id, ref.reference_type.value)
+        values_by_key.setdefault(key, set()).add(ref.value)
+
+    conflicting_keys = {key for key, values in values_by_key.items() if len(values) > 1}
+    findings = [
+        Finding(
+            "CONFLICTING_EXTERNAL_REFERENCE",
+            FindingSeverity.HIGH,
+            ref.entity_type,
+            ref.entity_id,
+            f"{ref.entity_type} {ref.entity_id} has {len(values_by_key[(ref.entity_type, ref.entity_id, ref.reference_type.value)])} "
+            f"different {ref.reference_type.value} values recorded.",
+        )
+        for ref in references
+        if (ref.entity_type, ref.entity_id, ref.reference_type.value) in conflicting_keys
+    ]
+    return CheckResult("CONFLICTING_EXTERNAL_REFERENCE", len(values_by_key), len(conflicting_keys), findings)
+
+
+def check_duplicate_documents(db: Session, organisation_id) -> CheckResult:
+    """Same content (checksum) uploaded as two separate documents
+    (different lineage_id) rather than as a new revision of one — scoped
+    to ACTIVE only, since a SUPERSEDED/ARCHIVED row sharing a checksum
+    with its own later revision is expected version history, not a
+    duplicate."""
+    documents = (
+        db.query(Document)
+        .filter(Document.organisation_id == organisation_id, Document.status == DocumentStatus.ACTIVE)
+        .all()
+    )
+    lineages_by_checksum: dict[str, set[uuid.UUID]] = {}
+    for d in documents:
+        lineages_by_checksum.setdefault(d.checksum, set()).add(d.lineage_id)
+
+    findings = [
+        Finding(
+            "DUPLICATE_DOCUMENT",
+            FindingSeverity.MEDIUM,
+            "document",
+            str(d.id),
+            f"{d.document_reference} has the same content as {len(lineages_by_checksum[d.checksum]) - 1} "
+            "other document(s) uploaded as separate files rather than a new revision.",
+        )
+        for d in documents
+        if len(lineages_by_checksum[d.checksum]) > 1
+    ]
+    return CheckResult("DUPLICATE_DOCUMENT", len(documents), len(findings), findings)
+
+
 RULES = [
     check_missing_property_type,
     check_missing_uprn,
@@ -291,6 +426,11 @@ RULES = [
     check_orphan_components,
     check_duplicate_components,
     check_missing_handover_information,
+    check_missing_serial_number,
+    check_missing_installation_date,
+    check_invalid_installation_date,
+    check_conflicting_external_references,
+    check_duplicate_documents,
 ]
 
 

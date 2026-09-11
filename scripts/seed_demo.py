@@ -135,7 +135,7 @@ def seed_housing_domain_data(client: TestClient, org_id: str) -> None:
     door_type_id = next(t["id"] for t in component_types if t["code"] == "EXTERNAL_DOORS")
 
     boiler_components = [
-        client.post("/api/v1/components", headers=h, json={"component_type_id": boiler_type_id, "property_id": p["id"], "install_date": "2023-06-01"}).json()
+        client.post("/api/v1/components", headers=h, json={"component_type_id": boiler_type_id, "property_id": p["id"], "installation_date": "2023-06-01"}).json()
         for p in riverside_properties
     ]
     client.post("/api/v1/components", headers=h, json={"component_type_id": door_type_id, "property_id": elm_properties[0]["id"]})
