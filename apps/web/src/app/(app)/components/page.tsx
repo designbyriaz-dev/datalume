@@ -23,6 +23,8 @@ export default function ComponentsPage() {
   const [manufacturer, setManufacturer] = useState("");
   const [model, setModel] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
+  const [installationDate, setInstallationDate] = useState("");
+  const [expectedLifeYears, setExpectedLifeYears] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -68,10 +70,14 @@ export default function ComponentsPage() {
         manufacturer: manufacturer.trim() || undefined,
         model: model.trim() || undefined,
         serial_number: serialNumber.trim() || undefined,
+        installation_date: installationDate || undefined,
+        expected_life_years: expectedLifeYears ? Number(expectedLifeYears) : undefined,
       });
       setManufacturer("");
       setModel("");
       setSerialNumber("");
+      setInstallationDate("");
+      setExpectedLifeYears("");
       await refresh();
     } catch {
       setFormError("Couldn't add that component.");
@@ -106,7 +112,7 @@ export default function ComponentsPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a component</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr 1fr 1fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.3fr 1fr 1fr 1fr", marginBottom: 12 }}>
           <div>
             <label htmlFor="component-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Type
@@ -136,6 +142,33 @@ export default function ComponentsPage() {
               Serial number
             </label>
             <input id="component-serial" style={inputStyle} value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="component-installation-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Installation date
+            </label>
+            <input
+              id="component-installation-date"
+              style={inputStyle}
+              type="date"
+              value={installationDate}
+              onChange={(e) => setInstallationDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="component-expected-life" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Expected life (years)
+            </label>
+            <input
+              id="component-expected-life"
+              style={inputStyle}
+              type="number"
+              min="1"
+              value={expectedLifeYears}
+              onChange={(e) => setExpectedLifeYears(e.target.value)}
+            />
           </div>
           <button style={primaryBtn} onClick={onAdd} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}

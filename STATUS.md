@@ -2421,6 +2421,29 @@ row itself is already covered at the data level by
 side of the same guarantee, not a duplicate of it. 12 Playwright specs
 total, all passing.
 
+**Post-Sprint-24 — closed a real UI gap blocking Planned Investment
+Intelligence (spec §76 step 47), not just added a test:**
+`planned_investment.py`'s weighted, fully-explainable scoring engine
+(architecture 03 §6) was completely built and already wired into
+`ComponentDetailClient.tsx` — but `components/page.tsx`'s "Add a
+component" form never exposed `installation_date`/`expected_life_years`,
+even though the API always accepted both. AGE_RATIO (the largest single
+factor, weight 0.35) was therefore permanently `applicable=False` for
+every component any user could actually create through the UI — the
+backend half of this feature was done, the frontend half wasn't,
+exactly the "definition of done" gap CLAUDE.md's own build instructions
+warn against. Added both fields to the form (a plain date input and a
+number input, following every other form's own shape) rather than
+writing a test that could only ever exercise the permanent no-data
+path. New Playwright spec creates a component well past its expected
+life and confirms the priority widget shows the real computed AGE_RATIO
+detail text (actual years/percentage, not a canned string) plus the
+other three always-applicable factors' real zero-state detail
+(REPAIR_FREQUENCY/FAILURE_PATTERN/COMPLIANCE_LINKED) — CONDITION_SIGNAL
+stays the one factor still gated on data only the compliance domain's
+Inspection flow can supply, left as-is rather than forced. 13 Playwright
+specs total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2461,14 +2484,15 @@ punch list for whoever takes this toward a real pilot:
   MAPPED -> IMPORTING -> COMPLETED, handover authorisation exercising
   the real below-threshold rejection and override-reason path, a
   defect's real server-validated status transition plus a warranty
-  being added and voided, and — as of Post-Sprint-24 — a change control
-  request being approved and implemented against a specification) and
-  what's still genuinely unwritten — most of spec §76-78's deeper
-  Housing Operations and Commercial scenarios beyond the slices above
-  (construction evidence linked to a component, Property 360's
-  new-build history, component lifecycle/planned-replacement
-  intelligence, Ask DataLume grounded against a development, generating
-  a handover report).
+  being added and voided, a change control request being approved and
+  implemented against a specification, and — as of Post-Sprint-24 — a
+  component's real age driving a non-trivial Planned Investment
+  Intelligence score) and what's still genuinely unwritten — most of
+  spec §76-78's deeper Housing Operations and Commercial scenarios
+  beyond the slices above (construction evidence linked to a component,
+  Property 360's new-build history, CONDITION_SIGNAL's Inspection-driven
+  half of Planned Investment Intelligence, Ask DataLume grounded against
+  a development, generating a handover report).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
