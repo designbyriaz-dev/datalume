@@ -2108,6 +2108,68 @@ address value that would need CSV-quoting but needs nothing special in
 a spreadsheet cell, and the same typed-storeys conversion confirmed
 over the real HTTP path.
 
+**Post-Sprint-24 — a manual "Run scan now" for the Attention Engine:**
+closes a real UX gap this document flagged under the E2E section — the
+Cross-Domain Attention Engine only ever ran via a nightly worker job,
+so a pilot org had no way to see it work without waiting for actual
+nightfall. The backend endpoint already existed
+(`POST /api/v1/attention/scan`, `reports.board`-gated) and even had a
+frontend client method (`triggerAttentionScan`) — both sat completely
+unused, with no button anywhere calling either. This closes that
+purely on the frontend: a "Run scan now" button next to Home's "Needs
+attention" section, shown only to OWNER/ADMIN/EXECUTIVE (checked
+client-side against `/auth/me`'s membership role, matching the same
+roles the backend's wildcard/`reports.board` grant already allows —
+the button doesn't invite a click that can only ever 403), showing a
+plain-English result ("3 new, 1 updated" / "No new signals — everything
+checked out") and refreshing the signal list afterward.
+
+While in this code, fixed a real, narrow concurrency gap the manual
+trigger makes far more reachable than it was: previously only one
+nightly cron ever called `upsert_signal`, so its check-then-write
+(SELECT for a live signal, then INSERT if none exists) was safe in
+practice even without a lock. A user able to click "Run scan now" any
+time — including while the nightly job happens to be running, or via
+a double-click — could race that same check-then-write and create two
+OPEN rows for the same (rule, entity). Fixed the same way the
+Reference Engine's analogous bootstrap race was closed earlier this
+sprint: a partial unique index (live OPEN/ACKNOWLEDGED rows only —
+unlimited RESOLVED/DISMISSED history for the same (org, rule, entity)
+is legitimate) now declared directly on `AttentionSignal.__table_args__`
+(migration `0024`, and — unlike `AttentionRule`'s pre-existing
+`uq_attention_rule_org_code`, which turned out to only exist in the
+migration and was never enforced in SQLite tests, a separate,
+un-investigated gap noted here rather than silently left for someone
+to trip over later) actually enforced in both dialects. `upsert_signal`
+recovers from the resulting `IntegrityError` by re-reading the
+winner's row rather than surfacing the error, deterministically tested
+the same way as the Reference Engine fix (SQLite can't reproduce true
+Postgres-style concurrency, so the race is simulated: the first lookup
+is forced to miss a row a "concurrent" scan already committed).
+
+Also fixed, unrelated but found the same way the Stripe key exposed
+the conftest.py gap below: `apps/api/.env` now holding a real Stripe
+key meant `pytest` silently picked it up too (pydantic-settings reads
+`.env` relative to cwd, and `get_settings()` is `@lru_cache`'d and
+first triggered by module-level `settings = get_settings()` bindings
+at import time, before any fixture runs) — flipping
+`test_owner_checkout_fails_with_not_configured_not_forbidden` from
+`NullBillingProvider` behaviour to the real provider and failing it.
+`conftest.py` now forces `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`
+to empty strings before `app.main` is ever imported, so tests stay
+hermetic regardless of whatever a developer's local `.env` holds for
+manual verification.
+
+1 new backend test (357 total) — the race-recovery test; the existing
+attention suite's 14 tests all still pass untouched by the refactor.
+`npm run build`/`lint` both clean. Verified live end to end:
+signed up, saw "Run scan now" on Home with "Nothing needs attention
+right now", clicked it, and got back "No new signals — everything
+checked out" with no error — the same result a passing backend test
+suite already proves the scan logic itself produces correctly for a
+portfolio with actual repeat-failure/compliance/arrears/warranty
+patterns in it.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2144,11 +2206,12 @@ punch list for whoever takes this toward a real pilot:
   DataLume's ungrounded-question guarantee, a compliance requirement
   against a seeded domain, commercial arrears, and worker-driven
   report generation) and what's still genuinely unwritten — handover
-  authorisation, defects/warranties, repeat-repair detection, the
-  attention engine (there's no scan-trigger button in the UI at all,
-  only the nightly worker job — not currently E2E-testable without
-  either adding one or a much longer-running test), and most of spec
-  §76-78's deeper Housing Operations and Commercial scenarios.
+  authorisation, defects/warranties, repeat-repair detection, and most
+  of spec §76-78's deeper Housing Operations and Commercial scenarios.
+  The attention engine now has a manual trigger (see the Post-Sprint-24
+  entry below) so it's no longer blocked on "only the nightly worker
+  job runs this," but a dedicated Playwright spec for it still hasn't
+  been written.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

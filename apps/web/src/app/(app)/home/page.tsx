@@ -5,7 +5,7 @@ import Link from "next/link";
 import { EmptyState } from "@/components/EmptyState";
 import { KpiStatCard } from "@/components/KpiStatCard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { api, type AttentionSignalOut, type PortfolioSummary } from "@/lib/api";
+import { api, ApiError, type AttentionSignalOut, type PortfolioSummary } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
@@ -14,6 +14,12 @@ const ENTITY_LINK_PREFIX: Record<string, string> = {
   component: "/components",
   building: "/buildings",
 };
+
+// POST /api/v1/attention/scan is gated to reports.board (app/attention/
+// router.py) — granted explicitly to EXECUTIVE, and to OWNER/ADMIN via
+// their wildcard permission set (app/auth/rbac.py). Checked client-side
+// too so the button doesn't invite a click that can only ever 403.
+const CAN_RUN_SCAN_ROLES = new Set(["OWNER", "ADMIN", "EXECUTIVE"]);
 
 function severityVariant(severity: string) {
   if (severity === "CRITICAL" || severity === "HIGH") return "critical" as const;
@@ -24,6 +30,9 @@ function severityVariant(severity: string) {
 export default function HomePage() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
   const [signals, setSignals] = useState<AttentionSignalOut[] | null>(null);
+  const [canRunScan, setCanRunScan] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
 
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
@@ -51,9 +60,36 @@ export default function HomePage() {
         // KPIs are a nice-to-have here, not the page's core function.
       }
       await refreshSignals();
+      try {
+        const me = await api.me();
+        const membership = me.memberships.find((m) => m.organisation_id === id);
+        setCanRunScan(!!membership && CAN_RUN_SCAN_ROLES.has(membership.role_code));
+      } catch {
+        // Leave the scan button hidden if we can't confirm the role.
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function onRunScan() {
+    const id = orgId();
+    if (!id) return;
+    setScanning(true);
+    setScanMessage(null);
+    try {
+      const result = await api.triggerAttentionScan(id);
+      setScanMessage(
+        result.signals_created > 0 || result.signals_refreshed > 0
+          ? `${result.signals_created} new, ${result.signals_refreshed} updated.`
+          : "No new signals — everything checked out.",
+      );
+      await refreshSignals();
+    } catch (err) {
+      setScanMessage(err instanceof ApiError ? err.message : "Something went wrong running the scan.");
+    } finally {
+      setScanning(false);
+    }
+  }
 
   async function onSignalAction(signalId: string, nextStatus: string) {
     const id = orgId();
@@ -71,11 +107,39 @@ export default function HomePage() {
         Here&rsquo;s what&rsquo;s happening across your portfolio.
       </p>
 
-      {signals && signals.length > 0 && (
+      {((signals && signals.length > 0) || canRunScan) && (
         <div style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Needs attention ({signals.length})</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>
+              Needs attention {signals && signals.length > 0 ? `(${signals.length})` : ""}
+            </h2>
+            {canRunScan && (
+              <button
+                onClick={onRunScan}
+                disabled={scanning}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border-subtle)",
+                  background: "var(--bg-app)",
+                  color: "var(--text-primary)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: scanning ? "default" : "pointer",
+                }}
+              >
+                {scanning ? "Scanning…" : "Run scan now"}
+              </button>
+            )}
+          </div>
+          {scanMessage && (
+            <p style={{ color: "var(--text-secondary)", fontSize: 13, marginTop: -4, marginBottom: 12 }}>{scanMessage}</p>
+          )}
+          {signals && signals.length === 0 && (
+            <p style={{ color: "var(--text-secondary)", fontSize: 13 }}>Nothing needs attention right now.</p>
+          )}
           <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {signals.map((s) => {
+            {signals?.map((s) => {
               const linkPrefix = ENTITY_LINK_PREFIX[s.entity_type];
               return (
                 <li key={s.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>

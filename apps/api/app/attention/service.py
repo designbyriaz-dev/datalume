@@ -5,6 +5,7 @@ row) and rules.py for the actual rule-composition functions."""
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.attention.models import AttentionRule, AttentionSeverity, AttentionSignal, SignalStatus
@@ -114,6 +115,22 @@ def update_signal_status(db: Session, organisation_id: uuid.UUID, signal_id: uui
     return signal
 
 
+def _select_live_signal(
+    db: Session, organisation_id: uuid.UUID, rule_id: uuid.UUID, entity_type: str, entity_id: str
+) -> AttentionSignal | None:
+    return (
+        db.query(AttentionSignal)
+        .filter(
+            AttentionSignal.organisation_id == organisation_id,
+            AttentionSignal.rule_id == rule_id,
+            AttentionSignal.entity_type == entity_type,
+            AttentionSignal.entity_id == entity_id,
+            AttentionSignal.status.in_((SignalStatus.OPEN, SignalStatus.ACKNOWLEDGED)),
+        )
+        .first()
+    )
+
+
 def upsert_signal(
     db: Session,
     organisation_id: uuid.UUID,
@@ -126,17 +143,7 @@ def upsert_signal(
 ) -> tuple[AttentionSignal, bool]:
     """Returns (signal, created). See AttentionSignal's own docstring
     for the upsert semantics."""
-    still_open = (
-        db.query(AttentionSignal)
-        .filter(
-            AttentionSignal.organisation_id == organisation_id,
-            AttentionSignal.rule_id == rule.id,
-            AttentionSignal.entity_type == entity_type,
-            AttentionSignal.entity_id == entity_id,
-            AttentionSignal.status.in_((SignalStatus.OPEN, SignalStatus.ACKNOWLEDGED)),
-        )
-        .first()
-    )
+    still_open = _select_live_signal(db, organisation_id, rule.id, entity_type, entity_id)
     if still_open is not None:
         still_open.explanation = explanation
         still_open.severity = severity
@@ -163,15 +170,28 @@ def upsert_signal(
     if dismissed is not None:
         return dismissed, False
 
-    signal = AttentionSignal(
-        organisation_id=organisation_id,
-        rule_id=rule.id,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        severity=severity,
-        explanation=explanation,
-        status=SignalStatus.OPEN,
-    )
-    db.add(signal)
-    db.flush()
+    try:
+        with db.begin_nested():
+            signal = AttentionSignal(
+                organisation_id=organisation_id,
+                rule_id=rule.id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                severity=severity,
+                explanation=explanation,
+                status=SignalStatus.OPEN,
+            )
+            db.add(signal)
+            db.flush()
+    except IntegrityError:
+        # Another scan (the nightly job, or a second concurrent manual
+        # trigger) won the race and already inserted the live row for
+        # this exact (rule, entity) between our SELECT above and this
+        # insert — the partial unique index in AttentionSignal.
+        # __table_args__ is what actually catches this. Recover by
+        # reading the winner's row rather than surfacing the error.
+        winner = _select_live_signal(db, organisation_id, rule.id, entity_type, entity_id)
+        if winner is None:
+            raise
+        return winner, False
     return signal, True

@@ -38,7 +38,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, JSON, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -91,6 +91,26 @@ class AttentionSignal(Base):
     occurrence, not a duplicate of the resolved one."""
 
     __tablename__ = "attention_signals"
+    __table_args__ = (
+        # At most one *live* signal per (org, rule, entity) at a time —
+        # a scan can never produce two OPEN/ACKNOWLEDGED rows for the
+        # same thing, even if it races another scan (the nightly job,
+        # or a concurrent manual trigger — see app/attention/service.py
+        # upsert_signal's IntegrityError recovery). Partial, not a plain
+        # unique constraint: unlimited RESOLVED/DISMISSED history rows
+        # for the same (org, rule, entity) are legitimate — only the
+        # "currently live" state must be unique.
+        Index(
+            "uq_attention_signal_live_per_entity",
+            "organisation_id",
+            "rule_id",
+            "entity_type",
+            "entity_id",
+            unique=True,
+            sqlite_where=text("status IN ('OPEN', 'ACKNOWLEDGED')"),
+            postgresql_where=text("status IN ('OPEN', 'ACKNOWLEDGED')"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

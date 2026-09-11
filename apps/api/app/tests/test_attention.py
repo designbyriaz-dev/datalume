@@ -412,3 +412,86 @@ def test_worker_multi_org_scan_stays_isolated_per_organisation(client):
     client.post("/api/v1/auth/login", json={"email": "jamie@northstar-housing.example", "password": "correct-horse-battery"})
     signals_a = _signals(client, org_a, entity_type="property")
     assert len(signals_a) == 1
+
+
+def test_upsert_signal_recovers_from_a_concurrent_scan_race(client, monkeypatch):
+    """A user-triggered manual scan (app/attention/router.py's
+    POST /scan) can now race the nightly job, or a second manual
+    trigger, for the same organisation — upsert_signal's check-then-
+    write must not create two live rows for the same (rule, entity).
+    Genuine threaded concurrency against SQLite would hit a different
+    failure mode than Postgres (whole-database lock vs. this fix's
+    partial-unique-index + row-lock model), so the race is
+    deterministically simulated: the first _select_live_signal call is
+    forced to miss a row a "concurrent" transaction already committed,
+    exactly what a real SELECT-before-the-other-transaction's-commit
+    would see under Postgres."""
+    import app.attention.service as attention_service
+    import app.core.db as db_module
+    from app.attention.models import AttentionSeverity, AttentionSignal, SignalStatus
+
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = uuid.UUID(signup["organisation_id"])
+
+    db = db_module.SessionLocal()
+    try:
+        rule = attention_service.get_or_create_rule(
+            db,
+            org_id,
+            "REPEAT_FAILURE",
+            name="Repeat failure",
+            domain_scope="operations",
+            default_definition={},
+            default_severity=AttentionSeverity.MEDIUM,
+        )
+        db.commit()
+
+        winning_signal = AttentionSignal(
+            organisation_id=org_id,
+            rule_id=rule.id,
+            entity_type="property",
+            entity_id="prop-1",
+            severity=AttentionSeverity.MEDIUM,
+            explanation={"what": "first"},
+            status=SignalStatus.OPEN,
+        )
+        db.add(winning_signal)
+        db.commit()
+
+        real_select = attention_service._select_live_signal
+        calls = {"n": 0}
+
+        def flaky_select(db_arg, organisation_id_arg, rule_id_arg, entity_type_arg, entity_id_arg):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return None  # simulate missing the row the "other" scan just committed
+            return real_select(db_arg, organisation_id_arg, rule_id_arg, entity_type_arg, entity_id_arg)
+
+        monkeypatch.setattr(attention_service, "_select_live_signal", flaky_select)
+
+        signal, created = attention_service.upsert_signal(
+            db,
+            org_id,
+            rule,
+            entity_type="property",
+            entity_id="prop-1",
+            severity=AttentionSeverity.HIGH,
+            explanation={"what": "second"},
+        )
+        assert created is False
+        assert signal.id == winning_signal.id  # recovered the real row, didn't raise or duplicate
+
+        db.commit()
+        live_rows = (
+            db.query(AttentionSignal)
+            .filter(
+                AttentionSignal.organisation_id == org_id,
+                AttentionSignal.entity_type == "property",
+                AttentionSignal.entity_id == "prop-1",
+                AttentionSignal.status.in_((SignalStatus.OPEN, SignalStatus.ACKNOWLEDGED)),
+            )
+            .all()
+        )
+        assert len(live_rows) == 1
+    finally:
+        db.close()
