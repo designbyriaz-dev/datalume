@@ -20,6 +20,8 @@ export default function BuildingsPage() {
 
   const [name, setName] = useState("");
   const [developmentId, setDevelopmentId] = useState("");
+  const [buildingControlReference, setBuildingControlReference] = useState("");
+  const [bsrReference, setBsrReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -59,9 +61,16 @@ export default function BuildingsPage() {
     setSubmitting(true);
     setFormError(null);
     try {
-      await api.createBuilding(id, { name: name.trim(), development_id: developmentId || undefined });
+      await api.createBuilding(id, {
+        name: name.trim(),
+        development_id: developmentId || undefined,
+        building_control_reference: buildingControlReference.trim() || undefined,
+        bsr_reference: bsrReference.trim() || undefined,
+      });
       setName("");
       setDevelopmentId("");
+      setBuildingControlReference("");
+      setBsrReference("");
       await refresh();
     } catch {
       setFormError("Couldn't add that building.");
@@ -94,7 +103,7 @@ export default function BuildingsPage() {
         }}
       >
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a building</h2>
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr auto", alignItems: "end" }}>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr", marginBottom: 12 }}>
           <div>
             <label htmlFor="building-name" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
               Name
@@ -113,6 +122,32 @@ export default function BuildingsPage() {
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "2fr 2fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="building-control-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Building Control reference (optional)
+            </label>
+            <input
+              id="building-control-reference"
+              style={inputStyle}
+              value={buildingControlReference}
+              onChange={(e) => setBuildingControlReference(e.target.value)}
+              placeholder="e.g. BC/2026/0042"
+            />
+          </div>
+          <div>
+            <label htmlFor="building-bsr-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              BSR reference (optional)
+            </label>
+            <input
+              id="building-bsr-reference"
+              style={inputStyle}
+              value={bsrReference}
+              onChange={(e) => setBsrReference(e.target.value)}
+              placeholder="Where applicable"
+            />
           </div>
           <button style={primaryBtn} onClick={onAdd} disabled={submitting}>
             {submitting ? "Adding…" : "Add"}

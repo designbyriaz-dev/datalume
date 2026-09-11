@@ -1584,7 +1584,14 @@ export const api = {
     request<BuildingOut>(`/api/v1/buildings/${buildingId}`, { organisationId }),
   createBuilding: (
     organisationId: string,
-    payload: { name: string; development_id?: string; building_type?: string; storeys?: number },
+    payload: {
+      name: string;
+      development_id?: string;
+      building_type?: string;
+      storeys?: number;
+      building_control_reference?: string;
+      bsr_reference?: string;
+    },
   ) =>
     request<BuildingOut>("/api/v1/buildings", {
       method: "POST",

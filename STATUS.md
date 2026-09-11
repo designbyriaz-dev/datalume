@@ -2538,6 +2538,39 @@ true, so the earlier `planned-investment.spec.ts` never actually
 exercised this factor's positive path) to the real inspection result
 and date. 17 Playwright specs total, all passing.
 
+**Post-Sprint-24 — Building Control and BSR references (spec §76 steps
+7-8), a genuine scoring bug, not just a missing form field:**
+`Building.building_control_reference`/`bsr_reference` have always been
+real `ExternalReference` rows `create_building` accepts, and
+`compute_handover_readiness`'s own `check_building_control_reference`
+(weight 0.10) has always read them back — but no page ever exposed a
+way to enter either one. That meant this check could never pass for
+any building any real user ever created through the product: Handover
+Readiness was permanently capped below 100% by a UI gap, not by
+genuinely missing data, for every development with at least one
+building. Added both fields to the "Add a building" form
+(`buildings/page.tsx`, wired through `api.ts`'s `createBuilding`) and
+display on `BuildingDetailClient.tsx`; also surfaced
+`Development.planning_reference` on `DevelopmentDetailClient.tsx` —
+already captured at creation (`developments/page.tsx`) since the CSV
+importers use it, but never actually shown anywhere before.
+
+New Playwright spec proves the fix both ways in one test, not just
+that the field exists: a development whose only building has no
+reference still shows the real "buildings missing a Building Control
+reference" line in its readiness Missing list; a second development
+whose building supplies both references at creation shows neither the
+missing line nor a fake pass — the check output changes because the
+underlying data genuinely changed. 18 Playwright specs total, all
+passing.
+
+Development-level `building_control_reference`/`bsr_reference` (as
+opposed to the building-level pair this fixes, which is what actually
+feeds Handover Readiness) remain uncaptured by the UI — left as a
+smaller, honestly-documented residual gap rather than folded into this
+fix, since nothing currently reads them at the development level the
+way the readiness check reads the building-level pair.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is

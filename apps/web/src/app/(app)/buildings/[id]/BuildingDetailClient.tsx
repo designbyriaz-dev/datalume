@@ -371,6 +371,8 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
       </div>
       <p style={{ color: "var(--text-secondary)", marginBottom: 24, fontFamily: "monospace", fontSize: 13 }}>
         {building.building_reference}
+        {building.building_control_reference && <> · Building Control: {building.building_control_reference}</>}
+        {building.bsr_reference && <> · BSR: {building.bsr_reference}</>}
       </p>
 
       <div

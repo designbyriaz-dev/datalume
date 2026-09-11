@@ -143,6 +143,7 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
       </div>
       <p style={{ color: "var(--text-secondary)", marginBottom: 24, fontFamily: "monospace", fontSize: 13 }}>
         {development.development_reference}
+        {development.planning_reference && <> · Planning: {development.planning_reference}</>}
       </p>
 
       {hierarchy.unbuilt_property_count > 0 && (
