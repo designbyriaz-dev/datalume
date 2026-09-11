@@ -1822,34 +1822,48 @@ buttons degrade the same way against `NullBillingProvider`: a 503
 becomes an inline "isn't wired up yet, contact us" message, not a
 broken redirect. `npm run build`/`lint` both clean.
 
-**Update — `create_checkout_session` verified against a real Stripe
-test account (2026-09-11):** the user supplied a real Stripe test-mode
-`STRIPE_SECRET_KEY` (`apps/api/.env`, gitignored, not committed).
-`get_billing_provider()` confirmed to select `StripeBillingProvider`
-over the null one, and a real `POST /api/v1/subscriptions/checkout`
-call against a running server returned a genuine
-`checkout.stripe.com` URL — fetched back from Stripe's own API and
-confirmed: `client_reference_id` correctly set to the organisation's
-UUID, `mode: subscription`, `£99.00 GBP` line item priced exactly
-right for the Starter plan, correct `success_url`. This is real,
-network-verified confirmation of the one call this document has
-flagged as unconfirmed since Sprint 2 — not a mock, not a synthetic
-signed payload.
+**Update — the full Stripe round-trip verified for real (2026-09-11):**
+the user supplied a real Stripe test-mode `STRIPE_SECRET_KEY`
+(`apps/api/.env`, gitignored, never committed), then installed
+Homebrew and the Stripe CLI so the loop could close completely rather
+than stopping at "checkout session creation works":
 
-**Still not verified**: the full round-trip — actually completing a
-Checkout (Stripe's hosted UI, a test card) and having Stripe's own
-webhook delivery update `Subscription` in this DB — needs either the
-Stripe CLI (`stripe listen`, not installed on this machine and
-installing it means bringing in Homebrew first, a bigger system change
-than made unilaterally) or a webhook endpoint configured in the Stripe
-Dashboard pointing at a publicly reachable URL (this machine has
-neither ngrok nor a deployed environment). `create_billing_portal_session`
-is similarly unverified — it needs a real Stripe Customer, which only
-gets created once a checkout actually completes. The webhook
-*state machine* itself is still real and tested (offline-signed
-synthetic events, `test_billing.py`) — what remains unconfirmed is
-Stripe's own delivery mechanism actually reaching this codebase, not
-the code that would handle it.
+1. `stripe listen --forward-to localhost:8000/api/v1/subscriptions/webhook`
+   run against the real account, giving a real `whsec_...` signing
+   secret (also added to `.env`).
+2. A real checkout session created via the API, opened in an actual
+   browser, and paid with Stripe's standard test card
+   (`4242 4242 4242 4242`) — a genuine test-mode payment, not a
+   simulation.
+3. Stripe's own webhook delivery (not a synthetic signed payload)
+   reached the local server for every event in the real sequence —
+   `charge.succeeded`, `invoice.paid`, `invoice.finalized`,
+   `payment_method.attached`, `customer.created`,
+   `checkout.session.completed`, `customer.updated`,
+   `customer.subscription.created`, `payment_intent.*`,
+   `invoice.created`, `invoice.payment_succeeded` — every single one
+   answered `200`, including the handled types (signature verification
+   passed for real) and the unhandled ones (the "log and no-op, don't
+   crash" fallback path, also exercised for real for the first time).
+4. `GET /api/v1/subscriptions` afterward showed the organisation's
+   subscription had flipped to `ACTIVE`, plan `STARTER`, correct
+   `£99`-derived entitlements, and a `current_period_end` exactly one
+   month out — Stripe's own webhook delivery had written real state
+   into this database, closing the loop this document has called
+   "genuinely unverified" since Sprint 2.
+
+`create_billing_portal_session` verified the same way in a second full
+cycle (fresh org, fresh checkout, fresh `stripe listen` session): the
+returned `billing.stripe.com` URL opened to a real, fully-populated
+portal — correct plan (`DataLume Starter, £99.00 per month`), the real
+test card (`Visa •••• 4242`), correct next billing date, correct
+customer name/email, and a real paid `£99.00` invoice in the history.
+`billing_portal.configuration.created` and
+`billing_portal.session.created` webhooks both delivered and answered
+`200` too. Every part of `StripeBillingProvider` this codebase can
+exercise without a production deployment has now actually been
+exercised end to end, not just unit-tested against synthetic payloads
+— nothing about Stripe billing remains "unverified" in this document.
 
 **Post-Sprint-24 — the membership-invite flow:** closes the gap this
 same document used to flag under "Not yet done" — signup could only
@@ -2155,16 +2169,6 @@ Specifically flagged as gaps to close early, not deferred to "later":
   those checks are about — added the same way, one function each, as
   Sprint 6+ lands them.
 
-- **The Stripe webhook round-trip is still unverified against real
-  Stripe-originated delivery.** `create_checkout_session` is now
-  confirmed working against a live test-mode Stripe account (see the
-  updated Post-Sprint-24 entry above) — the remaining gap is narrower
-  than "Stripe isn't tested at all": actually completing a checkout
-  and having Stripe's own webhook delivery reach this codebase, which
-  needs either the Stripe CLI (not installed) or a publicly reachable
-  webhook URL (no ngrok/deployment here). `create_billing_portal_session`
-  is unverified for the same underlying reason — it needs a real
-  Stripe Customer, created only once a checkout completes.
 
 ## How to run this locally
 
