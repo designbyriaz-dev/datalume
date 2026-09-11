@@ -2444,6 +2444,28 @@ stays the one factor still gated on data only the compliance domain's
 Inspection flow can supply, left as-is rather than forced. 13 Playwright
 specs total, all passing.
 
+**Post-Sprint-24 — closed the "link evidence to exact component" gap
+(spec §76 steps 22-23), same "backend built, frontend incomplete"
+pattern as Planned Investment Intelligence:** `Document.
+related_entity_type`/`related_entity_id` (documents/models.py) and
+`upload_document`'s matching form fields have always existed and
+`GET /documents` has always supported filtering by them — but
+`api.uploadDocument`/`listDocuments` never passed them through, and no
+page ever exposed a way to scope an upload to a specific entity, so a
+component's construction evidence was unreachable from the UI even
+though the data model was ready for it. Added an "Evidence" section to
+`ComponentDetailClient.tsx` (upload form + list + download, mirroring
+`data-and-uploads/page.tsx`'s own document section) and extended both
+API client methods with an optional related-entity parameter —
+backward compatible, the existing untargeted-upload call site on
+data-and-uploads still works unchanged. New Playwright spec uploads
+evidence against a component and confirms it's genuinely linked, not
+just uploaded: the same document shows up in the org-wide documents
+list (data-and-uploads) *and* survives a full page reload scoped to
+just this component, proving both views read the same
+`related_entity_type`/`related_entity_id`, not a coincidence of local
+component state. 14 Playwright specs total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2485,13 +2507,14 @@ punch list for whoever takes this toward a real pilot:
   the real below-threshold rejection and override-reason path, a
   defect's real server-validated status transition plus a warranty
   being added and voided, a change control request being approved and
-  implemented against a specification, and — as of Post-Sprint-24 — a
-  component's real age driving a non-trivial Planned Investment
-  Intelligence score) and what's still genuinely unwritten — most of
-  spec §76-78's deeper Housing Operations and Commercial scenarios
-  beyond the slices above (construction evidence linked to a component,
-  Property 360's new-build history, CONDITION_SIGNAL's Inspection-driven
-  half of Planned Investment Intelligence, Ask DataLume grounded against
+  implemented against a specification, a component's real age driving
+  a non-trivial Planned Investment Intelligence score, and — as of
+  Post-Sprint-24 — construction evidence genuinely linked to the exact
+  component it belongs to) and what's still genuinely unwritten — most
+  of spec §76-78's deeper Housing Operations and Commercial scenarios
+  beyond the slices above (Property 360's new-build history,
+  CONDITION_SIGNAL's Inspection-driven half of Planned Investment
+  Intelligence, Ask DataLume grounded against
   a development, generating a handover report).
 
 Specifically flagged as gaps to close early, not deferred to "later":

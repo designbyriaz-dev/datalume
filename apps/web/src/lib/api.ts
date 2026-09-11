@@ -1024,15 +1024,30 @@ export const api = {
     }),
   triggerImport: (organisationId: string, datasetId: string) =>
     request<DatasetDetail>(`/api/v1/datasets/${datasetId}/import`, { method: "POST", organisationId }),
-  listDocuments: (organisationId: string) =>
-    request<DocumentOut[]>("/api/v1/documents", { organisationId }),
+  listDocuments: (organisationId: string, filters?: { related_entity_type?: string; related_entity_id?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.related_entity_type) params.set("related_entity_type", filters.related_entity_type);
+    if (filters?.related_entity_id) params.set("related_entity_id", filters.related_entity_id);
+    const qs = params.toString();
+    return request<DocumentOut[]>(`/api/v1/documents${qs ? `?${qs}` : ""}`, { organisationId });
+  },
   getDocument: (organisationId: string, documentId: string) =>
     request<DocumentDetail>(`/api/v1/documents/${documentId}`, { organisationId }),
-  uploadDocument: (organisationId: string, title: string, documentType: string, file: File) => {
+  uploadDocument: (
+    organisationId: string,
+    title: string,
+    documentType: string,
+    file: File,
+    relatedEntity?: { related_entity_type: string; related_entity_id: string },
+  ) => {
     const form = new FormData();
     form.append("title", title);
     form.append("document_type", documentType);
     form.append("file", file);
+    if (relatedEntity) {
+      form.append("related_entity_type", relatedEntity.related_entity_type);
+      form.append("related_entity_id", relatedEntity.related_entity_id);
+    }
     return request<DocumentOut>("/api/v1/documents", { method: "POST", organisationId, body: form });
   },
   uploadDocumentVersion: (organisationId: string, documentId: string, revision: string, file: File) => {

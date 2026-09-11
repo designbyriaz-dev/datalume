@@ -9,11 +9,25 @@ import {
   type ChangeControlOut,
   type ComponentOut,
   type ComponentType,
+  type DocumentOut,
   type PlannedInvestmentScoreOut,
   type SpecificationOut,
 } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
+
+const DOCUMENT_TYPES = ["EVIDENCE", "DRAWING", "SPECIFICATION", "CERTIFICATE", "REPORT", "PHOTOGRAPH", "OTHER"];
+
+// Defined outside the component — same reasoning as data-and-uploads/
+// page.tsx's own copy of this helper (react-hooks/immutability).
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function statusVariant(status: string) {
   if (status === "ACTIVE") return "success" as const;
@@ -59,6 +73,19 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
   const [changeSubmitting, setChangeSubmitting] = useState(false);
   const [changeFormError, setChangeFormError] = useState<string | null>(null);
 
+  const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
+  const [docTitle, setDocTitle] = useState("");
+  const [docType, setDocType] = useState<string>(DOCUMENT_TYPES[0] ?? "EVIDENCE");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docSubmitting, setDocSubmitting] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+
+  async function refreshDocuments() {
+    const id = orgId();
+    if (!id) return;
+    setDocuments(await api.listDocuments(id, { related_entity_type: "component", related_entity_id: componentId }));
+  }
+
   async function refreshChildren() {
     const id = orgId();
     if (!id) return;
@@ -94,13 +121,14 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         return;
       }
       try {
-        const [comp, childList, typeList, specList, changeList, investment] = await Promise.all([
+        const [comp, childList, typeList, specList, changeList, investment, documentList] = await Promise.all([
           api.getComponent(id, componentId),
           api.listComponentChildren(id, componentId),
           api.listComponentTypes(id),
           api.listSpecifications(id, { related_entity_type: "component", related_entity_id: componentId }),
           api.listChangeControl(id, { related_entity_type: "component", related_entity_id: componentId }),
           api.getComponentPlannedInvestment(id, componentId),
+          api.listDocuments(id, { related_entity_type: "component", related_entity_id: componentId }),
         ]);
         setComponent(comp);
         setChildren(childList);
@@ -108,6 +136,7 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         setSpecifications(specList);
         setChanges(changeList);
         setPlannedInvestment(investment);
+        setDocuments(documentList);
         if (typeList[0]) setChildTypeId(typeList[0].id);
         if (specList[0]) setChangeSpecId(specList[0].id);
       } catch {
@@ -192,11 +221,45 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
     if (activeSpec) setChangeSpecId(activeSpec.id);
   }
 
+  async function onUploadDocument() {
+    const id = orgId();
+    if (!id || !docFile || !docTitle.trim()) {
+      setDocError("Give the evidence a title and choose a file first.");
+      return;
+    }
+    setDocSubmitting(true);
+    setDocError(null);
+    try {
+      await api.uploadDocument(id, docTitle.trim(), docType, docFile, {
+        related_entity_type: "component",
+        related_entity_id: componentId,
+      });
+      setDocTitle("");
+      setDocFile(null);
+      await refreshDocuments();
+    } catch {
+      setDocError("Upload failed.");
+    } finally {
+      setDocSubmitting(false);
+    }
+  }
+
+  async function onDownloadDocument(doc: DocumentOut) {
+    const id = orgId();
+    if (!id) return;
+    try {
+      const blob = await api.downloadDocument(id, doc.id);
+      triggerBlobDownload(blob, doc.title);
+    } catch {
+      setDocError("Download failed.");
+    }
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!component || !children || !specifications || !changes) {
+  if (!component || !children || !specifications || !changes || !documents) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -341,6 +404,85 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
                 {s.title} <span style={{ color: "var(--text-secondary)" }}>rev {s.revision}</span>
               </span>
               <StatusBadge label={s.status} variant={specStatusVariant(s.status)} />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Evidence</h2>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr 1.5fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="evidence-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Title
+            </label>
+            <input
+              id="evidence-title"
+              style={inputStyle}
+              value={docTitle}
+              onChange={(e) => setDocTitle(e.target.value)}
+              placeholder="e.g. Boiler commissioning certificate"
+            />
+          </div>
+          <div>
+            <label htmlFor="evidence-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Type
+            </label>
+            <select id="evidence-type" style={inputStyle} value={docType} onChange={(e) => setDocType(e.target.value)}>
+              {DOCUMENT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="evidence-file" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              File
+            </label>
+            <input id="evidence-file" style={inputStyle} type="file" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+          </div>
+          <button style={primaryBtn} onClick={onUploadDocument} disabled={docSubmitting}>
+            {docSubmitting ? "Uploading…" : "Upload"}
+          </button>
+        </div>
+        {docError && <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{docError}</div>}
+      </div>
+      {documents.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>
+          No evidence linked to this component yet.
+        </div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {documents.map((d) => (
+            <li
+              key={d.id}
+              style={{
+                padding: "10px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {d.document_reference}
+                </span>
+                {d.title} <span style={{ color: "var(--text-secondary)" }}>({d.document_type})</span>
+              </span>
+              <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={() => onDownloadDocument(d)}>
+                Download
+              </button>
             </li>
           ))}
         </ul>
