@@ -2405,6 +2405,22 @@ badge/day-count the API computes (`is_expired`/`days_until_expiry`)
 actually reflects the real expiry date entered. 11 Playwright specs
 total, all passing.
 
+**Post-Sprint-24 — a real Playwright spec for change control:** spec
+§76 steps 25-27 ("Record proposed change", "Preserve previous
+specification", "Approve/reject change") — architecture 03 §7's
+append-only revision model, untouched by any existing E2E spec despite
+being a fully built, real feature (`ComponentDetailClient.tsx`).
+`implement_change_control` (service.py) creates a new specification
+row for the approved change and marks the old one `SUPERSEDED` rather
+than editing it in place; this spec drives the real
+propose -> approve -> implement lifecycle through the UI and confirms
+the new revision (`rev B`, `ACTIVE`) replaces the old one in the
+current-only view a user actually sees. Preservation of the superseded
+row itself is already covered at the data level by
+`test_specifications.py`/`test_change_control.py` — this closes the UI
+side of the same guarantee, not a duplicate of it. 12 Playwright specs
+total, all passing.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2443,11 +2459,16 @@ punch list for whoever takes this toward a real pilot:
   generation, a manual attention-engine scan that genuinely detects a
   repeat-repair pattern, a worker-driven CSV import going
   MAPPED -> IMPORTING -> COMPLETED, handover authorisation exercising
-  the real below-threshold rejection and override-reason path, and —
-  as of Post-Sprint-24 — a defect's real server-validated status
-  transition plus a warranty being added and voided) and what's still
-  genuinely unwritten — most of spec §76-78's deeper Housing Operations
-  and Commercial scenarios beyond the slices above.
+  the real below-threshold rejection and override-reason path, a
+  defect's real server-validated status transition plus a warranty
+  being added and voided, and — as of Post-Sprint-24 — a change control
+  request being approved and implemented against a specification) and
+  what's still genuinely unwritten — most of spec §76-78's deeper
+  Housing Operations and Commercial scenarios beyond the slices above
+  (construction evidence linked to a component, Property 360's
+  new-build history, component lifecycle/planned-replacement
+  intelligence, Ask DataLume grounded against a development, generating
+  a handover report).
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
