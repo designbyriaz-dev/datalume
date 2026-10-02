@@ -30,6 +30,10 @@ export function InspectionsPanel({
   const [result, setResult] = useState("SATISFACTORY");
   const [nextDueDate, setNextDueDate] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showActionForm, setShowActionForm] = useState(false);
+  const [actionDescription, setActionDescription] = useState("");
+  const [actionDeadline, setActionDeadline] = useState("");
+  const [actionSubmitting, setActionSubmitting] = useState(false);
 
   async function refresh() {
     if (!organisationId) return;
@@ -78,6 +82,28 @@ export function InspectionsPanel({
     onChanged?.();
   }
 
+  async function onRaiseAction() {
+    if (!actionDescription.trim() || !actionDeadline) return;
+    setActionSubmitting(true);
+    try {
+      await api.createComplianceAction(organisationId, {
+        requirement_id: requirementId,
+        entity_type: entityType,
+        entity_id: entityId,
+        description: actionDescription.trim(),
+        deadline: actionDeadline,
+        inspection_id: latest?.id,
+      });
+      setActionDescription("");
+      setActionDeadline("");
+      setShowActionForm(false);
+      await refresh();
+      onChanged?.();
+    } finally {
+      setActionSubmitting(false);
+    }
+  }
+
   const latest = inspections?.[0];
   const openActions = actions?.filter((a) => a.status === "OPEN") ?? [];
 
@@ -106,6 +132,31 @@ export function InspectionsPanel({
             </li>
           ))}
         </ul>
+      )}
+      {showActionForm ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          <input
+            aria-label="Compliance action description"
+            style={{ ...inputStyle, fontSize: 12, minWidth: 160 }}
+            placeholder="e.g. Replace smoke detector"
+            value={actionDescription}
+            onChange={(e) => setActionDescription(e.target.value)}
+          />
+          <input
+            aria-label="Compliance action deadline"
+            style={{ ...inputStyle, fontSize: 12, maxWidth: 130 }}
+            type="date"
+            value={actionDeadline}
+            onChange={(e) => setActionDeadline(e.target.value)}
+          />
+          <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={onRaiseAction} disabled={actionSubmitting}>
+            Save
+          </button>
+        </div>
+      ) : (
+        <button style={{ ...secondaryBtn, padding: "3px 8px", fontSize: 11, marginBottom: 6 }} onClick={() => setShowActionForm(true)}>
+          + Raise action
+        </button>
       )}
       {showForm ? (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
