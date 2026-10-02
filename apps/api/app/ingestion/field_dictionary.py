@@ -114,6 +114,29 @@ FIELD_DICTIONARIES: dict[str, list[FieldSpec]] = {
         FieldSpec(key="method", label="Method", required=False, aliases=["payment_method"]),
         FieldSpec(key="currency", label="Currency", required=False, aliases=[]),
     ],
+    "REPAIRS": [
+        # Required, unlike COMPLIANCE_INSPECTIONS' component reference
+        # below — Repair.property_id is a mandatory FK, so a row that
+        # can't resolve one has nothing valid to create.
+        FieldSpec(key="property_reference", label="Property Reference", required=True, aliases=["property_ref"]),
+        FieldSpec(key="category", label="Category", required=True, aliases=[]),
+        FieldSpec(key="description", label="Description", required=True, aliases=[]),
+        FieldSpec(key="reported_date", label="Reported Date", required=True, aliases=[]),
+        FieldSpec(key="priority", label="Priority", required=False, aliases=[]),
+        FieldSpec(key="contractor", label="Contractor", required=False, aliases=[]),
+        # Optional — a repair can be reported without pinning it to the
+        # specific component that failed, same as the manual form.
+        FieldSpec(key="component_reference", label="Component Reference", required=False, aliases=["component_ref"]),
+    ],
+    "COMPLIANCE_INSPECTIONS": [
+        FieldSpec(key="requirement_code", label="Requirement Code", required=True, aliases=["requirement"]),
+        FieldSpec(key="entity_type", label="Entity Type", required=True, aliases=["type"]),
+        FieldSpec(key="entity_reference", label="Entity Reference", required=True, aliases=["entity_ref"]),
+        FieldSpec(key="inspector", label="Inspector", required=True, aliases=[]),
+        FieldSpec(key="inspection_date", label="Inspection Date", required=True, aliases=[]),
+        FieldSpec(key="result", label="Result", required=True, aliases=[]),
+        FieldSpec(key="next_due_date", label="Next Due Date", required=False, aliases=[]),
+    ],
 }
 
 

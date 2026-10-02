@@ -2716,6 +2716,76 @@ match — plus a new Playwright spec driving the real
 `/data-and-uploads` upload flow end to end (23 Playwright specs total,
 all passing).
 
+**Post-Sprint-24 — a Housing Operations audit (spec §77), the same
+REAL/UI-GAP/TEST-GAP/MISSING methodology as the Commercial audit
+above:** all 16 named capabilities checked against real backend,
+frontend, and Playwright coverage. Found one genuine UI gap hiding
+inside what looked like a test gap: `InspectionsPanel.tsx` could
+*complete* a `ComplianceAction` but never *raise* one —
+`api.createComplianceAction` existed in the client and the backend
+service function was real, but no form anywhere ever called it. Added
+a "+ Raise action" control mirroring `HazardActionsPanel`'s own
+pattern (same component, used by both the Building and Component
+detail pages).
+
+Found six capabilities that were fully real end to end but had never
+been given a Playwright spec — the same "already built, needs a first
+UI test" pattern as every earlier entry in this list. Closed all six:
+Data Health score/findings (a property with no type and no postcode
+deterministically fails two checks, so the score and both findings are
+guaranteed, not a guess at demo data), raising-and-completing a
+compliance action (exercises the UI gap fix above), hazard tracking
+through the full reported -> triaged -> investigated -> action ->
+closed workflow plus a repeat damp & mould signal (`/safety` had *zero*
+Playwright coverage before this despite being fully built), a
+component-failure signal (`repair-linked-to-component.spec.ts` only
+ever linked one repair — the signal needs three), and a board-level
+report (`reports.spec.ts` only ever exercised `DEVELOPMENT_SUMMARY`;
+`BOARD_ASSURANCE`/`COMPLIANCE_EXECUTIVE_SUMMARY` are real, permission-
+gated report types that had never actually been requested or
+downloaded).
+
+28 Playwright specs total, all passing; full backend suite (374 tests)
+and typecheck/lint unaffected by the frontend-only change.
+
+**Post-Sprint-24 — bulk CSV import for repairs and compliance
+inspections, closing the Housing Operations audit's two genuinely
+missing capabilities:** `app/operations/importers.py` registers
+`REPAIRS`/`COMPLIANCE_INSPECTIONS` into the same ingestion seam every
+other domain's importer uses — same "no new frontend work" story as
+the Commercial importers, since the dataset-type dropdown reads its
+options from the field dictionary registry dynamically.
+
+`REPAIRS` resolves `property_reference` (required FK, `ImporterRowError`
+on a miss) and an optional `component_reference`, mirroring
+`RENT_OBLIGATIONS`/`BUILDINGS` exactly. `COMPLIANCE_INSPECTIONS` is the
+first importer to resolve a *polymorphic* entity reference — `entity_type`
+(property/building/component) selects which reference field
+(`property_reference`/`building_reference`/`component_reference`) the
+row's `entity_reference` column is checked against, reusing the same
+three entity types `RequirementApplicability`/`Inspection` already
+support. Building this surfaced the same provenance gap the Commercial
+audit found in `RentObligation`: `create_inspection` had no
+`source_type`/`source_dataset_id`/`import_job_id` passthrough at all —
+every inspection was hard-coded `SourceType.MANUAL` even though
+`Inspection` already carries `ProvenanceMixin`. Extended the service
+function's signature (defaults preserve existing manual-entry
+behaviour) rather than bypassing provenance for this one importer.
+
+4 new backend tests (378 total) covering both importers' happy path and
+an unmatched-reference row failing only that row, plus a new Playwright
+spec driving the real `/data-and-uploads` upload flow for `REPAIRS` end
+to end (`COMPLIANCE_INSPECTIONS` gets backend-only coverage, same as
+`PAYMENTS` did — one UI-driven spec per domain is the established
+pattern, not one per dataset type). 29 Playwright specs total, all
+passing.
+
+With this, every item named in spec §77 (Housing Operations) and §78
+(Commercial) is REAL except one: lease-event monitoring (see "Not yet
+done" below) — genuinely missing, not a quick fix, the only acceptance-
+test item left in either list that needs real design work rather than
+wiring an existing capability through.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2773,18 +2843,20 @@ punch list for whoever takes this toward a real pilot:
   about a development, a lease's break date/rent review date/service
   charge being genuinely captured, a payment method round-tripping, an
   ambiguous payment being split across two obligations rather than just
-  resolved against one, and — as of Post-Sprint-24 — a real rent
-  obligations CSV import going through the same worker-driven pipeline
-  every other importer uses) and what's still genuinely unwritten —
-  most of spec §76-78's remaining deeper Housing Operations scenarios
-  (generating a handover report is not one of them —
-  `HANDOVER_READINESS` is a real, backend-tested report type, see
-  `test_reports.py`; it's simply never been given its own Playwright
-  spec, the same "already built, needs a first UI test" gap the earlier
-  entries in this list closed one by one, not a missing feature), plus
-  lease-event monitoring on the Commercial side (genuinely missing, not
-  a UI gap — see the dedicated entry above; bulk import was the
-  Commercial side's other named gap and is closed now, also above).
+  resolved against one, a rent obligations CSV import, Data Health
+  score/findings, raising and completing a compliance action, hazard
+  tracking plus a repeat damp & mould signal, a component-failure
+  signal, a board-level report, and a repairs CSV import). Every item
+  named in spec §77 (Housing Operations) and §78 (Commercial) has now
+  been through the REAL/UI-GAP/TEST-GAP/MISSING audit and is REAL —
+  except lease-event monitoring, genuinely missing (see the dedicated
+  entry above), the one acceptance-test item in either list that still
+  needs real design work rather than a quick form or test fix.
+  Generating a handover report was never actually a gap —
+  `HANDOVER_READINESS` is a real, backend-tested report type (see
+  `test_reports.py`) that simply hasn't been given its own Playwright
+  spec yet; the 50-step acceptance suite as a whole still covers a
+  real first slice, not every step named across spec §76-78.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

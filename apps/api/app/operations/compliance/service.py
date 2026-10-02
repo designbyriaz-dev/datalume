@@ -349,6 +349,10 @@ def create_inspection(
     next_due_date: date | None,
     evidence_document_id: uuid.UUID | None,
     actor_user_id: uuid.UUID | None,
+    source_type: SourceType = SourceType.MANUAL,
+    source_dataset_id: uuid.UUID | None = None,
+    import_job_id: uuid.UUID | None = None,
+    original_reference: str | None = None,
 ) -> Inspection:
     _get_org_requirement(db, organisation_id, requirement_id)
     _validate_applicability_entity(db, organisation_id, entity_type, entity_id)
@@ -365,7 +369,10 @@ def create_inspection(
         result=InspectionResult(result),
         next_due_date=next_due_date,
         evidence_document_id=evidence_document_id,
-        source_type=SourceType.MANUAL,
+        source_type=source_type,
+        source_dataset_id=source_dataset_id,
+        import_job_id=import_job_id,
+        original_reference=original_reference,
         created_by=actor_user_id,
         updated_by=actor_user_id,
     )
