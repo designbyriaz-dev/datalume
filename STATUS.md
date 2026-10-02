@@ -2786,6 +2786,64 @@ done" below) — genuinely missing, not a quick fix, the only acceptance-
 test item left in either list that needs real design work rather than
 wiring an existing capability through.
 
+**Post-Sprint-24 — three open Dependabot PRs triaged, two merged:**
+`#10` (python-dependencies group: uvicorn/sqlalchemy/alembic/psycopg/
+anthropic/pyotp) and `#7` (`actions/upload-artifact` 4→7) both showed
+green CI and merged cleanly. `#9` (npm-dependencies group, 9 packages)
+stayed open — its "Web build & lint" check was genuinely failing, and
+reproducing it locally (checking out the branch into a throwaway
+worktree and running `npm ci && npm run lint` directly, since GitHub's
+own raw CI logs are sign-in-gated) found the real cause: the group
+bundles a `typescript` 5.9→7.0 jump, and `eslint-config-next`'s bundled
+`typescript-eslint` has a hard guard that refuses to run under
+TypeScript 7 at all (tracked upstream, unresolved: typescript-eslint
+issue #10940). Not a config fix on this side — merging as-is would
+permanently break `npm run lint` on `main`. Left open rather than
+merged blind or silently worked around.
+
+**Post-Sprint-24 — all 3 open Dependabot security alerts closed:** 1
+critical (Next.js RCE in `next/og`'s Node.js `ImageResponse`
+implementation, GHSA-vcvr-r3jv-pc5j — not actually exploitable here
+since this app never imports `ImageResponse` from `next/og`, but a
+same-minor-line patch bump, 16.3.4 → 16.3.6, removes it outright) and 2
+moderate (`brace-expansion` quadratic-time/recursion DoS in dev
+tooling, via `npm audit fix`). Verified with a full typecheck/lint/
+build and the complete Playwright suite before pushing.
+
+**Post-Sprint-24 — lease-event monitoring, closing spec §78's one
+remaining genuinely-missing item ("Monitor lease events"):**
+`LEASE_EVENT_UPCOMING` is a fifth rule in `app/attention/rules.py`'s
+registry — `Lease.break_date`/`rent_review_date`/`lease_expiry` were
+always real, captured fields (see the Commercial audit entry above),
+but nothing computed or surfaced an approaching one. Flags active
+leases with any of the three dates inside a configurable window
+(default 90 days, matching the home dashboard's own existing
+"warranties expiring within 90 days" convention in
+`app/development/portfolio.py` rather than inventing a new number).
+All three event types on one lease consolidate into a single signal,
+the same "no per-sub-type column on AttentionSignal" reasoning
+`COMPLIANCE_BREACH` already uses to group multiple requirement
+breaches per entity.
+
+Because the whole Attention Engine is registry-driven end to end
+(`RULE_REGISTRY` → `list_rules` lazily seeds one `AttentionRule` row
+per org per rule code → `run_attention_scan` iterates the registry →
+Home's signal feed renders whatever `entity_type`/`explanation` comes
+back generically), this needed **zero frontend code** — the existing
+"Run scan now" button, rule-config endpoints, and signal feed all
+picked up the fifth rule automatically, the same "backend registry
+drives frontend automatically" pattern bulk CSV import has used all
+along. The one new Playwright spec (30 total) is first-attempt-pass
+proof of that, not a guess.
+
+2 new backend tests (380 total) — one proving two upcoming events on
+the same lease produce exactly one signal, one proving a lease with
+only a far-future expiry produces none.
+
+With this, every item named in spec §77 and §78 is genuinely REAL —
+the Housing Operations and Commercial acceptance tests are both fully
+closed, not "mostly."
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2816,13 +2874,10 @@ punch list for whoever takes this toward a real pilot:
   here, but didn't add span-based tracing, since there's no real
   collector in this sandbox to send spans to and a half-wired tracer
   would be worse than a documented gap.
-- **Lease events aren't monitored.** `Lease.break_date`/
-  `rent_review_date`/`lease_expiry` are real, captured fields (see the
-  Commercial audit entry above) but nothing computes or surfaces an
-  upcoming one — no Attention Engine rule alongside the real
-  `LEASE_ARREARS` one, no UI highlighting an approaching date. Needs
-  real design work (what counts as "upcoming," what the UI should do
-  about it), not a quick form fix.
+- ~~Lease events aren't monitored.~~ **Closed** — see the dedicated
+  `LEASE_EVENT_UPCOMING` entry above. This was the last genuinely
+  missing item in either spec §77 or §78; both acceptance tests are
+  now fully REAL.
 - **The Playwright E2E acceptance suite covers a real first slice, not
   the full 50 steps.** See the dedicated notes above for what exists
   now (auth, the Development->Building->Property golden thread, Ask

@@ -1,10 +1,14 @@
 """Rule registry — architecture/06-intelligence-layer.md §3: "Each rule
 in attention_rules composes existing deterministic signals from other
 domains (never restates their logic)... the rule is a join + threshold,
-not a new calculation." Four rules, matching the four example signal
-types architecture itself names (warranty+defect is the given example;
-repeat failures, compliance breach, and lease+arrears overlap are its
-other three named examples):
+not a new calculation." Five rules — the first four match the four
+example signal types architecture itself names (warranty+defect is the
+given example; repeat failures, compliance breach, and lease+arrears
+overlap are its other three named examples); LEASE_EVENT_UPCOMING was
+added Post-Sprint-24 to close spec §78's last genuinely missing
+acceptance-test item ("Monitor lease events" — break_date/
+rent_review_date/lease_expiry were always real, captured Lease fields,
+but nothing computed or surfaced an approaching one):
 
 - WARRANTY_EXPIRING_WITH_OPEN_DEFECT: joins Warranty (Sprint 11) and
   Defect (Sprint 11) on the same component/property — architecture's
@@ -18,6 +22,16 @@ other three named examples):
   not DUE_SOON/NEEDS_REVIEW, which are advisory rather than breaches.
 - LEASE_ARREARS: wraps Sprint 20's arrears_for_lease, flagging active
   leases whose outstanding balance exceeds a configurable threshold.
+- LEASE_EVENT_UPCOMING: flags active leases with a break option, rent
+  review, or expiry date falling inside a configurable window — the
+  same "a date field becomes a signal" shape as
+  WARRANTY_EXPIRING_WITH_OPEN_DEFECT's `expiry_within_days`, reusing
+  its 90-day default from the existing home-dashboard "warranties
+  expiring within 90 days" convention (`app/development/portfolio.py`)
+  rather than inventing a new number. All three event types on one
+  lease consolidate into a single candidate — AttentionSignal has no
+  per-event-type column, just entity_type/entity_id, the same reason
+  COMPLIANCE_BREACH groups multiple requirement breaches per entity.
 
 Each `evaluate_*` function returns SignalCandidate rows; nothing here
 writes to the database — attention_scan.py owns turning candidates
@@ -241,6 +255,48 @@ def evaluate_lease_arrears(db: Session, organisation_id: uuid.UUID, config: dict
     return candidates
 
 
+LEASE_EVENT_FIELDS = (
+    ("break_date", "break option"),
+    ("rent_review_date", "rent review"),
+    ("lease_expiry", "expiry"),
+)
+
+
+def evaluate_lease_event_upcoming(db: Session, organisation_id: uuid.UUID, config: dict) -> list[SignalCandidate]:
+    upcoming_within_days = config.get("upcoming_within_days", 90)
+    today = date.today()
+    cutoff = today + timedelta(days=upcoming_within_days)
+    leases = db.query(Lease).filter(Lease.organisation_id == organisation_id, Lease.lease_status == LeaseStatus.ACTIVE).all()
+
+    candidates = []
+    for lease in leases:
+        # All three event types consolidate into one candidate per
+        # lease — see this module's own docstring for why.
+        events = sorted(
+            (event_date, label)
+            for field_name, label in LEASE_EVENT_FIELDS
+            if (event_date := getattr(lease, field_name)) is not None and today <= event_date <= cutoff
+        )
+        if not events:
+            continue
+        labels = ", ".join(f"{label} on {event_date}" for event_date, label in events)
+        candidates.append(
+            SignalCandidate(
+                entity_type="lease",
+                entity_id=str(lease.id),
+                explanation={
+                    "what": f"Lease {lease.lease_reference} has an upcoming {labels}.",
+                    "why": "Break options, rent reviews, and lease expiries need lead time to act on before the "
+                    "date passes.",
+                    "supporting_record_ids": [str(lease.id)],
+                    "recommended_investigation": "Confirm whether action is needed — exercise or waive the break, "
+                    "start rent review negotiations, or plan for renewal/vacancy — before the date passes.",
+                },
+            )
+        )
+    return candidates
+
+
 @dataclass
 class RuleDefinition:
     name: str
@@ -278,5 +334,12 @@ RULE_REGISTRY: dict[str, RuleDefinition] = {
         default_config={"outstanding_threshold_pence": 50000},
         default_severity=AttentionSeverity.HIGH,
         evaluate=evaluate_lease_arrears,
+    ),
+    "LEASE_EVENT_UPCOMING": RuleDefinition(
+        name="Upcoming lease event (break, rent review, or expiry)",
+        domain_scope="Commercial",
+        default_config={"upcoming_within_days": 90},
+        default_severity=AttentionSeverity.MEDIUM,
+        evaluate=evaluate_lease_event_upcoming,
     ),
 }

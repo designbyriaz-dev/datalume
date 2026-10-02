@@ -39,14 +39,20 @@ def _signals(client, org_id, **params):
     return resp.json()
 
 
-def test_rules_are_lazily_seeded_with_four_defaults(client):
+def test_rules_are_lazily_seeded_with_five_defaults(client):
     signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
     org_id = signup["organisation_id"]
 
     resp = client.get("/api/v1/attention/rules", headers={"X-Organisation-Id": org_id})
     assert resp.status_code == 200
     codes = {r["code"] for r in resp.json()}
-    assert codes == {"WARRANTY_EXPIRING_WITH_OPEN_DEFECT", "REPEAT_FAILURE", "COMPLIANCE_BREACH", "LEASE_ARREARS"}
+    assert codes == {
+        "WARRANTY_EXPIRING_WITH_OPEN_DEFECT",
+        "REPEAT_FAILURE",
+        "COMPLIANCE_BREACH",
+        "LEASE_ARREARS",
+        "LEASE_EVENT_UPCOMING",
+    }
     assert all(r["is_active"] for r in resp.json())
 
 
@@ -208,6 +214,69 @@ def test_lease_arrears_rule(client):
     assert signals[0]["entity_id"] == lease["id"]
 
 
+def test_lease_event_upcoming_rule_consolidates_multiple_events_into_one_signal(client):
+    signup = client.post(
+        "/api/v1/auth/signup", json=_signup_payload(organisation_type="COMMERCIAL_LANDLORD")
+    ).json()
+    org_id = signup["organisation_id"]
+    prop = client.post("/api/v1/properties", headers={"X-Organisation-Id": org_id}, json={"address": "Unit 1"}).json()
+    tenant = client.post("/api/v1/tenants", headers={"X-Organisation-Id": org_id}, json={"name": "Acme Retail Ltd"}).json()
+    lease = client.post(
+        "/api/v1/leases",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "property_id": prop["id"],
+            "tenant_id": tenant["id"],
+            "lease_start": "2026-01-01",
+            "lease_expiry": "2031-01-01",
+            "contractual_rent_pence": 250000,
+            "rent_frequency": "MONTHLY",
+            # Both inside the default 90-day window — a lease with two
+            # upcoming events must still produce exactly one signal
+            # (AttentionSignal has no per-event-type column).
+            "break_date": (date.today() + timedelta(days=30)).isoformat(),
+            "rent_review_date": (date.today() + timedelta(days=60)).isoformat(),
+        },
+    ).json()
+    client.post(f"/api/v1/leases/{lease['id']}/status", headers={"X-Organisation-Id": org_id}, json={"status": "ACTIVE"})
+
+    result = _scan(client, org_id)
+    assert result["signals_created"] == 1
+
+    signals = _signals(client, org_id, entity_type="lease")
+    assert len(signals) == 1
+    assert signals[0]["entity_id"] == lease["id"]
+    assert "break option" in signals[0]["explanation"]["what"]
+    assert "rent review" in signals[0]["explanation"]["what"]
+
+
+def test_lease_event_upcoming_rule_ignores_events_outside_the_window(client):
+    signup = client.post(
+        "/api/v1/auth/signup", json=_signup_payload(organisation_type="COMMERCIAL_LANDLORD")
+    ).json()
+    org_id = signup["organisation_id"]
+    prop = client.post("/api/v1/properties", headers={"X-Organisation-Id": org_id}, json={"address": "Unit 1"}).json()
+    tenant = client.post("/api/v1/tenants", headers={"X-Organisation-Id": org_id}, json={"name": "Acme Retail Ltd"}).json()
+    lease = client.post(
+        "/api/v1/leases",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "property_id": prop["id"],
+            "tenant_id": tenant["id"],
+            "lease_start": "2026-01-01",
+            "lease_expiry": (date.today() + timedelta(days=365 * 5)).isoformat(),
+            "contractual_rent_pence": 250000,
+            "rent_frequency": "MONTHLY",
+        },
+    ).json()
+    client.post(f"/api/v1/leases/{lease['id']}/status", headers={"X-Organisation-Id": org_id}, json={"status": "ACTIVE"})
+
+    _scan(client, org_id)
+
+    signals = _signals(client, org_id, entity_type="lease")
+    assert len(signals) == 0
+
+
 def test_rescanning_refreshes_open_signal_instead_of_duplicating(client):
     signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
     org_id = signup["organisation_id"]
@@ -300,7 +369,7 @@ def test_deactivating_a_rule_stops_it_from_firing(client):
     assert resp.json()["is_active"] is False
 
     result = _scan(client, org_id)
-    assert result["rules_evaluated"] == 3  # 4 default rules minus the one just disabled
+    assert result["rules_evaluated"] == 4  # 5 default rules minus the one just disabled
     assert _signals(client, org_id, entity_type="property") == []
 
 
