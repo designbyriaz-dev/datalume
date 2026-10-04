@@ -33,7 +33,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, JSON, String
+from sqlalchemy import Date, Enum, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -233,6 +233,7 @@ class PaymentReconciliationConfig(Base):
     constant that different orgs' billing cycles will disagree on."""
 
     __tablename__ = "payment_reconciliation_configs"
+    __table_args__ = (UniqueConstraint("organisation_id", name="ux_payment_reconciliation_configs_org"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

@@ -7,6 +7,7 @@ sprint)."""
 import uuid
 from datetime import date
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
@@ -154,6 +155,11 @@ def update_repair_status(
 def get_or_create_repair_rule_config(
     db: Session, organisation_id: uuid.UUID, rule_code: str, defaults: dict
 ) -> RepairRuleConfig:
+    # with_for_update() only locks a row that already exists — two
+    # concurrent first-ever calls for the same (org, rule_code) can
+    # both find nothing to lock and both attempt the insert below.
+    # Migration 0029 adds the unique constraint that's what makes the
+    # IntegrityError below possible at all.
     config = (
         db.query(RepairRuleConfig)
         .filter(RepairRuleConfig.organisation_id == organisation_id, RepairRuleConfig.rule_code == rule_code)
@@ -162,9 +168,19 @@ def get_or_create_repair_rule_config(
     )
     if config is not None:
         return config
-    config = RepairRuleConfig(organisation_id=organisation_id, rule_code=rule_code, **defaults)
-    db.add(config)
-    db.flush()
+    try:
+        with db.begin_nested():
+            config = RepairRuleConfig(organisation_id=organisation_id, rule_code=rule_code, **defaults)
+            db.add(config)
+            db.flush()
+    except IntegrityError:
+        config = (
+            db.query(RepairRuleConfig)
+            .filter(RepairRuleConfig.organisation_id == organisation_id, RepairRuleConfig.rule_code == rule_code)
+            .first()
+        )
+        if config is None:
+            raise
     return config
 
 

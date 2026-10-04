@@ -32,7 +32,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -118,6 +118,7 @@ class HazardRuleConfig(Base):
     to deadline calculation."""
 
     __tablename__ = "hazard_rule_configs"
+    __table_args__ = (UniqueConstraint("organisation_id", "rule_code", name="ux_hazard_rule_configs_org_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

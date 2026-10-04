@@ -22,7 +22,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -209,6 +209,7 @@ class ComplianceStatusConfig(Base):
     """
 
     __tablename__ = "compliance_status_configs"
+    __table_args__ = (UniqueConstraint("organisation_id", name="ux_compliance_status_configs_org"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

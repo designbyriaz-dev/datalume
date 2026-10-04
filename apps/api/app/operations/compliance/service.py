@@ -6,6 +6,7 @@ path into this yet."""
 import uuid
 from datetime import date
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
@@ -512,6 +513,11 @@ def update_compliance_action_status(
 
 
 def get_or_create_status_config(db: Session, organisation_id: uuid.UUID) -> ComplianceStatusConfig:
+    # with_for_update() only locks a row that already exists — two
+    # concurrent first-ever calls for the same org can both find
+    # nothing to lock and both attempt the insert below. Migration 0029
+    # adds the unique constraint that's what makes the IntegrityError
+    # below possible at all.
     config = (
         db.query(ComplianceStatusConfig)
         .filter(ComplianceStatusConfig.organisation_id == organisation_id)
@@ -520,9 +526,17 @@ def get_or_create_status_config(db: Session, organisation_id: uuid.UUID) -> Comp
     )
     if config is not None:
         return config
-    config = ComplianceStatusConfig(organisation_id=organisation_id)
-    db.add(config)
-    db.flush()
+    try:
+        with db.begin_nested():
+            config = ComplianceStatusConfig(organisation_id=organisation_id)
+            db.add(config)
+            db.flush()
+    except IntegrityError:
+        config = (
+            db.query(ComplianceStatusConfig).filter(ComplianceStatusConfig.organisation_id == organisation_id).first()
+        )
+        if config is None:
+            raise
     return config
 
 

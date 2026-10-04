@@ -17,6 +17,7 @@ supplied.
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.provenance import SourceType
@@ -1236,6 +1237,13 @@ def void_warranty(
 def get_or_create_handover_readiness_weight(
     db: Session, organisation_id: uuid.UUID, check_code: str, default_weight: float
 ) -> HandoverReadinessCheckWeight:
+    # with_for_update() only locks a row that already exists — it does
+    # nothing for the actual race here: two concurrent first-ever calls
+    # for the same (org, check_code) can both find no row (nothing to
+    # lock) and both attempt the insert below. Migration 0029 is what
+    # makes the IntegrityError below possible at all — this table had
+    # no unique constraint before it. Same shape, same fix, as the
+    # global catalog races migration 0028 closed.
     weight = (
         db.query(HandoverReadinessCheckWeight)
         .filter(
@@ -1247,9 +1255,24 @@ def get_or_create_handover_readiness_weight(
     )
     if weight is not None:
         return weight
-    weight = HandoverReadinessCheckWeight(organisation_id=organisation_id, check_code=check_code, weight=default_weight)
-    db.add(weight)
-    db.flush()
+    try:
+        with db.begin_nested():
+            weight = HandoverReadinessCheckWeight(
+                organisation_id=organisation_id, check_code=check_code, weight=default_weight
+            )
+            db.add(weight)
+            db.flush()
+    except IntegrityError:
+        weight = (
+            db.query(HandoverReadinessCheckWeight)
+            .filter(
+                HandoverReadinessCheckWeight.organisation_id == organisation_id,
+                HandoverReadinessCheckWeight.check_code == check_code,
+            )
+            .first()
+        )
+        if weight is None:
+            raise
     return weight
 
 
@@ -1281,6 +1304,9 @@ def set_handover_readiness_weight(
 def get_or_create_planned_investment_weight(
     db: Session, organisation_id: uuid.UUID, factor_code: str, default_weight: float
 ) -> PlannedInvestmentWeight:
+    # Same race as get_or_create_handover_readiness_weight above (see
+    # its own comment) — migration 0029 adds the unique constraint
+    # that's what makes the IntegrityError below possible at all.
     weight = (
         db.query(PlannedInvestmentWeight)
         .filter(
@@ -1292,9 +1318,24 @@ def get_or_create_planned_investment_weight(
     )
     if weight is not None:
         return weight
-    weight = PlannedInvestmentWeight(organisation_id=organisation_id, factor_code=factor_code, weight=default_weight)
-    db.add(weight)
-    db.flush()
+    try:
+        with db.begin_nested():
+            weight = PlannedInvestmentWeight(
+                organisation_id=organisation_id, factor_code=factor_code, weight=default_weight
+            )
+            db.add(weight)
+            db.flush()
+    except IntegrityError:
+        weight = (
+            db.query(PlannedInvestmentWeight)
+            .filter(
+                PlannedInvestmentWeight.organisation_id == organisation_id,
+                PlannedInvestmentWeight.factor_code == factor_code,
+            )
+            .first()
+        )
+        if weight is None:
+            raise
     return weight
 
 
@@ -1320,6 +1361,9 @@ def set_planned_investment_weight(
 
 
 def get_or_create_planned_investment_config(db: Session, organisation_id: uuid.UUID) -> PlannedInvestmentConfig:
+    # Same race as get_or_create_handover_readiness_weight above (see
+    # its own comment) — migration 0029 adds the unique constraint
+    # that's what makes the IntegrityError below possible at all.
     config = (
         db.query(PlannedInvestmentConfig)
         .filter(PlannedInvestmentConfig.organisation_id == organisation_id)
@@ -1328,9 +1372,15 @@ def get_or_create_planned_investment_config(db: Session, organisation_id: uuid.U
     )
     if config is not None:
         return config
-    config = PlannedInvestmentConfig(organisation_id=organisation_id)
-    db.add(config)
-    db.flush()
+    try:
+        with db.begin_nested():
+            config = PlannedInvestmentConfig(organisation_id=organisation_id)
+            db.add(config)
+            db.flush()
+    except IntegrityError:
+        config = db.query(PlannedInvestmentConfig).filter(PlannedInvestmentConfig.organisation_id == organisation_id).first()
+        if config is None:
+            raise
     return config
 
 

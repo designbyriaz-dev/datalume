@@ -18,7 +18,7 @@ import enum
 import uuid
 from datetime import date
 
-from sqlalchemy import Boolean, Date, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -85,6 +85,7 @@ class RepairRuleConfig(Base):
     """
 
     __tablename__ = "repair_rule_configs"
+    __table_args__ = (UniqueConstraint("organisation_id", "rule_code", name="ux_repair_rule_configs_org_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

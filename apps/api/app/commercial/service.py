@@ -5,6 +5,7 @@ in this codebase."""
 import uuid
 from datetime import date
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.commercial.models import (
@@ -295,6 +296,11 @@ def list_rent_obligations(
 
 
 def get_or_create_reconciliation_config(db: Session, organisation_id: uuid.UUID) -> PaymentReconciliationConfig:
+    # with_for_update() only locks a row that already exists — two
+    # concurrent first-ever calls for the same org can both find
+    # nothing to lock and both attempt the insert below. Migration 0029
+    # adds the unique constraint that's what makes the IntegrityError
+    # below possible at all.
     config = (
         db.query(PaymentReconciliationConfig)
         .filter(PaymentReconciliationConfig.organisation_id == organisation_id)
@@ -303,9 +309,19 @@ def get_or_create_reconciliation_config(db: Session, organisation_id: uuid.UUID)
     )
     if config is not None:
         return config
-    config = PaymentReconciliationConfig(organisation_id=organisation_id)
-    db.add(config)
-    db.flush()
+    try:
+        with db.begin_nested():
+            config = PaymentReconciliationConfig(organisation_id=organisation_id)
+            db.add(config)
+            db.flush()
+    except IntegrityError:
+        config = (
+            db.query(PaymentReconciliationConfig)
+            .filter(PaymentReconciliationConfig.organisation_id == organisation_id)
+            .first()
+        )
+        if config is None:
+            raise
     return config
 
 

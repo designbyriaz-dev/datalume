@@ -19,7 +19,20 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -441,6 +454,7 @@ class HandoverReadinessCheckWeight(Base):
     Data Health's v1, which stayed deliberately unweighted)."""
 
     __tablename__ = "handover_readiness_check_weights"
+    __table_args__ = (UniqueConstraint("organisation_id", "check_code", name="ux_handover_readiness_check_weights_org_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
@@ -458,6 +472,7 @@ class PlannedInvestmentWeight(Base):
     included."""
 
     __tablename__ = "planned_investment_weights"
+    __table_args__ = (UniqueConstraint("organisation_id", "factor_code", name="ux_planned_investment_weights_org_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
@@ -473,6 +488,7 @@ class PlannedInvestmentConfig(Base):
     singleton-per-org pattern as ComplianceStatusConfig (Sprint 17)."""
 
     __tablename__ = "planned_investment_configs"
+    __table_args__ = (UniqueConstraint("organisation_id", name="ux_planned_investment_configs_org"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))

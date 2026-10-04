@@ -3168,25 +3168,54 @@ them. Full 380-test SQLite suite, the 9-test Postgres RLS suite,
 migration downgrade/upgrade round-trip, and offline
 `alembic upgrade head --sql` validation all green.
 
-**Narrower, lower-severity instances of the same unprotected pattern,
-found but not fixed — a real, now-documented follow-up, not silently
-ignored:** `app/development/service.py`'s `get_or_create_handover_
-readiness_weight`/`get_or_create_planned_investment_weight`/
-`get_or_create_planned_investment_config`, `app/operations/service.py`'s
-`get_or_create_repair_rule_config`, `app/operations/compliance/
-service.py`'s `get_or_create_status_config`, `app/operations/hazards/
-service.py`'s `get_or_create_hazard_rule_config`, `app/commercial/
-service.py`'s `get_or_create_reconciliation_config`, and `app/
-development/component_types.py`'s `get_or_create_org_component_type`
-all share the same unprotected check-then-insert shape, but each seeds
-a *per-organisation* singleton row rather than a global one — the race
-window is two concurrent requests for the *same org's* first-ever
-touch of that one config, not every org's first touch colliding with
-every other org's the way signup's global catalogs did. Narrower and
-not caught by this concurrency test (each of its 10 workers is a
-different org, so no two of them ever race for the same org's row),
-but the same real bug in miniature. Left for a dedicated pass rather
-than rushed through alongside the global ones.
+**The narrower, per-organisation instances of the same pattern —
+closed the same day, the dedicated pass promised above.** Migration
+`0029_per_org_config_unique_constraints` adds the unique constraint
+each of these seven tables was always missing —
+`handover_readiness_check_weights`/`planned_investment_weights`/
+`repair_rule_configs`/`hazard_rule_configs` on `(organisation_id,
+<code column>)`, and the three true per-org singletons
+(`planned_investment_configs`/`compliance_status_configs`/
+`payment_reconciliation_configs`) on `organisation_id` alone — and,
+unlike migration 0028's global-catalog constraints (Postgres-only
+partial indexes with no SQLite equivalent), these are plain, fully
+portable constraints declared on the ORM models themselves too
+(`__table_args__ = (UniqueConstraint(...),)`, same convention
+`Plan.code`/`Role.code` already used), so SQLite's own test metadata
+now matches the real schema instead of silently diverging from it.
+
+All seven `get_or_create_*` functions (`app/development/service.py`'s
+`get_or_create_handover_readiness_weight`/`get_or_create_planned_
+investment_weight`/`get_or_create_planned_investment_config`,
+`app/operations/service.py`'s `get_or_create_repair_rule_config`,
+`app/operations/compliance/service.py`'s `get_or_create_status_
+config`, `app/operations/hazards/service.py`'s `get_or_create_hazard_
+rule_config`, `app/commercial/service.py`'s `get_or_create_
+reconciliation_config`) already used `.with_for_update()` — which,
+worth noting explicitly, only locks a row that *already exists* and
+does nothing for the actual race (two concurrent first-ever calls can
+both find nothing to lock and both attempt the insert) — now also wrap
+that insert in the same `begin_nested`/`IntegrityError`/re-read pattern
+as everywhere else. Verified against real Postgres: the normal,
+non-racing path (sign up, read a config, read it again) still returns
+the exact same row on repeat calls, not a duplicate.
+
+`app/development/component_types.py`'s `get_or_create_org_component_
+type` is the one function in the original list of eight left
+genuinely unfixed, not just deferred by oversight: it matches by
+fuzzy, case-insensitive, singular/plural-tolerant *name* (CSV import
+resolving free-text like "Boiler" against "Boilers"), not a clean
+exact-code lookup the other seven share — a correct fix needs a
+differently-shaped constraint (on a normalised name, not the raw
+`code` a name gets transformed into) and more thought than a
+mechanical application of the established pattern deserves. Still
+real, still narrow (two concurrent CSV imports creating a near-
+identical custom type name for the same org), left open deliberately.
+
+Full 380-test SQLite suite (now genuinely exercising these constraints
+too, not just the Postgres-only ones), the 9-test Postgres RLS suite,
+migration downgrade/upgrade round-trip, and offline
+`alembic upgrade head --sql` validation all green.
 
 ## Not yet done
 
@@ -3201,14 +3230,13 @@ punch list for whoever takes this toward a real pilot:
   tenant-scoped router, and both layers of architecture 01 §1's tenant
   isolation are genuinely active and proven end to end, not just
   app-layer alone.
-- **Seven per-organisation `get_or_create_*` functions share the same
-  unprotected check-then-insert race** a genuine concurrency test found
-  (and fixed) in five *global*-scope equivalents — see the dedicated
-  entry above for the full list and why the window is narrower (same
-  org, not any two orgs) but still real. A dedicated pass applying the
-  same `begin_nested`/`IntegrityError` pattern already established
-  elsewhere in this codebase, not a design question like the items
-  below.
+- ~~Seven per-organisation get_or_create_* functions share the same
+  unprotected check-then-insert race as the global ones a concurrency
+  test found.~~ **Closed** — see the dedicated migration
+  `0029_per_org_config_unique_constraints` entry above. One function,
+  `get_or_create_org_component_type`, stays open on purpose — it
+  matches by fuzzy name, not exact code, and needs a differently-shaped
+  fix than the mechanical one applied to the other seven.
 - **Real load testing against Postgres-backed infra** — spec §72's
   actual performance requirement (portfolios in the tens of
   thousands) is unverified; this sprint's concurrency smoke-check
