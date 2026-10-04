@@ -63,3 +63,86 @@ test("a Handover Readiness report generates and downloads as PDF", async ({ page
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("handover_readiness.pdf");
 });
+
+// COMPLIANCE_EXECUTIVE_SUMMARY is the other reports.board-gated report
+// type (app/reports/content.py's build_compliance_executive_summary_
+// report, covered by test_reports.py's permission test) that had no
+// E2E coverage — board-report.spec.ts only ever exercised its sibling,
+// Board Assurance. Leaving Building/Property at their "Whole portfolio"
+// default (same as the already-tested backend request shape with no
+// building_id/property_id) rather than picking one, since scoping
+// itself isn't what this test is proving.
+test("a Compliance Executive Summary report generates and downloads as PDF", async ({ page }) => {
+  await signUp(page, "E2E Compliance Report Org");
+
+  await page.goto("/properties");
+  await page.getByLabel("Address").fill("E2E Compliance Report Property");
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.getByText("E2E Compliance Report Property")).toBeVisible();
+
+  await page.goto("/reports");
+  await page.getByLabel("Report").selectOption({ label: "Compliance Executive Summary" });
+  await page.getByLabel("Format").selectOption({ label: "PDF" });
+  await page.getByRole("button", { name: "Generate report" }).click();
+
+  await expect(page.getByText("PENDING")).toBeVisible();
+  await expect(page.getByText("READY")).toBeVisible({ timeout: 20_000 });
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("compliance_executive_summary.pdf");
+});
+
+// COMMERCIAL_PORTFOLIO is the fifth and last report type
+// (build_commercial_portfolio_report) and had no E2E coverage either —
+// its period is a fixed "current month to date" the page computes
+// itself (ReportsPage's NEEDS_PERIOD branch is read-only, not a form
+// field), so this only needs a real lease + rent obligation on the
+// books, same UI flow as commercial-arrears.spec.ts, for the report to
+// have real collection-rate content to show.
+test("a Commercial Portfolio report generates and downloads as CSV", async ({ page }) => {
+  await signUp(page, "E2E Commercial Report Org");
+
+  await page.goto("/properties");
+  await page.getByLabel("Address").fill("E2E Commercial Report Unit");
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.getByText("E2E Commercial Report Unit")).toBeVisible();
+
+  await page.goto("/tenancies");
+  await page.getByLabel("Name", { exact: true }).fill("E2E Commercial Report Tenant Ltd");
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.getByText("E2E Commercial Report Tenant Ltd")).toBeVisible();
+
+  await page.goto("/leases");
+  await page.getByLabel("Property").selectOption({ label: "E2E Commercial Report Unit" });
+  await page.getByLabel("Tenant").selectOption({ label: "E2E Commercial Report Tenant Ltd" });
+  await page.getByLabel("Start").fill("2026-01-01");
+  await page.getByLabel("Expiry").fill("2031-01-01");
+  await page.getByLabel("Rent (£)").fill("2500");
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.getByText(/LSE-\d+/)).toBeVisible();
+
+  const today = new Date();
+  const periodStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  await page.goto("/rent-and-payments");
+  await page.getByLabel("Type").selectOption({ label: "RENT" });
+  await page.getByLabel("Due date").fill(periodStart);
+  await page.getByLabel("Period start").fill(periodStart);
+  await page.getByLabel("Period end").fill(today.toISOString().slice(0, 10));
+  await page.locator("#obligation-amount").fill("2500");
+  await page.getByRole("button", { name: "Add" }).click();
+
+  await page.goto("/reports");
+  await page.getByLabel("Report").selectOption({ label: "Commercial Portfolio" });
+  await page.getByLabel("Format").selectOption({ label: "CSV" });
+  await page.getByRole("button", { name: "Generate report" }).click();
+
+  await expect(page.getByText("PENDING")).toBeVisible();
+  await expect(page.getByText("READY")).toBeVisible({ timeout: 20_000 });
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("commercial_portfolio.csv");
+});

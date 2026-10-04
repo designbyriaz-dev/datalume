@@ -3724,20 +3724,25 @@ punch list for whoever takes this toward a real pilot:
   entry above), the one acceptance-test item in either list that still
   needs real design work rather than a quick form or test fix.
   ~~Generating a handover report was never actually a gap —
-  `HANDOVER_READINESS` is a real, backend-tested report type (see
-  `test_reports.py`) that simply hasn't been given its own Playwright
-  spec yet~~ **Closed** — `apps/web/e2e/reports.spec.ts` now has a
-  second test alongside the original Development Summary one:
-  generates a Handover Readiness report as PDF (rather than CSV, for
-  some format diversity across the suite) against a real development,
-  watches the same worker-driven PENDING -> READY transition, and
-  downloads the file. `HANDOVER_READINESS` needs no building/property
-  filter fields (unlike `BOARD_ASSURANCE`/
-  `COMPLIANCE_EXECUTIVE_SUMMARY`), so the test is otherwise identical
-  in shape to the existing one. All 31 Playwright specs green. The
-  50-step acceptance suite as a whole still covers a real first slice,
-  not every step named across spec §76-78 — this closes one named gap
-  within it, not the whole list.
+  `HANDOVER_READINESS` is a real, backend-tested report type that
+  simply hasn't been given its own Playwright spec yet~~ **Closed, and
+  so are the other two report types that had the same gap.** All 5
+  report types (`app/reports/models.py`'s `ReportType` — `DEVELOPMENT_
+  SUMMARY`, `BOARD_ASSURANCE`, `HANDOVER_READINESS`,
+  `COMPLIANCE_EXECUTIVE_SUMMARY`, `COMMERCIAL_PORTFOLIO`) now have
+  real E2E coverage: `apps/web/e2e/reports.spec.ts` carries Development
+  Summary (original), Handover Readiness, Compliance Executive Summary,
+  and Commercial Portfolio; `board-report.spec.ts` carries Board
+  Assurance. Each follows the same worker-driven PENDING -> READY ->
+  download shape; Compliance Executive Summary and Commercial
+  Portfolio needed real supporting data first (a property; a lease +
+  rent obligation within the report's own "current month to date"
+  window, reusing `commercial-arrears.spec.ts`'s exact UI flow) for
+  their content to be non-trivial, same as the others. All 33
+  Playwright specs green. The 50-step acceptance suite as a whole
+  still covers a real first slice, not every step named across spec
+  §76-78 — this closes the reports-generation slice of it completely,
+  not the whole list.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
