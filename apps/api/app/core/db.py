@@ -72,6 +72,12 @@ def _reset_tenant_context(dbapi_connection, connection_record, reset_state):
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute("RESET app.current_org_id")
+        # app.current_user_id (app/core/tenancy.py's _set_current_user_
+        # context, migration 0027) is the same connection-scoped GUC
+        # pattern, for the same reason — memberships' RLS policy reads
+        # it to let a user see their own cross-org membership rows, and
+        # it needs the same reset-on-checkin or it leaks the same way.
+        cursor.execute("RESET app.current_user_id")
     finally:
         cursor.close()
     # RESET runs inside whatever transaction block is already open on

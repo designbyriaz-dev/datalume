@@ -3064,34 +3064,49 @@ Two more bugs surfaced doing this properly:
    contention.
 
 **One more real, structurally different bug found via this drill's own
-after-the-fact verification, not fixed:** `GET /api/v1/auth/me`
-(`app/auth/router.py`) queries `memberships` filtered by `user_id`
-alone, deliberately spanning every organisation the signed-in user
-belongs to — the workspace-switcher list. `memberships` is RLS-
-protected, and there is no single organisation to scope this query to;
-scoping it to any one org would make the user's *other* orgs
-disappear from their own switcher. Post-restore, logging in via the
-real demo credentials and calling the real `/me` endpoint returned
-`memberships: []` even though both the row and a correctly-scoped
-`GET /api/v1/properties` for that same org worked fine — proving the
-backup/restore itself is sound and isolating this as a separate,
-genuine gap. Same underlying shape as the worker jobs finding above
-(a legitimate cross-tenant access pattern RLS-as-designed doesn't
-support) but worse: the worker can reasonably loop over every
-organisation once a day, but `/me` runs on every login and page load,
-so "loop over every org in the system checking membership" doesn't
-scale here the way it does for a nightly job. The bounded fix that
-doesn't need a new Postgres role or deployment credential: widen
-`memberships`' own RLS policy with an additional `OR user_id =
-current_setting('app.current_user_id', true)::uuid` clause (a new
-migration) and set that second session variable in `get_current_user`
-— a user's own membership rows become visible regardless of org
-context, without weakening what any org-scoped "list my organisation's
-members" query can see, since that path stays additionally filtered by
-`organisation_id` at the app layer exactly as it already is. Not
-implemented without checking first — it's a real schema/policy change,
-not a quick fix, same reasoning as leaving the worker's BYPASSRLS
-question open rather than guessing.
+after-the-fact verification — closed the same day, once asked for.**
+`GET /api/v1/auth/me` (`app/auth/router.py`) queries `memberships`
+filtered by `user_id` alone, deliberately spanning every organisation
+the signed-in user belongs to — the workspace-switcher list.
+`memberships` is RLS-protected, and there is no single organisation to
+scope this query to; scoping it to any one org would make the user's
+*other* orgs disappear from their own switcher. Post-restore, logging
+in via the real demo credentials and calling the real `/me` endpoint
+returned `memberships: []` even though both the row and a correctly-
+scoped `GET /api/v1/properties` for that same org worked fine —
+proving the backup/restore itself was sound and isolating this as a
+separate, genuine gap. Same underlying shape as the worker jobs
+finding earlier in this stretch (a legitimate cross-tenant access
+pattern RLS-as-designed doesn't support) but worse there: the worker
+can reasonably loop over every organisation once a day, but `/me` runs
+on every login and page load, so "loop over every org in the system
+checking membership" doesn't scale here the way it does for a nightly
+job.
+
+Fixed without a new Postgres role or deployment credential: migration
+`0027_memberships_own_rows_visible` widens `memberships`' own RLS
+policy with `OR user_id = current_setting('app.current_user_id',
+true)::uuid`, and `app/core/tenancy.py`'s `get_current_user` now sets
+that second session variable (same connection-scoped `set_config`
+pattern as `app.current_org_id`, same `"reset"` pool-event listener
+clearing it on checkin) the moment a session cookie resolves to a real
+user — before any organisation is chosen, exactly when `/me` runs. A
+user's own membership rows become visible regardless of org context
+without weakening anything: `organisations/router.py`'s `list_members`
+(an org's own roster) stays additionally filtered by `organisation_id`
+at the app layer exactly as before, so the OR clause can only ever add
+visibility for the asking user's *own* rows, never let one org see
+another's roster.
+
+New test `test_me_shows_a_users_own_memberships_without_leaking_
+anyone_elses` proves both directions against real Postgres: two real
+users, two real orgs — each user's own `/me` shows exactly their own
+org (the bug, now fixed) and neither user's membership row ever
+appears in the other's data, including the other org's own member
+roster (the risk a careless fix could have introduced).
+`app/tests/test_rls_postgres.py` is now 8 tests; full 380-test SQLite
+suite, migration downgrade/upgrade round-trip, and offline
+`alembic upgrade head --sql` validation all still pass.
 
 ## Not yet done
 
@@ -3118,16 +3133,10 @@ punch list for whoever takes this toward a real pilot:
   storage* versioning half stays open — that's genuinely Azure-side
   infra-managed tooling, not application code, and there's still no
   real cloud storage in this sandbox to drill against.
-- **A genuine RLS gap found by the backup drill's own verification,
-  not fixed:** `GET /api/v1/auth/me` needs a user's memberships across
-  every org they belong to (the workspace switcher) — a legitimately
-  cross-tenant query for one user that the current RLS policy on
-  `memberships` can't support without either a new Postgres role or a
-  widened policy (`OR user_id = current_setting('app.current_user_id',
-  true)::uuid`, a real migration). See the dedicated entry above for
-  the bounded fix that doesn't need a new deployment credential — a
-  real schema/policy change, left for the user to decide rather than
-  guessed at.
+- ~~A genuine RLS gap found by the backup drill's own verification:
+  GET /auth/me needs a user's memberships across every org they
+  belong to.~~ **Closed** — see the dedicated migration
+  `0027_memberships_own_rows_visible` entry above.
 - **Full OTel/Sentry wiring to a real collector** — architecture §3
   names both; this sprint built the structured-logging half for real
   (see above) since it's independently valuable and fully verifiable

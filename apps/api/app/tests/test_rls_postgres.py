@@ -365,3 +365,65 @@ def test_many_sequential_requests_each_commit_and_refresh_correctly(pg_client):
 
     list_resp = pg_client.get("/api/v1/developments", headers={"X-Organisation-Id": org_id})
     assert len(list_resp.json()) == 5
+
+
+def test_me_shows_a_users_own_memberships_without_leaking_anyone_elses(pg_client):
+    """migration 0027's own real-world trigger: logging in against a
+    freshly backup-restored database and calling the real /me endpoint
+    returned memberships: [] — memberships is RLS-protected and /me's
+    own query deliberately has no single organisation to scope to (it
+    spans every org the user belongs to, for the workspace switcher).
+    Proves both directions of the fix: a user's own cross-org
+    memberships become visible (the bug), and this doesn't leak into
+    either another user's own /me or an org's member roster (the risk
+    a less careful fix could have introduced — organisations/
+    router.py's list_members stays additionally filtered by
+    organisation_id at the app layer regardless of what memberships'
+    RLS policy allows through)."""
+    password = "correct-horse-battery"
+    email_a = f"rls-me-a-{uuid.uuid4().hex[:12]}@example.com"
+    email_b = f"rls-me-b-{uuid.uuid4().hex[:12]}@example.com"
+
+    signup_a = pg_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "User A",
+            "email": email_a,
+            "password": password,
+            "organisation_name": "RLS Me Fix Org A",
+            "organisation_type": "HOUSING_ASSOCIATION",
+            "goals": [],
+        },
+    )
+    org_a_id = signup_a.json()["organisation_id"]
+
+    signup_b = pg_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "User B",
+            "email": email_b,
+            "password": password,
+            "organisation_name": "RLS Me Fix Org B",
+            "organisation_type": "HOUSING_ASSOCIATION",
+            "goals": [],
+        },
+    )
+    org_b_id = signup_b.json()["organisation_id"]
+
+    # Still signed in as User B (the TestClient's one cookie jar) — the
+    # bug this migration fixes: User B's own /me must show their own
+    # Org B membership, not an empty list.
+    me_b = pg_client.get("/api/v1/auth/me").json()
+    assert [m["organisation_id"] for m in me_b["memberships"]] == [org_b_id]
+
+    # Switch back to User A and confirm the same holds for them, with
+    # no sign of User B's membership anywhere in it.
+    pg_client.post("/api/v1/auth/login", json={"email": email_a, "password": password})
+    me_a = pg_client.get("/api/v1/auth/me").json()
+    assert [m["organisation_id"] for m in me_a["memberships"]] == [org_a_id]
+
+    # The no-leak direction: Org A's own member roster must show only
+    # User A — the widened memberships policy must never let User B's
+    # row bleed into a query that's scoped to Org A.
+    roster = pg_client.get("/api/v1/organisations/members", headers={"X-Organisation-Id": org_a_id})
+    assert [m["email"] for m in roster.json()] == [email_a]

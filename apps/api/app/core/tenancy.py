@@ -26,6 +26,20 @@ def hash_session_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _set_current_user_context(db: Session, user_id: uuid.UUID) -> None:
+    """Sets app.current_user_id — read by memberships' own RLS policy
+    (migration 0027) alongside app.current_org_id, specifically so a
+    user can see their own membership rows across every organisation
+    they belong to (GET /auth/me's workspace-switcher list) without an
+    org context to scope TenantScopedSession to. Same connection-scoped
+    set_config pattern as TenantScopedSession (app/core/db.py's own
+    "reset" pool-event listener resets this GUC too, for the same
+    leak-between-requests reason) and the same SQLite no-op guard."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(text("SELECT set_config('app.current_user_id', :user_id, false)"), {"user_id": str(user_id)})
+
+
 @dataclass
 class AuthContext:
     user: User
@@ -47,6 +61,7 @@ def get_current_user(
     user = db.get(User, uuid.UUID(user_id))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+    _set_current_user_context(db, user.id)
     return user
 
 
