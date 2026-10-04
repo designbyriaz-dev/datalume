@@ -93,13 +93,26 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
+    # The official postgres image's own POSTGRES_USER becomes the
+    # initdb superuser — and RLS (FORCE ROW LEVEL SECURITY included)
+    # never applies to a superuser, full stop, no exception. Using that
+    # directly as the app's DATABASE_URL role would make every policy a
+    # silent no-op, which is exactly what happened the first time this
+    # job ran (see commit history: all three assertions in
+    # test_a_tenant_scoped_session_only_sees_its_own_organisations_rows
+    # passed locally against a genuine non-superuser role, then failed
+    # here against the bootstrap superuser). The service stays on the
+    # default postgres/postgres superuser for bootstrapping only; a
+    # dedicated step below creates `datalume` as a real, unprivileged
+    # LOGIN role and database, matching what a real deployment must
+    # also do — the app's own connection role should never be a
+    # superuser, or this same silent bypass applies in production too.
     services:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: datalume
-          POSTGRES_PASSWORD: datalume
-          POSTGRES_DB: datalume
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
         options: >-
@@ -115,5 +128,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
+      - name: Create non-superuser app role and database
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c \
+            "CREATE ROLE datalume LOGIN PASSWORD 'datalume';"
+          PGPASSWORD=postgres psql -h localhost -U postgres -c \
+            "CREATE DATABASE datalume OWNER datalume;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c \
+            "SELECT rolname, rolsuper FROM pg_roles WHERE rolname = 'datalume';"
       - run: python -m alembic upgrade head
       - run: pytest -q app/tests/test_rls_postgres.py
