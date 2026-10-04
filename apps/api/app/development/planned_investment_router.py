@@ -12,8 +12,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.models import Component
 from app.development.planned_investment import compute_investment_priority, list_planned_investment
 from app.development.schemas import (
@@ -47,7 +46,7 @@ def _get_org_component(db: Session, organisation_id: uuid.UUID, component_id: uu
 def get_component_planned_investment(
     component_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -64,7 +63,7 @@ def get_planned_investment_list(
     building_id: uuid.UUID | None = None,
     property_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -76,7 +75,7 @@ def get_planned_investment_list(
 @router.get("/api/v1/planned-investment-weights", response_model=list[PlannedInvestmentWeightOut])
 def get_planned_investment_weights(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -94,7 +93,7 @@ def update_planned_investment_weight(
     factor_code: str,
     payload: UpdatePlannedInvestmentWeightRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     from app.development.planned_investment import FACTOR_LABELS
 
@@ -110,7 +109,7 @@ def update_planned_investment_weight(
 @router.get("/api/v1/planned-investment-config", response_model=PlannedInvestmentConfigOut)
 def get_planned_investment_config(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -124,7 +123,7 @@ def get_planned_investment_config(
 def update_planned_investment_config(
     payload: UpdatePlannedInvestmentConfigRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     config = set_planned_investment_config(
         db,

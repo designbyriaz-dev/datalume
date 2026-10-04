@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db
 from app.data_health.rules import run_data_health_checks
 from app.data_health.schemas import CheckSummary, DataHealthOut, FindingOut
 
@@ -12,7 +11,7 @@ router = APIRouter(prefix="/api/v1/data-health", tags=["data-health"])
 @router.get("", response_model=DataHealthOut)
 def get_data_health(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

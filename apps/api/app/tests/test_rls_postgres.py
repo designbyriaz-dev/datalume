@@ -26,13 +26,16 @@ import os
 import uuid
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 
+import app.core.db as db_module
 from app.core.provenance import SourceType
 from app.core.tenancy import TenantScopedSession
 from app.development.models import Property
+from app.main import app
 from app.organisations.models import Organisation, OrganisationType
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -67,6 +70,86 @@ def pg_session():
     finally:
         session.rollback()
         session.close()
+
+
+@pytest.fixture()
+def pg_client(monkeypatch, tmp_path):
+    """Same shape as conftest.py's SQLite `client` fixture (fake Redis,
+    local-disk document storage), but bound to the real Postgres this
+    module already requires — so a real HTTP request through a real
+    router, via get_tenant_db, can be proven end to end, not just the
+    lower-level TenantScopedSession mechanism the tests above exercise
+    directly."""
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(db_module, "SessionLocal", SessionLocal)
+
+    def override_get_db():
+        session = SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[db_module.get_db] = override_get_db
+
+    class FakeRedis:
+        def __init__(self):
+            self.store = {}
+
+        def set(self, key, value, ex=None):
+            self.store[key] = value
+
+        def get(self, key):
+            return self.store.get(key)
+
+        def expire(self, key, ttl):
+            pass
+
+        def delete(self, key):
+            self.store.pop(key, None)
+
+    import app.auth.router as auth_router_module
+    import app.core.request_logging as request_logging_module
+    import app.core.tenancy as tenancy_module
+
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(tenancy_module, "redis_client", fake_redis)
+    monkeypatch.setattr(auth_router_module, "redis_client", fake_redis)
+    monkeypatch.setattr(request_logging_module, "redis_client", fake_redis)
+
+    import app.documents.router as documents_router_module
+    import app.ingestion.router as ingestion_router_module
+    import app.reports.router as reports_router_module
+    import app.reports.service as reports_service_module
+    from app.integrations.storage import LocalFilesystemStorage
+
+    test_storage = LocalFilesystemStorage(tmp_path / "storage")
+    monkeypatch.setattr(documents_router_module, "get_document_storage", lambda: test_storage)
+    monkeypatch.setattr(ingestion_router_module, "get_document_storage", lambda: test_storage)
+    monkeypatch.setattr(reports_service_module, "get_document_storage", lambda: test_storage)
+    monkeypatch.setattr(reports_router_module, "get_document_storage", lambda: test_storage)
+
+    with TestClient(app) as c:
+        yield c
+
+    app.dependency_overrides.clear()
+
+
+def _signup(pg_client, org_name: str) -> str:
+    resp = pg_client.post(
+        "/api/v1/auth/signup",
+        json={
+            "name": "RLS E2E Tester",
+            "email": f"rls-e2e-{uuid.uuid4().hex[:12]}@example.com",
+            "password": "correct-horse-battery",
+            "organisation_name": org_name,
+            "organisation_type": "HOUSING_ASSOCIATION",
+            "goals": [],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["organisation_id"]
 
 
 def _make_org(pg_session, name: str) -> Organisation:
@@ -127,7 +210,15 @@ def test_rls_fails_closed_with_no_tenant_context_set(pg_session):
     TenantScopedSession wrapper) must see nothing — not everything.
     Fail-closed is the only safe default for a multi-tenant system;
     this is what stops a code path that forgets to scope a query from
-    becoming a cross-tenant data leak instead of an empty result."""
+    becoming a cross-tenant data leak instead of an empty result.
+
+    Uses a genuinely separate engine/connection from pg_session's own —
+    TenantScopedSession sets app.current_org_id connection-scoped, not
+    transaction-scoped (see its own docstring for why), so it would
+    still be set on pg_session's own connection even after a commit;
+    the real guarantee under test is that a connection nobody has ever
+    scoped sees nothing, not that one commit un-scopes a connection
+    that was."""
     org_a = _make_org(pg_session, "RLS Fail-Closed Test Org")
     scoped_a = TenantScopedSession(pg_session, org_a.id)
     scoped_a.db.add(
@@ -135,7 +226,112 @@ def test_rls_fails_closed_with_no_tenant_context_set(pg_session):
     )
     pg_session.commit()
 
-    # A fresh connection/transaction with app.current_org_id unset —
-    # SET LOCAL is transaction-scoped, so committing above already
-    # ended the prior transaction's setting.
-    assert pg_session.query(Property).filter(Property.property_reference == "RLS-FC-1").all() == []
+    fresh_engine = create_engine(DATABASE_URL)
+    FreshSessionLocal = sessionmaker(bind=fresh_engine, autoflush=False, autocommit=False)
+    fresh_session = FreshSessionLocal()
+    try:
+        assert fresh_session.query(Property).filter(Property.property_reference == "RLS-FC-1").all() == []
+    finally:
+        fresh_session.close()
+        fresh_engine.dispose()
+
+
+def test_rls_context_does_not_leak_to_a_connection_reused_by_a_different_org():
+    """The other half of the connection-scoped tradeoff: a pooled
+    connection that WAS scoped to Org A must not carry that into
+    whichever later caller reuses it next, unless that caller sets its
+    own context first — app/core/db.py's "reset" pool-event listener is
+    what's supposed to guarantee this. Uses app.core.db.engine itself
+    (not a throwaway engine of this test's own) — the listener is
+    registered on that specific Engine instance, so a separately
+    constructed one would prove nothing about the real app's behaviour.
+    Forces the same physical connection to be reused by checking it
+    back into the pool (Session.close()) and acquiring a new Session
+    from the same engine with nothing else competing for a connection
+    in between — QueuePool hands back the most recently returned
+    connection first when only one is checked out at a time."""
+    import app.core.db as db_module
+
+    SessionLocal = sessionmaker(bind=db_module.engine, autoflush=False, autocommit=False)
+
+    first = SessionLocal()
+    org_a = _make_org(first, "RLS Reset Test Org A")
+    scoped_a = TenantScopedSession(first, org_a.id)
+    scoped_a.db.add(
+        Property(id=uuid.uuid4(), organisation_id=org_a.id, property_reference="RLS-RESET-1", address="x", source_type=SourceType.MANUAL)
+    )
+    first.commit()
+    first.close()  # returns the connection to the pool — must trigger the reset listener
+
+    second = SessionLocal()
+    try:
+        # No TenantScopedSession on `second` at all — if the reset
+        # listener didn't run, this connection would still think it's
+        # Org A and leak Org A's row to whatever unrelated query runs
+        # here next.
+        assert second.query(Property).filter(Property.property_reference == "RLS-RESET-1").all() == []
+    finally:
+        second.close()
+
+
+def test_a_real_api_request_through_a_real_router_is_rls_scoped(pg_client):
+    """The other tests above drive TenantScopedSession directly — real,
+    but one level removed from proving get_tenant_db is actually wired
+    into a router's FastAPI dependency chain for a genuine HTTP request.
+    This drives the full real path: two real signups, a real POST
+    through app/development/router.py's add_property (Depends
+    (get_tenant_db) as of this change), and a real GET as a different
+    org's user — proving the wiring itself, not just the mechanism."""
+    org_a_id = _signup(pg_client, "RLS E2E Org A")
+    create_resp = pg_client.post(
+        "/api/v1/properties", headers={"X-Organisation-Id": org_a_id}, json={"address": "RLS E2E Org A's property"}
+    )
+    assert create_resp.status_code == 201, create_resp.text
+
+    # A real property, genuinely visible to the org that owns it.
+    own_list = pg_client.get("/api/v1/properties", headers={"X-Organisation-Id": org_a_id})
+    assert len(own_list.json()) == 1
+
+    # A second real signup — a different user, different organisation,
+    # same physical properties table. The new session cookie replaces
+    # the first (TestClient keeps one cookie jar), exactly like a
+    # second real browser logging in as someone else.
+    org_b_id = _signup(pg_client, "RLS E2E Org B")
+    cross_tenant_list = pg_client.get("/api/v1/properties", headers={"X-Organisation-Id": org_b_id})
+    assert cross_tenant_list.status_code == 200
+    assert cross_tenant_list.json() == []
+
+
+def test_report_worker_processes_a_job_created_through_a_real_request(pg_client):
+    """report_jobs is RLS-protected, and the worker's own job-discovery
+    query (process_pending_report_jobs) has no single organisation to
+    scope to — it serves every org on each tick — so before the fix in
+    app/worker/jobs/report_generation.py, this query silently returned
+    nothing, for any organisation, forever: a report requested through
+    the real API would sit PENDING and never move, with no error
+    anywhere. Proves the actual fix: a real job, requested through a
+    real HTTP request, genuinely gets picked up and finished by the
+    real worker function run directly against this same database."""
+    org_id = _signup(pg_client, "RLS Report Worker Org")
+    resp = pg_client.post(
+        "/api/v1/reports",
+        headers={"X-Organisation-Id": org_id},
+        json={"report_type": "DEVELOPMENT_SUMMARY", "format": "CSV"},
+    )
+    assert resp.status_code == 201, resp.text
+    job_id = resp.json()["id"]
+    assert resp.json()["status"] == "PENDING"
+
+    from app.worker.jobs.report_generation import process_pending_report_jobs
+
+    engine = create_engine(DATABASE_URL)
+    worker_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
+    try:
+        result = process_pending_report_jobs(worker_session)
+        assert result.jobs_processed >= 1
+    finally:
+        worker_session.close()
+        engine.dispose()
+
+    status_resp = pg_client.get(f"/api/v1/reports/{job_id}", headers={"X-Organisation-Id": org_id})
+    assert status_resp.json()["status"] == "READY"

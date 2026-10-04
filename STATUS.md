@@ -2895,6 +2895,120 @@ runs `test_rls_postgres.py` against a real `postgres:16` service
 container on every push from here on, so this verification — and this
 specific gap — won't silently regress or go unnoticed again.
 
+**Post-Sprint-24 — get_tenant_db wired into all 25 routers; RLS is now
+genuinely active on every real request, not just correctly designed.**
+Converted `get_tenant_db` (`app/core/tenancy.py`) from returning a
+`TenantScopedSession` wrapper type to returning the same plain
+`Session` back (side effect only) — the one design choice that made
+this a mechanical, low-risk change: every tenant-scoped router's
+`db: Session = Depends(get_db)` becomes `Depends(get_tenant_db)` with
+no service function signature, no `.add()`/`.flush()`/`.commit()`/
+`.get()` call site anywhere needing to change. An AST-based scan
+(`scripts/classify_tenant_db_usage.py`, throwaway) classified every one
+of 163 `Depends(get_db)` call sites across all 25 routers by whether an
+`AuthContext`/`organisation_id` dependency shared the same function
+signature: 151 converted, 12 genuinely stayed on `get_db` — all of
+`auth/router.py` (signup/login/MFA, no org context yet by definition),
+`platform/router.py`'s `/plans` catalog and Stripe webhook, and
+`organisations/router.py`'s invitation-lookup/accept (a visitor
+following a link has no membership yet either).
+
+Actually wiring this in — not just making it compile — surfaced four
+more real, previously-invisible bugs, each only reachable once a
+request actually tried to exercise RLS for real for the first time:
+
+1. `TenantScopedSession` used `set_config(..., is_local=true)` —
+   transaction-scoped, matching `SET LOCAL`'s own semantics. This
+   codebase commits mid-request in several places (e.g.
+   `development/router.py`'s `add_property`: `db.commit()` then
+   `db.refresh(prop)`) — the instant that first commit runs, the
+   tenant context resets, and the next query silently has none again.
+   Fixed by switching to `is_local=false` (connection-scoped, survives
+   the rest of the request's connection checkout) — which immediately
+   raises the pooled-connection question below.
+2. A connection-scoped setting outlives the request that set it,
+   because connection pooling means a *later, unrelated* request can
+   be handed that same physical connection next — without an explicit
+   reset, one request's organisation_id would leak into whichever
+   request reuses its connection. Fixed with a `"reset"` pool-event
+   listener (`app/core/db.py`) that runs `RESET app.current_org_id` on
+   every connection checkin, for every connection, the same way a
+   connection pool should never leak any other kind of per-request
+   state. (Caught a second bug building this: `RESET` runs inside
+   whatever transaction is already open at checkin time, not as an
+   autocommitted statement — the listener's `RESET` silently had zero
+   effect until an explicit `dbapi_connection.commit()` was added
+   right after it; confirmed by hand before and after.)
+3. Signup and accept-invitation both write rows into RLS-protected
+   tables (`workspaces`, `subscriptions`, `memberships`,
+   `audit_events`) through a deliberately unscoped `get_db` session —
+   correct, since neither flow has an established tenant context yet
+   (signup is creating the org; accept-invitation's caller has no
+   membership yet either). But both bugs are the literal "chicken and
+   egg" RLS problem: no context means every one of those inserts hits
+   "new row violates row-level security policy", for real, the first
+   time either flow ever ran against real Postgres. Fixed by scoping to
+   the organisation (signup: right after the new `Organisation` row is
+   flushed and has a real id; accept-invitation: to the already-
+   existing `invitation.organisation_id`) before writing anything else
+   in the same transaction.
+4. The same bootstrap problem, one level more fundamental: `get_auth_
+   context` itself — the function that resolves `ctx.organisation_id`
+   for literally every authenticated, org-scoped request — queried the
+   RLS-protected `memberships` table with no tenant context, because it
+   *is* the function that was supposed to establish one. This meant no
+   authenticated, org-scoped request could ever have succeeded against
+   real Postgres, full stop — every single one would 403 immediately
+   with "No active membership for this organisation", regardless of
+   whether the membership genuinely existed. Fixed by scoping to the
+   *claimed* `x_organisation_id` from the request header before running
+   the membership check — safe, since that check is exactly what
+   decides whether the claim is legitimate; RLS can only narrow what
+   the existing `.filter(...)` already required, never widen it.
+5. Stripe billing reads subscriptions through the same RLS-blocked
+   pattern in two places: the webhook handler's
+   `_find_subscription_by_organisation_id` (silently returns `None` for
+   a real, matching subscription — webhook processing looks like it
+   succeeds while doing nothing) and `_get_subscription_row` (opens its
+   *own* fresh, separately-unscoped `SessionLocal()`, bypassing
+   whatever tenant context the calling request's own session already
+   had — `create_billing_portal_session` would reject a genuinely
+   active customer as "no billing customer yet"). Both fixed by scoping
+   to the already-known `organisation_id` (parsed from the webhook
+   payload, or passed in directly) before querying.
+6. The background worker's three jobs (`run_attention_scan_for_all_
+   organisations`, `process_pending_report_jobs`,
+   `process_pending_import_jobs`) all poll across every organisation in
+   one tick — by design, there's no single org to scope the whole call
+   to. Their job-discovery queries hit RLS-protected tables
+   (`attention_rules`/`attention_signals`/`repairs`/`hazards`/... for
+   the scan; `report_jobs`/`import_jobs` for the other two) with no
+   context at all. Before this fix, **report generation and CSV import
+   processing had never actually worked against real Postgres** — every
+   report would sit `PENDING`, every upload `MAPPED`, forever, with no
+   error anywhere, because the worker's own "find pending work" query
+   silently returned nothing every tick, for every organisation. Fixed
+   the same way in all three: list organisations first (`organisations`
+   itself carries no RLS policy, so this query was always safe), then
+   scope to each in turn before querying that org's own share of the
+   work — report/import jobs gained an explicit per-org loop
+   (previously one global query); the attention scan already had one,
+   it just never scoped inside it.
+
+`app/tests/test_rls_postgres.py` grew from 3 tests to 9, including two
+that exist specifically because they failed first and caught real bugs
+above, not because they were planned: `test_rls_context_does_not_leak_
+to_a_connection_reused_by_a_different_org` (bug 2) and `test_a_real_
+api_request_through_a_real_router_is_rls_scoped` (bugs 3/4, driving two
+real signups and a real POST through `add_property` end to end) plus
+`test_report_worker_processes_a_job_created_through_a_real_request`
+(bug 6 — a real report request via HTTP, then the real worker function
+run directly against the same database, asserting it actually reaches
+`READY`). Full 380-test SQLite suite and all 30 Playwright specs still
+pass unaffected — every fix here is additive/corrective to the
+Postgres-only code path, gated the same way `TenantScopedSession`
+already was.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2902,26 +3016,12 @@ what Sprint 24 itself found couldn't be done for real in this sandbox,
 plus what earlier sprints already flagged — not a "next sprint," a
 punch list for whoever takes this toward a real pilot:
 
-- **The Postgres RLS *policies* are now verified for real — see the
-  dedicated entry below — but RLS is not actually active on any real
-  request.** `get_tenant_db`/`TenantScopedSession` (`app/core/
-  tenancy.py`) is the only code that ever sets the `app.current_org_id`
-  session variable every policy depends on, and it is used by **zero
-  of this app's 25 routers** — every one of them injects `Depends
-  (get_db)` directly, not `Depends(get_tenant_db)`. `app/core/db.py`'s
-  own docstring claims "every domain route uses get_tenant_db instead"
-  — that claim is false as of this writing. Tenant isolation in the
-  actually-running application today is enforced by the application
-  layer alone (the per-query `organisation_id` filtering the tenant-
-  isolation test suite above checks) — a real, tested defense, but
-  only one of the architecture's claimed two layers. Wiring RLS in for
-  real means either making `TenantScopedSession` a complete `Session`
-  drop-in (it currently only exposes `.query()`, not `.add()`/
-  `.flush()`/`.commit()`/`.get()`, so every router can't just swap one
-  `Depends(...)` for the other without also auditing every service
-  function's session usage) or some other retrofit — a genuinely large,
-  cross-cutting change touching all 25 routers, not a quick fix. Left
-  for the user to decide how to proceed given its size.
+- ~~RLS is correctly designed but not actually active on any real
+  request (get_tenant_db unused by all 25 routers).~~ **Closed** — see
+  the dedicated entry below. `get_tenant_db` is now wired into every
+  tenant-scoped router, and both layers of architecture 01 §1's tenant
+  isolation are genuinely active and proven end to end, not just
+  app-layer alone.
 - **Real load testing against Postgres-backed infra** — spec §72's
   actual performance requirement (portfolios in the tens of
   thousands) is unverified; this sprint's concurrency smoke-check

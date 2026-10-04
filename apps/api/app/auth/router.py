@@ -23,7 +23,7 @@ from app.auth.schemas import (
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import hash_password, new_session_token, verify_password
-from app.core.tenancy import hash_session_token, get_current_user, redis_client
+from app.core.tenancy import TenantScopedSession, hash_session_token, get_current_user, redis_client
 from app.organisations.models import Organisation, Workspace
 from app.platform.audit import record_audit_event
 from app.platform.billing import Subscription, SubscriptionStatus, TRIAL_LENGTH_DAYS, TRIAL_PLAN_CODE, get_or_create_plan
@@ -119,6 +119,18 @@ def signup(payload: SignupRequest, response: Response, db: Session = Depends(get
     )
     db.add(org)
     db.flush()
+
+    # Everything below this point belongs to the organisation that just
+    # got its id the line above — workspaces/subscriptions/memberships/
+    # audit_events are all RLS-protected tables (migrations 0001/0002)
+    # that fail closed with no app.current_org_id set, which is exactly
+    # the state at the top of this function (there is no tenant
+    # context yet — that's the whole point of signup). Scoping the rest
+    # of this same transaction to the brand-new org, the moment it
+    # exists, is what makes every insert below pass RLS instead of
+    # hitting "new row violates row-level security policy" the first
+    # time this ever ran against real Postgres.
+    TenantScopedSession(db, org.id)
 
     db.add(Workspace(organisation_id=org.id, name="Default Workspace", workspace_type="DEFAULT"))
 

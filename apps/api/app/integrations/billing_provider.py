@@ -56,6 +56,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.tenancy import TenantScopedSession
 from app.organisations.models import Organisation
 from app.platform.billing import Plan, Subscription, SubscriptionStatus
 
@@ -195,11 +196,21 @@ class StripeBillingProvider:
         # only needs read access to look up a possibly-already-known
         # customer id, via app.core.db directly rather than threading a
         # db session through every Protocol method (only
-        # handle_webhook_event writes, so only it takes `db`).
+        # handle_webhook_event writes, so only it takes `db`). This
+        # fresh session has no tenant context of its own even when the
+        # *caller*'s request was already properly scoped (get_tenant_db
+        # only sets it on the session it hands back, not on every
+        # session created anywhere downstream) — subscriptions is
+        # RLS-protected, so without this, every call here silently
+        # returns None instead of erroring: create_billing_portal_session
+        # would reject a genuinely active customer as "no billing
+        # customer yet", and create_checkout_session would quietly stop
+        # reusing an existing Stripe customer id.
         from app.core.db import SessionLocal
 
         db = SessionLocal()
         try:
+            TenantScopedSession(db, organisation_id)
             return db.query(Subscription).filter(Subscription.organisation_id == organisation_id).first()
         finally:
             db.close()
@@ -212,6 +223,18 @@ def _find_subscription_by_organisation_id(db: Session, organisation_id_str: str 
         organisation_id = uuid.UUID(organisation_id_str)
     except ValueError:
         return None
+    # The webhook request itself carries no X-Organisation-Id header —
+    # it's Stripe's own server, not a DataLume user session — so
+    # `db` arrives here with no tenant context, and subscriptions is
+    # RLS-protected. Without this, the query below doesn't error, it
+    # just silently returns nothing every time (the fail-closed default
+    # every other RLS-protected read proves elsewhere in this
+    # codebase), making every Stripe webhook look like a harmless no-op
+    # "unknown org" case even when the subscription genuinely exists.
+    # organisation_id itself comes straight from the webhook payload
+    # (client_reference_id / metadata), not from this query, so it's
+    # safe to scope to before running it.
+    TenantScopedSession(db, organisation_id)
     return db.query(Subscription).filter(Subscription.organisation_id == organisation_id).first()
 
 

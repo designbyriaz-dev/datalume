@@ -9,9 +9,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.defects_intelligence import get_defects_intelligence
 from app.development.models import Defect
 from app.development.schemas import CreateDefectRequest, DefectOut, DefectsIntelligenceOut, UpdateDefectStatusRequest
@@ -36,7 +35,7 @@ def _get_org_defect(db: Session, organisation_id: uuid.UUID, defect_id: uuid.UUI
 def add_defect(
     payload: CreateDefectRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         defect = create_defect(
@@ -70,7 +69,7 @@ def update_defect_status_endpoint(
     defect_id: uuid.UUID,
     payload: UpdateDefectStatusRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     defect = _get_org_defect(db, ctx.organisation_id, defect_id)
     try:
@@ -95,7 +94,7 @@ def defects_intelligence(
     development_id: uuid.UUID | None = None,
     building_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -113,7 +112,7 @@ def list_defects(
     defect_status: str | None = None,
     warranty_related: bool | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -137,7 +136,7 @@ def list_defects(
 def get_defect(
     defect_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

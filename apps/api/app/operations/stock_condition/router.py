@@ -12,8 +12,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.operations.stock_condition.schemas import CreateStockConditionSurveyRequest, StockConditionSurveyOut
 from app.operations.stock_condition.service import StockConditionNotFoundError, create_survey, list_surveys
 
@@ -24,7 +23,7 @@ router = APIRouter(prefix="/api/v1/stock-condition-surveys", tags=["stock-condit
 def add_survey(
     payload: CreateStockConditionSurveyRequest,
     ctx: AuthContext = Depends(require_permission("operations.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         survey = create_survey(
@@ -49,7 +48,7 @@ def add_survey(
 def get_surveys(
     property_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

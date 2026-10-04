@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.core.uploads import read_upload_within_limit
 from app.documents.models import Document, DocumentStatus
 from app.documents.reference import next_document_reference
@@ -65,7 +64,7 @@ def upload_dataset(
     file: UploadFile = File(...),
     ctx: AuthContext = Depends(require_permission("uploads.write")),
     _entitled: AuthContext = Depends(require_entitlement("bulk_import")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if dataset_type not in FIELD_DICTIONARIES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown dataset_type: {dataset_type}")
@@ -153,7 +152,7 @@ def upload_dataset(
 @router.get("/datasets", response_model=list[DatasetOut])
 def list_datasets(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -169,7 +168,7 @@ def list_datasets(
 def get_dataset(
     dataset_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -211,7 +210,7 @@ def list_dataset_rows(
     limit: int = 100,
     offset: int = 0,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -235,7 +234,7 @@ def apply_dataset_mapping(
     dataset_id: uuid.UUID,
     payload: ApplyMappingRequest,
     ctx: AuthContext = Depends(require_permission("uploads.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     dataset = _get_org_dataset(db, ctx.organisation_id, dataset_id)
     job = _latest_job(db, dataset.id)
@@ -254,7 +253,7 @@ def apply_dataset_mapping(
 def trigger_dataset_import(
     dataset_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("uploads.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     """Enqueues the IMPORT step rather than running it inline (spec §72's
     "tens of thousands of properties" performance requirement) — flips

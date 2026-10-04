@@ -9,8 +9,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.models import ChangeControl
 from app.development.presenters import change_control_to_out, changes_to_out
 from app.development.schemas import ApproveChangeControlRequest, ChangeControlOut, SubmitChangeControlRequest
@@ -44,7 +43,7 @@ def _get_org_change_control(db: Session, organisation_id: uuid.UUID, change_cont
 def add_change_control(
     payload: SubmitChangeControlRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         change = submit_change_control(
@@ -69,7 +68,7 @@ def add_change_control(
 def start_review_endpoint(
     change_control_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     change = _get_org_change_control(db, ctx.organisation_id, change_control_id)
     try:
@@ -86,7 +85,7 @@ def approve_endpoint(
     change_control_id: uuid.UUID,
     payload: ApproveChangeControlRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     change = _get_org_change_control(db, ctx.organisation_id, change_control_id)
     try:
@@ -108,7 +107,7 @@ def approve_endpoint(
 def reject_endpoint(
     change_control_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     change = _get_org_change_control(db, ctx.organisation_id, change_control_id)
     try:
@@ -124,7 +123,7 @@ def reject_endpoint(
 def cancel_endpoint(
     change_control_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     change = _get_org_change_control(db, ctx.organisation_id, change_control_id)
     try:
@@ -140,7 +139,7 @@ def cancel_endpoint(
 def implement_endpoint(
     change_control_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     change = _get_org_change_control(db, ctx.organisation_id, change_control_id)
     try:
@@ -161,7 +160,7 @@ def list_change_control(
     related_entity_id: str | None = None,
     change_status: str | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -182,7 +181,7 @@ def list_change_control(
 def get_change_control(
     change_control_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

@@ -3,9 +3,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.models import Property, Space
 from app.development.presenters import properties_to_out, property_to_out
 from app.development.property_360 import get_property_360
@@ -43,7 +42,7 @@ def _get_org_property(db: Session, organisation_id: uuid.UUID, property_id: uuid
 def add_property(
     payload: CreatePropertyRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         prop = create_property(
@@ -76,7 +75,7 @@ def list_properties(
     development_id: uuid.UUID | None = None,
     building_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -93,7 +92,7 @@ def list_properties(
 def get_property(
     property_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -105,7 +104,7 @@ def get_property(
 def get_property_360_endpoint(
     property_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -120,7 +119,7 @@ def update_property_status_endpoint(
     property_id: uuid.UUID,
     payload: UpdatePropertyStatusRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     prop = _get_org_property(db, ctx.organisation_id, property_id)
     try:
@@ -137,7 +136,7 @@ def add_space(
     property_id: uuid.UUID,
     payload: CreateSpaceRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     _get_org_property(db, ctx.organisation_id, property_id)  # 404s if missing/cross-org
     space = create_space(
@@ -157,7 +156,7 @@ def add_space(
 def list_spaces(
     property_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

@@ -4,8 +4,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.core.uploads import read_upload_within_limit
 from app.documents.models import Document, DocumentStatus
 from app.documents.reference import next_document_reference
@@ -37,7 +36,7 @@ def upload_document(
     effective_date: date | None = Form(None),
     source: str | None = Form(None),
     ctx: AuthContext = Depends(require_permission("documents.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     content = read_upload_within_limit(file)
     if not content:
@@ -89,7 +88,7 @@ def upload_new_version(
     revision: str = Form("B"),
     effective_date: date | None = Form(None),
     ctx: AuthContext = Depends(require_permission("documents.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     previous = _get_org_document(db, ctx.organisation_id, document_id)
     if previous.status == DocumentStatus.SUPERSEDED:
@@ -155,7 +154,7 @@ def list_documents(
     related_entity_id: str | None = None,
     current_only: bool = True,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -173,7 +172,7 @@ def list_documents(
 def get_document(
     document_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -191,7 +190,7 @@ def get_document(
 def download_document(
     document_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

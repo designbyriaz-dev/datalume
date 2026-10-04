@@ -5,8 +5,7 @@ is separate: a different URL shape (org-wide, not property-scoped)."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db
 from app.development.portfolio import get_portfolio_summary
 from app.development.schemas import PortfolioSummaryOut
 
@@ -16,7 +15,7 @@ router = APIRouter(tags=["development"])
 @router.get("/api/v1/portfolio/summary", response_model=PortfolioSummaryOut)
 def portfolio_summary(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

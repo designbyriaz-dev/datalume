@@ -12,8 +12,10 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.core.tenancy import TenantScopedSession
 from app.ingestion.models import ImportJob, ImportJobStatus
 from app.ingestion.pipeline import process_import_job
+from app.organisations.models import Organisation
 
 
 @dataclass
@@ -23,23 +25,29 @@ class IngestionResult:
 
 
 def process_pending_import_jobs(db: Session, *, limit: int = 20) -> IngestionResult:
-    pending_ids = [
-        job_id
-        for (job_id,) in db.query(ImportJob.id)
-        .filter(ImportJob.status == ImportJobStatus.IMPORTING)
-        .order_by(ImportJob.started_at)
-        .limit(limit)
-        .all()
-    ]
-
+    # Same reasoning as process_pending_report_jobs's own comment:
+    # import_jobs is RLS-protected and this worker tick serves every
+    # organisation, so there's no single org to scope the whole call
+    # to — list every org (organisations itself carries no RLS policy)
+    # and scope to each in turn before querying its own jobs.
     jobs_processed = 0
     jobs_failed = 0
-    for job_id in pending_ids:
-        job = process_import_job(db, uuid.UUID(str(job_id)))
-        if job is None:
-            continue
-        jobs_processed += 1
-        if job.status == ImportJobStatus.FAILED:
-            jobs_failed += 1
+    for (organisation_id,) in db.query(Organisation.id).all():
+        TenantScopedSession(db, organisation_id)
+        pending_ids = [
+            job_id
+            for (job_id,) in db.query(ImportJob.id)
+            .filter(ImportJob.organisation_id == organisation_id, ImportJob.status == ImportJobStatus.IMPORTING)
+            .order_by(ImportJob.started_at)
+            .limit(limit)
+            .all()
+        ]
+        for job_id in pending_ids:
+            job = process_import_job(db, uuid.UUID(str(job_id)))
+            if job is None:
+                continue
+            jobs_processed += 1
+            if job.status == ImportJobStatus.FAILED:
+                jobs_failed += 1
 
     return IngestionResult(jobs_processed=jobs_processed, jobs_failed=jobs_failed)

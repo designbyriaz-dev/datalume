@@ -11,7 +11,14 @@ from app.auth.router import _get_or_create_role, _issue_session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import hash_password
-from app.core.tenancy import AuthContext, get_auth_context, get_current_user_optional, require_permission
+from app.core.tenancy import (
+    AuthContext,
+    TenantScopedSession,
+    get_auth_context,
+    get_current_user_optional,
+    get_tenant_db,
+    require_permission,
+)
 from app.organisations.adaptive import WorkspaceLayout, resolve_workspace_layout
 from app.organisations.models import Organisation
 from app.organisations.schemas import (
@@ -34,7 +41,7 @@ INVITATION_TTL_DAYS = 7
 @router.get("/layout", response_model=WorkspaceLayout)
 def get_workspace_layout(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -84,7 +91,7 @@ def _resolve_pending_invitation(db: Session, token: str) -> Invitation:
 @members_router.get("/members", response_model=list[MemberOut])
 def list_members(
     ctx: AuthContext = Depends(require_permission("org.manage_members")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     rows = (
         db.query(Membership, User, Role)
@@ -103,7 +110,7 @@ def list_members(
 @members_router.get("/invitations", response_model=list[InvitationOut])
 def list_invitations(
     ctx: AuthContext = Depends(require_permission("org.manage_members")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     rows = (
         db.query(Invitation, Role)
@@ -119,7 +126,7 @@ def list_invitations(
 def create_invitation(
     payload: InviteMemberRequest,
     ctx: AuthContext = Depends(require_permission("org.manage_members")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if payload.role_code not in SYSTEM_ROLE_CODES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown role: {payload.role_code}")
@@ -178,7 +185,7 @@ def create_invitation(
 def revoke_invitation(
     invitation_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("org.manage_members")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     invitation = db.get(Invitation, invitation_id)
     if invitation is None or invitation.organisation_id != ctx.organisation_id:
@@ -224,6 +231,14 @@ def accept_invitation(
     current_user: User | None = Depends(get_current_user_optional),
 ):
     invitation = _resolve_pending_invitation(db, token)
+    # Same bootstrap problem signup's own fix addresses: no tenant
+    # context exists yet on this deliberately-unscoped get_db session
+    # (a visitor following an invite link has no org membership to
+    # derive one from), but the Membership/audit_events rows below are
+    # RLS-protected and fail closed without one. invitation.
+    # organisation_id is already a real, existing org by this point, so
+    # scope to it before writing anything.
+    TenantScopedSession(db, invitation.organisation_id)
 
     if current_user is not None and current_user.email != invitation.email:
         raise HTTPException(

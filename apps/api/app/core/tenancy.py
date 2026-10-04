@@ -67,26 +67,52 @@ def get_current_user_optional(
 
 
 class TenantScopedSession:
-    """Wraps a SQLAlchemy Session bound to exactly one organisation_id.
+    """Sets the Postgres session variable app.current_org_id (read by
+    every tenant table's RLS policy — see alembic migration 0001) on an
+    existing Session, scoped to exactly one organisation_id.
 
-    Sets the Postgres session variable app.current_org_id (read by every
-    tenant table's RLS policy — see alembic migration 0001) AND is the
-    only session type domain services are allowed to accept, so a query
-    written without going through this class is a type error, not just a
-    convention. Two enforcement layers for the same invariant, per
-    architecture 01 §1."""
+    Deliberately NOT a Session subclass/wrapper — get_tenant_db below
+    returns the plain, same Session object back (not an instance of
+    this class) specifically so every router's existing `db: Session =
+    Depends(get_db)` becomes `Depends(get_tenant_db)` with no other
+    change: no service function signature, no .add()/.flush()/
+    .commit()/.get() call site anywhere has to change. This class is
+    the one place that actually runs the SET — construct it for its
+    side effect; nothing downstream needs to hold onto the instance."""
 
     def __init__(self, db: Session, organisation_id: uuid.UUID):
         self.db = db
         self.organisation_id = organisation_id
+        # set_config() is Postgres-specific (no SQLite equivalent, and
+        # no RLS for it to drive there anyway — see conftest.py's own
+        # `client` fixture docstring: "RLS... is verified separately
+        # against real Postgres"). Every other test in this suite runs
+        # against the SQLite fixture, so this has to no-op there rather
+        # than error, or wiring get_tenant_db into a router would break
+        # every tenant-scoped SQLite test — the Postgres-only app-layer
+        # effect this class exists for simply doesn't apply there.
+        if db.get_bind().dialect.name != "postgresql":
+            return
         # SET/SET LOCAL are Postgres utility statements, not ordinary
         # DML — they're parsed before the normal planner stage and
         # cannot take a bind parameter (`SET LOCAL x = $1` is a syntax
-        # error at the protocol level, not just unusual style).
-        # set_config() is the documented way to set a GUC with a
-        # dynamic value; its third argument (is_local=true) gives the
-        # same transaction-scoped reset SET LOCAL would.
-        self.db.execute(text("SELECT set_config('app.current_org_id', :org_id, true)"), {"org_id": str(organisation_id)})
+        # error at the protocol level, not just unusual style), hence
+        # set_config() rather than either.
+        #
+        # is_local=FALSE (connection-scoped), not TRUE (SET LOCAL's own
+        # transaction-scoped reset) — deliberately, after finding this
+        # codebase commits mid-request in several places (e.g.
+        # development/router.py's add_property: db.commit() then
+        # db.refresh(prop)). A transaction-scoped setting resets the
+        # instant that first commit happens, silently leaving every
+        # query afterwards — still the same request — running with no
+        # tenant context again, and RLS fails closed on exactly that
+        # next query. A connection-scoped setting survives for the rest
+        # of this request's connection checkout; app/core/db.py's own
+        # "reset" pool-event listener is what stops it from then
+        # leaking into whichever later, unrelated request happens to
+        # reuse that same pooled connection next.
+        self.db.execute(text("SELECT set_config('app.current_org_id', :org_id, false)"), {"org_id": str(organisation_id)})
 
     def query(self, *args, **kwargs):
         return self.db.query(*args, **kwargs)
@@ -99,6 +125,20 @@ def get_auth_context(
 ) -> AuthContext:
     if x_organisation_id is None:
         return AuthContext(user=user, organisation_id=None, membership=None, role_code=None)
+
+    # The real root of the bootstrap problem every fix elsewhere in
+    # this module works around: this is the function that establishes
+    # tenant context in the first place, so there is nothing to scope
+    # to yet when this query runs — but it has to, because memberships
+    # is RLS-protected and fails closed. Scoping to the *claimed*
+    # x_organisation_id (straight from the request header, not yet
+    # verified) before this lookup is safe: the query below is exactly
+    # the check that decides whether that claim is legitimate, and RLS
+    # can only narrow what it would already filter for
+    # (Membership.organisation_id == x_organisation_id), never widen
+    # it — a user with no real membership there still gets nothing
+    # back, claim or no claim.
+    TenantScopedSession(db, x_organisation_id)
 
     membership = (
         db.query(Membership)
@@ -123,10 +163,11 @@ def get_auth_context(
 def get_tenant_db(
     ctx: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_db),
-) -> TenantScopedSession:
+) -> Session:
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
-    return TenantScopedSession(db, ctx.organisation_id)
+    TenantScopedSession(db, ctx.organisation_id)
+    return db
 
 
 def require_permission(permission: str):

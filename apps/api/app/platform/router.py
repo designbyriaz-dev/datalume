@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.integrations.billing_provider import (
     BillingNotConfiguredError,
     BillingProvider,
@@ -26,7 +26,7 @@ def list_plans(db: Session = Depends(get_db)):
 @router.get("", response_model=SubscriptionOut)
 def get_subscription(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -46,7 +46,7 @@ def get_subscription(
 def start_checkout(
     plan_code: str,
     ctx: AuthContext = Depends(require_permission("billing.manage")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     provider: BillingProvider = Depends(get_billing_provider),
 ):
     org = db.get(Organisation, ctx.organisation_id)
@@ -65,7 +65,7 @@ def start_checkout(
 @router.post("/portal")
 def start_billing_portal(
     ctx: AuthContext = Depends(require_permission("billing.manage")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
     provider: BillingProvider = Depends(get_billing_provider),
 ):
     org = db.get(Organisation, ctx.organisation_id)

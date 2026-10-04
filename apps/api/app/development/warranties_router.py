@@ -8,9 +8,8 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.models import Warranty
 from app.development.presenters import warranties_to_out, warranty_to_out
 from app.development.schemas import CreateWarrantyRequest, WarrantyOut
@@ -32,7 +31,7 @@ def _get_org_warranty(db: Session, organisation_id: uuid.UUID, warranty_id: uuid
 def add_warranty(
     payload: CreateWarrantyRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         warranty = create_warranty(
@@ -64,7 +63,7 @@ def add_warranty(
 def void_warranty_endpoint(
     warranty_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     warranty = _get_org_warranty(db, ctx.organisation_id, warranty_id)
     void_warranty(db, ctx.organisation_id, warranty, actor_user_id=ctx.user.id)
@@ -81,7 +80,7 @@ def list_warranties(
     component_id: uuid.UUID | None = None,
     expiring_within_days: int | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -105,7 +104,7 @@ def list_warranties(
 def get_warranty(
     warranty_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

@@ -9,9 +9,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.operations.models import Repair
 from app.operations.repairs_intelligence import get_repairs_intelligence
 from app.operations.repeat_repair import component_model_trend, repeat_failures_for_component, repeat_repairs_for_property
@@ -49,7 +48,7 @@ def _get_org_repair(db: Session, organisation_id: uuid.UUID, repair_id: uuid.UUI
 def add_repair(
     payload: CreateRepairRequest,
     ctx: AuthContext = Depends(require_permission("operations.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         repair = create_repair(
@@ -78,7 +77,7 @@ def update_repair_status_endpoint(
     repair_id: uuid.UUID,
     payload: UpdateRepairStatusRequest,
     ctx: AuthContext = Depends(require_permission("operations.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     repair = _get_org_repair(db, ctx.organisation_id, repair_id)
     try:
@@ -101,7 +100,7 @@ def update_repair_status_endpoint(
 @router.get("/api/v1/repairs/intelligence", response_model=RepairsIntelligenceOut)
 def repairs_intelligence(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -114,7 +113,7 @@ def repairs_model_trend(
     manufacturer: str,
     model: str,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -127,7 +126,7 @@ def list_repairs(
     component_id: uuid.UUID | None = None,
     repair_status: str | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -145,7 +144,7 @@ def list_repairs(
 def get_repair(
     repair_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -156,7 +155,7 @@ def get_repair(
 def property_repeat_repairs(
     property_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -167,7 +166,7 @@ def property_repeat_repairs(
 def component_repeat_failures(
     component_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -177,7 +176,7 @@ def component_repeat_failures(
 @router.get("/api/v1/repair-rule-configs", response_model=list[RepairRuleConfigOut])
 def get_repair_rule_configs(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -189,7 +188,7 @@ def update_repair_rule_config(
     rule_code: str,
     payload: UpdateRepairRuleConfigRequest,
     ctx: AuthContext = Depends(require_permission("operations.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         config = set_repair_rule_config(

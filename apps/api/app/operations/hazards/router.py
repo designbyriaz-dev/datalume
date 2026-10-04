@@ -10,8 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.operations.hazards.models import Hazard, HazardAction
 from app.operations.hazards.repeat_hazard import repeat_hazards_for_property
 from app.operations.hazards.schemas import (
@@ -60,7 +59,7 @@ def _get_org_hazard_action(db: Session, organisation_id: uuid.UUID, action_id: u
 def add_hazard(
     payload: CreateHazardRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         hazard = create_hazard(
@@ -85,7 +84,7 @@ def list_hazards(
     hazard_type: str | None = None,
     hazard_status: str | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -103,7 +102,7 @@ def list_hazards(
 def get_hazard(
     hazard_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -115,7 +114,7 @@ def update_hazard_status_endpoint(
     hazard_id: uuid.UUID,
     payload: UpdateHazardStatusRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     hazard = _get_org_hazard(db, ctx.organisation_id, hazard_id)
     try:
@@ -141,7 +140,7 @@ def add_hazard_action(
     hazard_id: uuid.UUID,
     payload: CreateHazardActionRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     hazard = _get_org_hazard(db, ctx.organisation_id, hazard_id)
     try:
@@ -165,7 +164,7 @@ def add_hazard_action(
 def get_hazard_actions(
     hazard_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -183,7 +182,7 @@ def update_hazard_action_status_endpoint(
     action_id: uuid.UUID,
     payload: UpdateHazardActionStatusRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     action = _get_org_hazard_action(db, ctx.organisation_id, action_id)
     try:
@@ -210,7 +209,7 @@ def property_repeat_hazards(
     property_id: uuid.UUID,
     hazard_type: str,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -220,7 +219,7 @@ def property_repeat_hazards(
 @router.get("/hazard-rule-configs", response_model=list[HazardRuleConfigOut])
 def get_hazard_rule_configs(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -232,7 +231,7 @@ def update_hazard_rule_config(
     rule_code: str,
     payload: UpdateHazardRuleConfigRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         config = set_hazard_rule_config(

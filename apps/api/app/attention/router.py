@@ -22,8 +22,7 @@ from app.attention.schemas import (
     UpdateSignalStatusRequest,
 )
 from app.attention.service import AttentionNotFoundError, list_rules, list_signals, update_rule, update_signal_status
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.worker.jobs.attention_scan import run_attention_scan
 
 router = APIRouter(prefix="/api/v1/attention", tags=["attention"])
@@ -47,7 +46,7 @@ def _signal_to_out(db: Session, organisation_id: uuid.UUID, signal: AttentionSig
 @router.get("/rules", response_model=list[AttentionRuleOut])
 def get_rules(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -61,7 +60,7 @@ def update_rule_endpoint(
     rule_id: uuid.UUID,
     payload: UpdateAttentionRuleRequest,
     ctx: AuthContext = Depends(require_permission("reports.board")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         rule = update_rule(db, ctx.organisation_id, rule_id, is_active=payload.is_active, rule_definition=payload.rule_definition)
@@ -78,7 +77,7 @@ def get_signals(
     entity_type: str | None = None,
     severity: str | None = None,
     ctx: AuthContext = Depends(require_permission("reports.read")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     signals = list_signals(db, ctx.organisation_id, status=signal_status, entity_type=entity_type, severity=severity)
     return [_signal_to_out(db, ctx.organisation_id, s) for s in signals]
@@ -89,7 +88,7 @@ def update_signal_status_endpoint(
     signal_id: uuid.UUID,
     payload: UpdateSignalStatusRequest,
     ctx: AuthContext = Depends(require_permission("reports.read")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         signal = update_signal_status(db, ctx.organisation_id, signal_id, new_status=payload.status)
@@ -103,7 +102,7 @@ def update_signal_status_endpoint(
 @router.post("/scan", response_model=AttentionScanResultOut)
 def trigger_scan(
     ctx: AuthContext = Depends(require_permission("reports.board")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     """Manually forces this organisation's scan — the nightly worker
     job (app/worker/jobs/attention_scan.py) runs this same function

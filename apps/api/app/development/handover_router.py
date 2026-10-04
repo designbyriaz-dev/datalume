@@ -8,8 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.handover import CHECK_LABELS, compute_handover_readiness
 from app.development.models import Development, HandoverRecord
 from app.development.schemas import (
@@ -47,7 +46,7 @@ def _get_org_development(db: Session, organisation_id: uuid.UUID, development_id
 def get_handover_readiness(
     development_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -79,7 +78,7 @@ def authorise_handover_endpoint(
     development_id: uuid.UUID,
     payload: AuthoriseHandoverRequest,
     ctx: AuthContext = Depends(require_permission("development.handover")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     development = _get_org_development(db, ctx.organisation_id, development_id)
     try:
@@ -102,7 +101,7 @@ def authorise_handover_endpoint(
 def list_handover_records(
     development_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -118,7 +117,7 @@ def list_handover_records(
 @router.get("/api/v1/handover-readiness-weights", response_model=list[HandoverReadinessWeightOut])
 def get_handover_readiness_weights(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -134,7 +133,7 @@ def update_handover_readiness_weight(
     check_code: str,
     payload: UpdateHandoverReadinessWeightRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         row = set_handover_readiness_weight(db, ctx.organisation_id, check_code, payload.weight)

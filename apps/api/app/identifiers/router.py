@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.identifiers.models import ExternalReference, ReferencePattern
 from app.identifiers.schemas import (
     ExternalReferenceOut,
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/api/v1", tags=["identifiers"])
 def add_external_reference(
     payload: RecordExternalReferenceRequest,
     ctx: AuthContext = Depends(require_permission("identifiers.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         ref = record_external_reference(
@@ -46,7 +45,7 @@ def list_external_references(
     entity_type: str,
     entity_id: str,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -64,7 +63,7 @@ def list_external_references(
 @router.get("/reference-patterns", response_model=list[ReferencePatternOut])
 def get_reference_patterns(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -78,7 +77,7 @@ def update_reference_pattern(
     entity_type: str,
     payload: UpdateReferencePatternRequest,
     ctx: AuthContext = Depends(require_permission("settings.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if "{sequence" not in payload.pattern:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pattern must include a {sequence} placeholder")

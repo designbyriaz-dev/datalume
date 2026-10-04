@@ -8,9 +8,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.golden_thread import get_golden_thread
 from app.development.models import Building, Development, Floor, Property
 from app.development.presenters import building_to_out, buildings_to_out, development_to_out, developments_to_out
@@ -65,7 +64,7 @@ def _get_org_building(db: Session, organisation_id: uuid.UUID, building_id: uuid
 def add_development(
     payload: CreateDevelopmentRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     dev = create_development(
         db,
@@ -89,7 +88,7 @@ def add_development(
 @router.get("/api/v1/developments", response_model=list[DevelopmentOut])
 def list_developments(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -106,7 +105,7 @@ def list_developments(
 def get_development(
     development_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -118,7 +117,7 @@ def get_development(
 def get_development_hierarchy(
     development_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     """The composed tree: development -> buildings -> floors, with a
     property count at every level, including properties linked at a
@@ -180,7 +179,7 @@ def get_development_hierarchy(
 def add_building(
     payload: CreateBuildingRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         building = create_building(
@@ -207,7 +206,7 @@ def add_building(
 def list_buildings(
     development_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -222,7 +221,7 @@ def list_buildings(
 def get_building(
     building_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -234,7 +233,7 @@ def get_building(
 def get_building_golden_thread(
     building_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -249,7 +248,7 @@ def get_building_golden_thread(
 def add_floor(
     payload: CreateFloorRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         floor = create_floor(
@@ -272,7 +271,7 @@ def add_floor(
 def list_floors(
     building_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

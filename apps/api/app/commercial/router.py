@@ -54,9 +54,8 @@ from app.commercial.service import (
     update_lease_status,
     update_occupancy_status,
 )
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.platform.audit import record_audit_event
 
 router = APIRouter(prefix="/api/v1", tags=["commercial"])
@@ -129,7 +128,7 @@ def _obligation_to_out(db: Session, organisation_id: uuid.UUID, obligation: Rent
 def add_tenant(
     payload: CreateTenantRequest,
     ctx: AuthContext = Depends(require_permission("commercial.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     tenant = create_tenant(db, ctx.organisation_id, name=payload.name, contact_details=payload.contact_details, actor_user_id=ctx.user.id)
     db.commit()
@@ -140,7 +139,7 @@ def add_tenant(
 @router.get("/tenants", response_model=list[TenantOut])
 def get_tenants(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -151,7 +150,7 @@ def get_tenants(
 def get_tenant(
     tenant_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -162,7 +161,7 @@ def get_tenant(
 def add_lease(
     payload: CreateLeaseRequest,
     ctx: AuthContext = Depends(require_permission("commercial.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         lease = create_lease(
@@ -192,7 +191,7 @@ def get_leases(
     tenant_id: uuid.UUID | None = None,
     lease_status: str | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -203,7 +202,7 @@ def get_leases(
 def get_lease(
     lease_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -215,7 +214,7 @@ def update_lease_status_endpoint(
     lease_id: uuid.UUID,
     payload: UpdateLeaseStatusRequest,
     ctx: AuthContext = Depends(require_permission("commercial.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     lease = _get_org_lease(db, ctx.organisation_id, lease_id)
     try:
@@ -232,7 +231,7 @@ def update_occupancy_status_endpoint(
     lease_id: uuid.UUID,
     payload: UpdateOccupancyStatusRequest,
     ctx: AuthContext = Depends(require_permission("commercial.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     lease = _get_org_lease(db, ctx.organisation_id, lease_id)
     update_occupancy_status(db, ctx.organisation_id, lease, occupancy_status=payload.occupancy_status, actor_user_id=ctx.user.id)
@@ -245,7 +244,7 @@ def update_occupancy_status_endpoint(
 def add_rent_obligation(
     payload: CreateRentObligationRequest,
     ctx: AuthContext = Depends(require_permission("commercial.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         obligation = create_rent_obligation(
@@ -273,7 +272,7 @@ def get_rent_obligations(
     lease_id: uuid.UUID | None = None,
     obligation_status: str | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -285,7 +284,7 @@ def get_rent_obligations(
 def add_payment(
     payload: CreatePaymentRequest,
     ctx: AuthContext = Depends(require_permission("commercial.payments")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     """Records a payment that has already happened elsewhere — never a
     payment initiation (see app/commercial/models.py's own docstring on
@@ -332,7 +331,7 @@ def add_payment(
 def get_payments(
     lease_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -347,7 +346,7 @@ def get_payment_allocations(
     allocation_status: str | None = None,
     lease_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     """The `NEEDS_REVIEW`/`UNALLOCATED`/`POSSIBLE_MATCH` work queue a
     RENT_MANAGER resolves manually — spec §52."""
@@ -368,7 +367,7 @@ def resolve_payment_allocation(
     allocation_id: uuid.UUID,
     payload: ResolveAllocationRequest,
     ctx: AuthContext = Depends(require_permission("commercial.payments")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     allocation = _get_org_allocation(db, ctx.organisation_id, allocation_id)
     if allocation.allocation_status == AllocationStatus.MATCHED:
@@ -416,7 +415,7 @@ def add_manual_allocation(
     payment_id: uuid.UUID,
     payload: CreateManualAllocationRequest,
     ctx: AuthContext = Depends(require_permission("commercial.payments")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     """Splitting one payment across several obligations, or applying it
     to instalments, is a deliberate human act — the automatic
@@ -463,7 +462,7 @@ def add_manual_allocation(
 @router.get("/payment-reconciliation-config", response_model=PaymentReconciliationConfigOut)
 def get_payment_reconciliation_config(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -477,7 +476,7 @@ def get_payment_reconciliation_config(
 def update_payment_reconciliation_config(
     payload: UpdatePaymentReconciliationConfigRequest,
     ctx: AuthContext = Depends(require_permission("commercial.payments")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     config = set_reconciliation_config(db, ctx.organisation_id, due_date_window_days=payload.due_date_window_days)
     db.commit()
@@ -490,7 +489,7 @@ def get_lease_arrears(
     lease_id: uuid.UUID,
     as_of: date | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -503,7 +502,7 @@ def get_collection_rate(
     period_start: date,
     period_end: date,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

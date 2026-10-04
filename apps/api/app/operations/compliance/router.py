@@ -10,8 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.operations.compliance.models import (
     ComplianceAction,
     ComplianceDomain,
@@ -131,7 +130,7 @@ def _get_org_action(db: Session, organisation_id: uuid.UUID, action_id: uuid.UUI
 @router.get("/frameworks", response_model=list[ComplianceFrameworkOut])
 def get_frameworks(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -147,7 +146,7 @@ def get_frameworks(
 @router.get("/domains", response_model=list[ComplianceDomainOut])
 def get_domains(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -160,7 +159,7 @@ def get_domains(
 def add_domain(
     payload: CreateComplianceDomainRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     domain = create_domain(
         db,
@@ -180,7 +179,7 @@ def get_requirements(
     domain_id: uuid.UUID | None = None,
     current_only: bool = True,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -191,7 +190,7 @@ def get_requirements(
 def add_requirement(
     payload: CreateComplianceRequirementRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         requirement = create_requirement(
@@ -219,7 +218,7 @@ def add_requirement(
 def get_requirement(
     requirement_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -245,7 +244,7 @@ def add_requirement_version(
     requirement_id: uuid.UUID,
     payload: ReviseComplianceRequirementRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     previous = _get_org_requirement(db, ctx.organisation_id, requirement_id)
     try:
@@ -271,7 +270,7 @@ def add_requirement_version(
 def add_applicability(
     payload: CreateApplicabilityRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         applicability = create_applicability(
@@ -299,7 +298,7 @@ def get_applicability(
     entity_id: uuid.UUID | None = None,
     requirement_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -318,7 +317,7 @@ def end_applicability_endpoint(
     applicability_id: uuid.UUID,
     payload: EndApplicabilityRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     applicability = _get_org_applicability(db, ctx.organisation_id, applicability_id)
     applicability = end_applicability(
@@ -339,7 +338,7 @@ def get_inspections(
     entity_id: uuid.UUID | None = None,
     requirement_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -350,7 +349,7 @@ def get_inspections(
 def add_inspection(
     payload: CreateInspectionRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         inspection = create_inspection(
@@ -382,7 +381,7 @@ def get_actions(
     requirement_id: uuid.UUID | None = None,
     action_status: str | None = None,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -400,7 +399,7 @@ def get_actions(
 def add_action(
     payload: CreateComplianceActionRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         action = create_compliance_action(
@@ -429,7 +428,7 @@ def update_action_status_endpoint(
     action_id: uuid.UUID,
     payload: UpdateComplianceActionStatusRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     action = _get_org_action(db, ctx.organisation_id, action_id)
     try:
@@ -457,7 +456,7 @@ def get_status(
     entity_id: uuid.UUID,
     requirement_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -471,7 +470,7 @@ def get_statuses(
     entity_type: str,
     entity_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -482,7 +481,7 @@ def get_statuses(
 @router.get("/status-config", response_model=ComplianceStatusConfigOut)
 def get_status_config(
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -496,7 +495,7 @@ def get_status_config(
 def update_status_config(
     payload: UpdateComplianceStatusConfigRequest,
     ctx: AuthContext = Depends(require_permission("operations.compliance")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     config = set_status_config(
         db, ctx.organisation_id, due_soon_days=payload.due_soon_days, never_assessed_grace_days=payload.never_assessed_grace_days
@@ -511,6 +510,6 @@ def get_assurance_report(
     building_id: uuid.UUID | None = None,
     property_id: uuid.UUID | None = None,
     ctx: AuthContext = Depends(require_permission("reports.board")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     return get_board_assurance_report(db, ctx.organisation_id, building_id=building_id, property_id=property_id)

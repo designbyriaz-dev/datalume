@@ -8,9 +8,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
 from app.core.provenance import SourceType
-from app.core.tenancy import AuthContext, get_auth_context, require_permission
+from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.development.models import Specification, SpecificationStatus
 from app.development.schemas import (
     CreateSpecificationRequest,
@@ -45,7 +44,7 @@ def _get_org_specification(db: Session, organisation_id: uuid.UUID, specificatio
 def add_specification(
     payload: CreateSpecificationRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     try:
         spec = create_specification(
@@ -79,7 +78,7 @@ def add_specification_revision(
     specification_id: uuid.UUID,
     payload: ReviseSpecificationRequest,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     previous = _get_org_specification(db, ctx.organisation_id, specification_id)
     try:
@@ -106,7 +105,7 @@ def add_specification_revision(
 def approve_specification_endpoint(
     specification_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("development.write")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     spec = _get_org_specification(db, ctx.organisation_id, specification_id)
     approve_specification(db, ctx.organisation_id, spec, actor_user_id=ctx.user.id)
@@ -121,7 +120,7 @@ def list_specifications(
     related_entity_id: uuid.UUID | None = None,
     current_only: bool = True,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -139,7 +138,7 @@ def list_specifications(
 def get_specification(
     specification_id: uuid.UUID,
     ctx: AuthContext = Depends(get_auth_context),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")

@@ -25,8 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.auth.rbac import role_has_permission
-from app.core.db import get_db
-from app.core.tenancy import AuthContext, require_permission
+from app.core.tenancy import AuthContext, get_tenant_db, require_permission
 from app.integrations.storage import get_document_storage
 from app.platform.audit import record_audit_event
 from app.reports.models import ReportJob, ReportJobStatus, ReportType
@@ -59,7 +58,7 @@ def _get_org_report_job(db: Session, organisation_id: uuid.UUID, report_job_id: 
 def request_report(
     payload: CreateReportJobRequest,
     ctx: AuthContext = Depends(require_permission("reports.read")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     _require_report_type_permission(ctx, payload.report_type)
     job = create_report_job(
@@ -89,7 +88,7 @@ def request_report(
 @router.get("", response_model=list[ReportJobOut])
 def list_reports(
     ctx: AuthContext = Depends(require_permission("reports.read")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     return list_report_jobs(db, ctx.organisation_id)
 
@@ -98,7 +97,7 @@ def list_reports(
 def get_report(
     report_job_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("reports.read")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     return _get_org_report_job(db, ctx.organisation_id, report_job_id)
 
@@ -107,7 +106,7 @@ def get_report(
 def download_report(
     report_job_id: uuid.UUID,
     ctx: AuthContext = Depends(require_permission("reports.read")),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_tenant_db),
 ):
     job = _get_org_report_job(db, ctx.organisation_id, report_job_id)
     _require_report_type_permission(ctx, job.report_type)
