@@ -125,6 +125,8 @@ def list_repairs(
     property_id: uuid.UUID | None = None,
     component_id: uuid.UUID | None = None,
     repair_status: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
     ctx: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_tenant_db),
 ):
@@ -137,7 +139,7 @@ def list_repairs(
         query = query.filter(Repair.component_id == component_id)
     if repair_status is not None:
         query = query.filter(Repair.status == repair_status)
-    return query.order_by(Repair.reported_date.desc()).all()
+    return query.order_by(Repair.reported_date.desc()).offset(offset).limit(min(limit, 500)).all()
 
 
 @router.get("/api/v1/repairs/{repair_id}", response_model=RepairOut)

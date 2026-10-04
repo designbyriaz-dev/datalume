@@ -153,6 +153,8 @@ def list_documents(
     related_entity_type: str | None = None,
     related_entity_id: str | None = None,
     current_only: bool = True,
+    limit: int = 100,
+    offset: int = 0,
     ctx: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_tenant_db),
 ):
@@ -165,7 +167,7 @@ def list_documents(
         query = query.filter(Document.related_entity_id == related_entity_id)
     if current_only:
         query = query.filter(Document.status != DocumentStatus.SUPERSEDED)
-    return query.order_by(Document.uploaded_at.desc()).all()
+    return query.order_by(Document.uploaded_at.desc()).offset(offset).limit(min(limit, 500)).all()
 
 
 @router.get("/{document_id}", response_model=DocumentDetailOut)

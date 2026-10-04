@@ -5,9 +5,9 @@ tables that already exist.
 """
 
 import uuid
-from collections import Counter
 from datetime import date, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.data_health.rules import run_data_health_checks
@@ -24,8 +24,13 @@ OPEN_DEFECT_STATUSES = (
 
 
 def get_portfolio_summary(db: Session, organisation_id: uuid.UUID) -> PortfolioSummaryOut:
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
-    status_counts = Counter(p.status.value for p in properties)
+    total_properties = db.query(Property).filter(Property.organisation_id == organisation_id).count()
+    status_counts = dict(
+        db.query(Property.status, func.count())
+        .filter(Property.organisation_id == organisation_id)
+        .group_by(Property.status)
+        .all()
+    )
 
     total_developments = db.query(Development).filter(Development.organisation_id == organisation_id).count()
     total_buildings = db.query(Building).filter(Building.organisation_id == organisation_id).count()
@@ -72,11 +77,13 @@ def get_portfolio_summary(db: Session, organisation_id: uuid.UUID) -> PortfolioS
         )
 
     return PortfolioSummaryOut(
-        total_properties=len(properties),
+        total_properties=total_properties,
         total_developments=total_developments,
         total_buildings=total_buildings,
         total_components=total_components,
-        properties_by_status=[PortfolioStatusCountOut(key=k, count=v) for k, v in status_counts.items()],
+        properties_by_status=[
+            PortfolioStatusCountOut(key=status.value, count=count) for status, count in status_counts.items()
+        ],
         data_health_score_pct=score_pct,
         open_defects_count=open_defects_count,
         overdue_defects_count=overdue_defects_count,

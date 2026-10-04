@@ -285,14 +285,20 @@ def create_rent_obligation(
 
 
 def list_rent_obligations(
-    db: Session, organisation_id: uuid.UUID, *, lease_id: uuid.UUID | None = None, status: str | None = None
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    lease_id: uuid.UUID | None = None,
+    status: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[RentObligation]:
     query = db.query(RentObligation).filter(RentObligation.organisation_id == organisation_id)
     if lease_id is not None:
         query = query.filter(RentObligation.lease_id == lease_id)
     if status is not None:
         query = query.filter(RentObligation.status == RentObligationStatus(status))
-    return query.order_by(RentObligation.due_date.desc()).all()
+    return query.order_by(RentObligation.due_date.desc()).offset(offset).limit(min(limit, 500)).all()
 
 
 def get_or_create_reconciliation_config(db: Session, organisation_id: uuid.UUID) -> PaymentReconciliationConfig:

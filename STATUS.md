@@ -3262,6 +3262,88 @@ concurrency test and the subsequent audit found is either closed or
 has an honestly-documented reason it's only partially closed — nothing
 left silently assumed fixed.
 
+**Real load testing against Postgres-backed infra — spec §72, closed
+with real measurements rather than asserted.** Spec §72 names required
+techniques (pagination, server filtering, indexes, aggregation,
+caching, background jobs) but gives no specific latency number, so the
+approach was: audit every `list_*` endpoint for the named mechanisms,
+fix what was mechanically missing, then prove it with a real
+large-volume seed rather than guess.
+
+Audited all ~23 `list_*`/collection endpoints by grep for an existing
+`limit:` parameter. Four were completely unpaginated despite serving
+exactly the entity types spec §72 names as needing it at scale:
+`GET /api/v1/repairs`, `GET /api/v1/payments`, `GET
+/api/v1/rent-obligations`, and `GET /api/v1/documents`. All four now
+take `limit`/`offset` (default 100, capped at 500) following the same
+pattern `list_properties`/`list_components` already used — see
+`app/operations/repairs_router.py`, `app/commercial/router.py` (two
+endpoints), `app/commercial/service.py`'s `list_rent_obligations`, and
+`app/documents/router.py`.
+
+Separately, `get_portfolio_summary` (`app/development/portfolio.py`) —
+the home dashboard summary, hit on every login — loaded every property
+in the org into Python just to compute a count and a status breakdown.
+Rewritten to two SQL aggregates (`count()` and `GROUP BY status`); no
+business logic involved, so this one was safe to fix immediately
+rather than defer.
+
+Then seeded a real organisation directly via SQL (bypassing the ORM —
+this is a volume-generation shortcut, not a correctness test; insert-
+path correctness is already covered everywhere else) with **20,000
+properties and 200,000 repairs**, correctly FK'd and provenance-
+stamped, and measured real endpoint latency through the actual
+FastAPI app against real Postgres (`scripts/load_test.py`, kept for
+whoever next needs to re-check or extend this). Results:
+
+- `GET /api/v1/properties` and `GET /api/v1/repairs`: ~15ms and ~65ms
+  respectively at offset 0, flat regardless of how deep the page
+  (confirms pagination actually bounds the work, not just the response
+  size).
+- `GET /api/v1/repairs` at a deep offset (199,000) was measurably
+  slower than at offset 0 (~104ms vs ~65ms) before migration
+  `0031_list_endpoint_sort_indexes` — Postgres had an index on
+  `organisation_id` but had to sort 200,000 matching rows by
+  `reported_date` from scratch on every call. Added `(organisation_id,
+  <date column> DESC)` composite indexes for all four of the endpoints
+  just paginated (`repairs.reported_date`,
+  `payment_transactions.received_date`, `documents.uploaded_at`,
+  `rent_obligations.due_date`). Re-measured after: offset-0 repairs
+  dropped to ~6ms, the deep-offset case dropped to ~56ms — both
+  endpoints now scale by index lookup, not by the table size swept.
+- `GET /api/v1/portfolio/summary`: **~3.6 seconds** even after the
+  properties aggregation was rewritten to SQL — tracked down to
+  `run_data_health_checks` (`app/data_health/rules.py`), which the
+  dashboard also calls. It's 14 separate check functions
+  (`check_missing_property_type`, `check_missing_uprn`,
+  `check_duplicate_properties`, and 11 more), several of which
+  independently re-run `db.query(Property)...all()` or
+  `db.query(Component)...all()` for the same org — the same full-table-
+  into-Python pattern, repeated many times over rather than once.
+  **Not rewritten this session** — 14 functions is real surface area,
+  each would need its own correctly-shaped SQL (several do per-row
+  fuzzy matching, e.g. `check_duplicate_properties`' address
+  normalisation, that doesn't translate to a single aggregate query),
+  and rushing that under time pressure risks silently changing what
+  counts as a "finding" rather than just how it's computed. Documented
+  here with a real number instead.
+- `GET /api/v1/repairs/intelligence`: **~11.4 seconds** at 200,000
+  repairs (`app/operations/repairs_intelligence.py`) — loads every
+  repair for the org into Python and computes open/completed/emergency
+  counts, category and contractor breakdowns, average completion time,
+  and repeat-repair/repeat-failure signals all in Python via `Counter`.
+  Same reasoning as above for not rewriting now: repeat-repair
+  detection is exactly the kind of deterministic, versioned, auditable
+  business logic spec's own "LLM explains, never calculates" principle
+  cares about getting right, and a rushed SQL rewrite of it carries
+  real correctness risk the mechanical pagination/index fixes above
+  don't.
+
+Full 380-test SQLite suite, the Postgres RLS suite, the Playwright E2E
+suite, migration downgrade/upgrade round-trip, and offline `alembic
+upgrade head --sql` validation all green on the pagination/index
+changes.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3289,10 +3371,29 @@ punch list for whoever takes this toward a real pilot:
   fuzzy equivalence, only exact-code duplication, and the honest fix
   (match on a normalised form, not raw derived code) needs more design
   than this mechanical pass.
-- **Real load testing against Postgres-backed infra** — spec §72's
-  actual performance requirement (portfolios in the tens of
-  thousands) is unverified; this sprint's concurrency smoke-check
-  (above) is a much smaller, explicitly-labelled substitute.
+- ~~Real load testing against Postgres-backed infra~~ **Closed** — see
+  the dedicated entry above. Four previously-unpaginated list
+  endpoints (repairs, payments, rent obligations, documents) fixed,
+  measured against a real 20,000-property/200,000-repair seed, and a
+  composite-index migration added once the deep-offset cost was
+  actually measured rather than assumed.
+- **Several "intelligence"/"summary" endpoints aggregate in Python
+  instead of SQL, and are now quantified rather than just suspected.**
+  Found by the load test above: `run_data_health_checks`
+  (`app/data_health/rules.py`, 14 check functions, several re-loading
+  the full properties/components table independently) costs the
+  `GET /api/v1/portfolio/summary` home-dashboard call ~3.6s at 20,000
+  properties; `get_repairs_intelligence`
+  (`app/operations/repairs_intelligence.py`) costs ~11.4s at 200,000
+  repairs. Not rewritten — real correctness risk in rushing complex,
+  already-tested business logic (fuzzy address-duplicate matching,
+  repeat-repair detection) into new SQL under time pressure. Also
+  flagged by the broader grep for the same `.query(...).all()`-then-
+  Python-aggregate shape but not yet measured: `defects_intelligence.py`,
+  `commercial/arrears.py`, `operations/compliance/status_engine.py`.
+  Whoever picks this up next should measure each at realistic volume
+  first, the same way this session did, rather than rewrite on
+  suspicion alone.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row

@@ -271,12 +271,16 @@ def add_rent_obligation(
 def get_rent_obligations(
     lease_id: uuid.UUID | None = None,
     obligation_status: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
     ctx: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_tenant_db),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
-    obligations = list_rent_obligations(db, ctx.organisation_id, lease_id=lease_id, status=obligation_status)
+    obligations = list_rent_obligations(
+        db, ctx.organisation_id, lease_id=lease_id, status=obligation_status, limit=min(limit, 500), offset=offset
+    )
     return [_obligation_to_out(db, ctx.organisation_id, o) for o in obligations]
 
 
@@ -330,6 +334,8 @@ def add_payment(
 @router.get("/payments", response_model=list[PaymentTransactionOut])
 def get_payments(
     lease_id: uuid.UUID | None = None,
+    limit: int = 100,
+    offset: int = 0,
     ctx: AuthContext = Depends(get_auth_context),
     db: Session = Depends(get_tenant_db),
 ):
@@ -338,7 +344,7 @@ def get_payments(
     query = db.query(PaymentTransaction).filter(PaymentTransaction.organisation_id == ctx.organisation_id)
     if lease_id is not None:
         query = query.filter(PaymentTransaction.lease_id == lease_id)
-    return query.order_by(PaymentTransaction.received_date.desc()).all()
+    return query.order_by(PaymentTransaction.received_date.desc()).offset(offset).limit(min(limit, 500)).all()
 
 
 @router.get("/payment-allocations", response_model=list[PaymentAllocationOut])
