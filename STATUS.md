@@ -3801,6 +3801,29 @@ punch list for whoever takes this toward a real pilot:
   than by any real incompleteness in the underlying data model. Not
   fixed here (both need a small real UI addition, not a test), flagged
   for whoever picks up the already-suggested background task for this.
+- ~~Spec §77: "Upload compliance" had no Playwright spec~~ **Closed**
+  — unlike the UI gaps just above, this one turned out to already be
+  fully wired end to end: `COMPLIANCE_INSPECTIONS`
+  (`app/operations/importers.py`'s `import_compliance_inspection_row`)
+  is a real, registered importer, and `/data-and-uploads`'s dataset-
+  type dropdown is populated straight from the backend's field
+  dictionary rather than a hardcoded frontend list, so the dataset
+  type was already selectable — it simply never had a spec exercising
+  it, same shape as `operations-csv-import.spec.ts` (`REPAIRS`) and
+  `commercial-csv-import.spec.ts` (`RENT_OBLIGATIONS`). Added
+  `apps/web/e2e/compliance-csv-import.spec.ts`, mirroring both exactly:
+  creates a compliance requirement and a building through the real UI,
+  imports a CSV row referencing both by their generated codes, and
+  confirms the resulting inspection shows up on the building's own
+  detail page, not just the importer's own success count.
+- ~~Spec §77: "Identify repeat repairs" had coverage for its sibling
+  signal (`repeat-component-failure.spec.ts`, component-level) but
+  none for the property-level one~~ **Closed** — added
+  `apps/web/e2e/repeat-property-repairs.spec.ts`: three repairs against
+  the same property with no component at all trigger
+  `repeat_repairs_for_property`'s threshold-3-within-12-months signal
+  on the repairs page, mirroring the component-level spec's exact
+  structure for the sibling check. 37 Playwright specs green.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
