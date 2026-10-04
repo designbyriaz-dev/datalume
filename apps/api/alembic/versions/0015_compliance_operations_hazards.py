@@ -52,6 +52,17 @@ def _provenance_columns() -> list[sa.Column]:
 
 
 def upgrade() -> None:
+    # Alembic hard-codes alembic_version.version_num as VARCHAR(32)
+    # (alembic/ddl/impl.py's version_table_impl) — this is the first
+    # revision ID in this project's chain to exceed that (34 chars).
+    # SQLite never enforces VARCHAR lengths, so every prior migration
+    # run against app.tests.conftest.py's SQLite fixture masked this
+    # completely; it only surfaced when this chain first ran against
+    # real Postgres. Widening once, here, covers every migration after
+    # this one too (several go well past 32 — see 0017's own 39-char
+    # revision ID) without renaming any already-shipped revision ID.
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
+
     op.create_table(
         "inspections",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),

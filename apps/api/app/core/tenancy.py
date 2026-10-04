@@ -79,7 +79,14 @@ class TenantScopedSession:
     def __init__(self, db: Session, organisation_id: uuid.UUID):
         self.db = db
         self.organisation_id = organisation_id
-        self.db.execute(text("SET LOCAL app.current_org_id = :org_id"), {"org_id": str(organisation_id)})
+        # SET/SET LOCAL are Postgres utility statements, not ordinary
+        # DML — they're parsed before the normal planner stage and
+        # cannot take a bind parameter (`SET LOCAL x = $1` is a syntax
+        # error at the protocol level, not just unusual style).
+        # set_config() is the documented way to set a GUC with a
+        # dynamic value; its third argument (is_local=true) gives the
+        # same transaction-scoped reset SET LOCAL would.
+        self.db.execute(text("SELECT set_config('app.current_org_id', :org_id, true)"), {"org_id": str(organisation_id)})
 
     def query(self, *args, **kwargs):
         return self.db.query(*args, **kwargs)

@@ -4,13 +4,22 @@ name: CI
 # (backend pytest + frontend build/lint/test should all gate merges
 # once this repo has a remote)." It now has one.
 #
-# None of the three jobs need Postgres/Redis as service containers —
-# everything (including the e2e job's two live servers) runs entirely
+# The api/web/e2e jobs below need no Postgres/Redis service containers
+# — everything (including the e2e job's two live servers) runs entirely
 # against SQLite + an in-process fake Redis (see
 # apps/api/app/tests/conftest.py and apps/api/scripts/
 # run_smoketest_server.py), the same pattern used for every live
-# smoketest verification throughout this build. Real Postgres/RLS
-# verification is still a documented, separate gap (see STATUS.md).
+# smoketest verification throughout this build.
+#
+# The rls job is different on purpose: Row Level Security is a real
+# Postgres feature SQLite cannot emulate at all, so it runs against an
+# actual postgres: service container, applies the real Alembic chain,
+# and runs app/tests/test_rls_postgres.py for real — see that module's
+# own docstring. This closed STATUS.md's long-standing "RLS is
+# unverified against real Postgres" gap and, doing so, found two real
+# bugs neither SQLite nor this repo's own local dev loop (never run
+# against real Postgres until Docker/Postgres finally became available)
+# had ever been able to surface — see that commit for detail.
 
 on:
   push:
@@ -77,3 +86,34 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report/
           retention-days: 7
+
+  rls:
+    name: Postgres RLS
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: datalume
+          POSTGRES_PASSWORD: datalume
+          POSTGRES_DB: datalume
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://datalume:datalume@localhost:5432/datalume
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: python -m alembic upgrade head
+      - run: pytest -q app/tests/test_rls_postgres.py

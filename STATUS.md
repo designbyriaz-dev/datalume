@@ -2844,6 +2844,57 @@ With this, every item named in spec §77 and §78 is genuinely REAL —
 the Housing Operations and Commercial acceptance tests are both fully
 closed, not "mostly."
 
+**Post-Sprint-24 — real Postgres finally available (user-owned Homebrew
++ PostgreSQL 16 installed locally, no sudo/Docker needed), and Row
+Level Security run against a live database for the first time in this
+project's history.** Found and fixed two genuine bugs neither SQLite
+nor this build's own dev loop had ever been able to surface, because
+neither had ever run a single query against real Postgres before now:
+
+1. `alembic_version.version_num` is hard-coded `VARCHAR(32)` by Alembic
+   itself; this project's own revision IDs go up to 39 characters
+   (`0017_stock_condition_planned_investment`). SQLite never enforces
+   `VARCHAR` lengths, so every migration run in this sandbox's entire
+   history silently tolerated it. Fixed by widening the column at
+   `0015_compliance_operations_hazards` — the first revision ID in the
+   chain to actually exceed 32 chars — rather than renaming any
+   already-shipped revision ID.
+2. `TenantScopedSession.__init__` (`app/core/tenancy.py`) ran
+   `SET LOCAL app.current_org_id = :org_id` with a bound parameter —
+   invalid Postgres syntax (`SET`/`SET LOCAL` are utility statements,
+   parsed before bind parameters are resolved; this fails against
+   SQLite too, with the same syntax error, for the same reason).
+   Fixed via `set_config('app.current_org_id', :org_id, true)`, the
+   documented way to set a GUC to a dynamic value with the same
+   transaction-scoped reset `SET LOCAL` would give.
+
+With both fixed, `app/tests/test_rls_postgres.py` (new) drives the
+real `TenantScopedSession` class — not hand-rolled SQL — against a
+live Postgres with the full 26-migration Alembic chain applied for
+real, and proves, for real:
+- a session scoped to Org A cannot see a row that physically exists in
+  the same table but belongs to Org B;
+- a session scoped to Org A cannot *write* a row claiming to belong to
+  Org B — Postgres itself rejects the INSERT (`cmd = ALL` with no
+  explicit `WITH CHECK` means the `USING` clause covers writes too);
+- a plain session with no tenant context set at all sees **nothing**,
+  not everything — RLS fails closed, the only safe default.
+
+All 50 RLS-protected tables (`SELECT tablename FROM pg_policies`) have
+`FORCE ROW LEVEL SECURITY` set, so even the owning role — which is also
+the role the app connects as — is genuinely subject to every policy,
+not silently exempt the way an unforced policy would let a table owner
+bypass.
+
+This also surfaced something bigger than "RLS was unverified": RLS is
+correctly designed at the schema level across all 50 tables, but it
+has never actually been **active** on a real application request —
+see the dedicated "Not yet done" entry below for why, and what closing
+it for real would take. A new `rls` CI job (`.github/workflows/ci.yml`)
+runs `test_rls_postgres.py` against a real `postgres:16` service
+container on every push from here on, so this verification — and this
+specific gap — won't silently regress or go unnoticed again.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -2851,14 +2902,26 @@ what Sprint 24 itself found couldn't be done for real in this sandbox,
 plus what earlier sprints already flagged — not a "next sprint," a
 punch list for whoever takes this toward a real pilot:
 
-- **RLS is still unverified against real Postgres** — this sprint's
-  tenant isolation suite confirms the *application* layer (query
-  scoping + membership checks) holds for all 15 resource types
-  checked, a stronger result than existed before, but the Postgres
-  Row Level Security policies in `alembic/versions/0001_foundation.py`
-  onward have still never actually run against a live database.
-  Treat RLS itself as the remaining unconfirmed half of architecture
-  01 §1's two-layer tenant isolation.
+- **The Postgres RLS *policies* are now verified for real — see the
+  dedicated entry below — but RLS is not actually active on any real
+  request.** `get_tenant_db`/`TenantScopedSession` (`app/core/
+  tenancy.py`) is the only code that ever sets the `app.current_org_id`
+  session variable every policy depends on, and it is used by **zero
+  of this app's 25 routers** — every one of them injects `Depends
+  (get_db)` directly, not `Depends(get_tenant_db)`. `app/core/db.py`'s
+  own docstring claims "every domain route uses get_tenant_db instead"
+  — that claim is false as of this writing. Tenant isolation in the
+  actually-running application today is enforced by the application
+  layer alone (the per-query `organisation_id` filtering the tenant-
+  isolation test suite above checks) — a real, tested defense, but
+  only one of the architecture's claimed two layers. Wiring RLS in for
+  real means either making `TenantScopedSession` a complete `Session`
+  drop-in (it currently only exposes `.query()`, not `.add()`/
+  `.flush()`/`.commit()`/`.get()`, so every router can't just swap one
+  `Depends(...)` for the other without also auditing every service
+  function's session usage) or some other retrofit — a genuinely large,
+  cross-cutting change touching all 25 routers, not a quick fix. Left
+  for the user to decide how to proceed given its size.
 - **Real load testing against Postgres-backed infra** — spec §72's
   actual performance requirement (portfolios in the tens of
   thousands) is unverified; this sprint's concurrency smoke-check
@@ -2941,6 +3004,27 @@ Specifically flagged as gaps to close early, not deferred to "later":
 then in another terminal: `cd apps/api && source .venv/bin/activate &&
 python ../../scripts/seed_demo.py` (or run it inside the `api` container).
 Web: http://localhost:3100. API: http://localhost:8000/docs.
+
+**Real Postgres without Docker, without sudo** (how the RLS verification
+above was actually done — this sandbox has no Docker and no admin
+password available): Homebrew doesn't need `/opt/homebrew` or sudo —
+`mkdir -p ~/homebrew && curl -L https://github.com/Homebrew/brew/tarball/main
+| tar xz --strip-components 1 -C ~/homebrew` (use the `main` branch
+tarball, not `master` — current Homebrew refuses to run from `master`
+and `brew shellenv` prints an error instead of shell output if you
+grab the wrong one), then `eval "$(~/homebrew/bin/brew shellenv)"` and
+`brew install postgresql@16`. Starting the server needs
+`LC_ALL="en_US.UTF-8"` set explicitly or `pg_ctl` fails with "postmaster
+became multithreaded during startup" (a known macOS locale-detection
+issue, not a real server fault) — `LC_ALL="en_US.UTF-8"
+~/homebrew/opt/postgresql@16/bin/pg_ctl -D
+~/homebrew/var/postgresql@16 -l <logfile> start`. Create a `datalume`
+role/database matching `app/core/config.py`'s default
+`DATABASE_URL` (adjust the port if not running on 5433), then
+`DATABASE_URL=postgresql+psycopg://datalume:datalume@localhost:<port>/datalume
+alembic upgrade head` runs the real migration chain. CI's `rls` job
+does this same thing with an actual `postgres:` service container
+instead, on every push — this local path is for a one-off manual check.
 
 **Without Docker** (what this session used to verify things):
 - API: `cd apps/api && python3 -m venv .venv && source .venv/bin/activate
