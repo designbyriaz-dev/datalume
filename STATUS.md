@@ -3367,31 +3367,19 @@ aggregation endpoints measured instead of left on suspicion**
   lighter per-row work (no repeat-failure signal), hence the much
   smaller number than that endpoint's 11.4s at 200,000 rows — still a
   real, scaling cost, not rewritten for the same reason as the others.
-- `GET /api/v1/compliance/assurance-report`
-  (`app/operations/compliance/assurance.py`'s
-  `get_board_assurance_report`, portfolio-wide i.e. no
-  `building_id`/`property_id` filter) — a different and more severe
-  shape than the others: it calls `compliance_status()`
-  (`status_engine.py`) once per applicable `(entity, requirement)`
-  pair, and `compliance_status()` itself runs 3-4 queries per call
+- ~~`GET /api/v1/compliance/assurance-report`~~ **Fixed** — see the
+  dedicated entry below. It was a different and more severe shape than
+  the other three: `get_board_assurance_report` called
+  `compliance_status()` once per applicable `(entity, requirement)`
+  pair, and `compliance_status()` itself ran 3-4 queries per call
   (status config, current applicability, latest inspection, open
   actions) — an O(pairs) count of individual ORM round trips, not one
-  big table load. Measured directly at 2,000 applicability pairs (one
-  requirement applied to 2,000 of the 20,000 seeded properties):
-  **~1.58 seconds**. Seeding and measuring the full 20,000-pair case
-  directly would mean hundreds of thousands of individual queries in
-  one test run, so the full-scale figure is a linear projection
-  instead, labelled as such rather than measured: **~15.8 seconds** at
-  20,000 properties x 1 requirement each — and real organisations
-  apply several requirements per property (gas, electrical, fire,
-  etc.), so a real portfolio's board assurance report is plausibly
-  slower than this projection, not faster. Of everything this load
-  test found, this is the one most worth prioritising first if this
-  work continues — not because it's used most often (it's a board-
-  level report, not a per-request dashboard call), but because its
-  per-pair query count makes it the only one that gets *categorically*
-  worse, not just linearly slower, as both properties and requirements
-  per property grow.
+  big table load, and the only one of the four that got
+  *categorically* worse (not just linearly slower) as both properties
+  and requirements-per-property grew. Unlike `data_health`'s 14
+  check functions or `repairs_intelligence`'s repeat-repair detection,
+  this one's fix was mechanical rather than a business-logic rewrite —
+  see below.
 - `commercial/arrears.py`'s `arrears_for_lease` and `collection_rate`
   were read but deliberately not included in this measurement pass —
   reading the code shows both are naturally bounded differently from
@@ -3404,6 +3392,49 @@ aggregation endpoints measured instead of left on suspicion**
   against a bounded N, not an unbounded org-wide collection scan like
   the others measured above, so it wasn't assumed to be in the same
   category without a reason to believe otherwise.
+
+**`get_board_assurance_report`'s N+1 fixed — a mechanical bulk-fetch,
+not a business-logic rewrite, and load-tested at full scale.**
+Unlike `data_health`/`repairs_intelligence`/`defects_intelligence`,
+this one's per-pair cost wasn't one big Python aggregation needing new
+business logic — `status_engine.py` already separated the decision
+logic (`_resolve_status`, now exported as `resolve_compliance_status`
+since it's shared across modules) from the data it needs, so the real
+fix was just changing *how* that data gets fetched for a portfolio-
+wide report: once per report instead of once per pair.
+
+`app/operations/compliance/assurance.py` now, before the loop:
+fetches the org's `ComplianceStatusConfig` once (was: once per pair,
+via `compliance_status()`'s own internal call); uses each
+`RequirementApplicability` row directly as its own "current
+applicability" (it already satisfies every filter the per-pair lookup
+would apply — same org/entity/requirement, same applicable_from/
+applicable_to window the outer query already filtered on — so this
+isn't just faster, it's also strictly more correct than the old
+per-pair re-query in the edge case of overlapping applicability
+periods, which could pick an arbitrary one); and bulk-fetches every
+`Inspection` and open `ComplianceAction` for the entities/requirements
+actually appearing in the report in two queries total, grouping them
+in Python by `(entity_type, entity_id, requirement_id)`. The loop then
+calls the same pure `resolve_compliance_status()` function every other
+caller uses, just fed from these pre-built dicts instead of a fresh
+query per pair — identical decision logic, zero behaviour change,
+only the data-fetching shape changed.
+
+Measured with `scripts/load_test_part2.py` against the same seeded
+org, before/after:
+
+- At 2,000 applicability pairs (measured pre-fix): ~1.58s.
+- At the full 20,000 pairs (one requirement per every seeded
+  property) — previously only a ~15.8s linear projection, now measured
+  directly because the fix makes that tractable: **~440ms**, roughly
+  **35x faster** than the pre-fix number at the same 2,000-pair scale
+  would scale to, and comfortably fast at the full portfolio size the
+  projection warned about.
+
+Full 380-test SQLite suite, the dedicated `test_assurance_report.py`/
+`test_reports.py`/compliance test files (51 tests), and the Postgres
+RLS suite all green.
 
 ## Not yet done
 
@@ -3438,26 +3469,23 @@ punch list for whoever takes this toward a real pilot:
   measured against a real 20,000-property/200,000-repair seed, and a
   composite-index migration added once the deep-offset cost was
   actually measured rather than assumed.
-- **Several "intelligence"/"summary"/"assurance" endpoints aggregate
-  in Python (or in O(pairs) individual queries) instead of SQL, and
-  are now quantified rather than just suspected** — see the two
-  dedicated load-testing entries above for the real numbers:
-  `run_data_health_checks` (~3.6s / 20,000 properties, via
+- **Several "intelligence"/"summary" endpoints aggregate in Python
+  instead of SQL, quantified rather than just suspected, three still
+  open.** See the dedicated load-testing entries above for the real
+  numbers: `run_data_health_checks` (~3.6s / 20,000 properties, via
   `GET /api/v1/portfolio/summary`), `get_repairs_intelligence` (~11.4s
-  / 200,000 repairs), `get_defects_intelligence` (~670ms / 40,000
-  defects), and `get_board_assurance_report` (~1.58s measured at 2,000
-  applicability pairs, ~15.8s projected at 20,000 — the worst-shaped
-  of the four, since its cost is driven by individual-query count per
-  `(entity, requirement)` pair, not one big table load). None
-  rewritten this session — real correctness risk in rushing complex,
-  already-tested business logic (fuzzy address-duplicate matching,
-  repeat-repair detection) into new SQL under time pressure.
+  / 200,000 repairs), and `get_defects_intelligence` (~670ms / 40,000
+  defects) are all still unrewritten — real correctness risk in
+  rushing complex, already-tested business logic (fuzzy address-
+  duplicate matching, repeat-repair detection) into new SQL under time
+  pressure. The fourth, `get_board_assurance_report`, **is now fixed**
+  (see its own dedicated entry above) — it turned out to be a
+  mechanical bulk-fetch fix rather than a business-logic rewrite, so
+  it didn't carry the same risk as the other three.
   `commercial/arrears.py`'s two functions were read and found to be a
   genuinely different, narrower shape (bounded by one lease or one
   date period, not an unbounded org-wide scan) — still has a real N+1
-  worth fixing, just not in the same category as the four above.
-  `get_board_assurance_report` is the one worth prioritising first if
-  this continues, per the reasoning in its own entry above.
+  worth fixing, just not in the same category as the others.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row

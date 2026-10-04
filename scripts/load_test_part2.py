@@ -7,17 +7,20 @@ Reuses the "Load Test Housing" organisation and the 20,000 properties
 scripts/load_test.py already seeded — run that script first (or point
 at a database where it has already run).
 
-Board assurance (app/operations/compliance/assurance.py) calls
+Board assurance (app/operations/compliance/assurance.py) used to call
 compliance_status() once per applicable (entity, requirement) pair,
-and compliance_status() itself issues several queries per call
-(status config, applicability, latest inspection, open actions) — an
-O(properties x requirements) problem with a real constant-factor cost
-per pair, not just one big table load like the others. Seeding that
-shape at the full 20,000-property scale would mean hundreds of
-thousands of individual ORM queries in this one script — instead this
-measures the real per-pair cost at a smaller, still-real scale (2,000
-properties, one requirement each = 2,000 pairs) and extrapolates
-linearly, labelled clearly as extrapolated rather than measured.
+and compliance_status() itself issued several queries per call (status
+config, applicability, latest inspection, open actions) — an
+O(properties x requirements) count of individual queries, not just one
+big table load like the others. First measured at a 2,000-pair sample
+(~1.58s) with the full 20,000-pair case left as a linear projection
+(~15.8s), since seeding+measuring that shape pre-fix would have meant
+hundreds of thousands of individual ORM queries in one script run.
+Since then, get_board_assurance_report was rewritten to bulk-fetch
+inspections/open actions/status config once per report instead of
+once per pair (same STATUS.md entry has the real before/after numbers)
+— this script now seeds and measures the FULL 20,000-property case
+directly, because the fix is exactly what makes that tractable.
 
 Usage (from apps/api, venv active, DATABASE_URL pointed at the
 already-load-tested Postgres):
@@ -39,7 +42,7 @@ from app.main import app  # noqa: E402
 client = TestClient(app)
 
 DEFECTS_PER_PROPERTY = 2
-APPLICABILITY_SAMPLE_SIZE = 2_000
+APPLICABILITY_SAMPLE_SIZE = None  # None = every seeded property (full-scale measurement, see module docstring)
 
 conn = psycopg.connect(dbname="datalume")
 conn.autocommit = True
@@ -109,7 +112,9 @@ print(f"  done in {time.perf_counter() - t0:.2f}s")
 print("\n--- Python-aggregated endpoint ---")
 timed("GET /api/v1/defects/intelligence", lambda: client.get("/api/v1/defects/intelligence", headers=headers))
 
-print(f"\nSeeding compliance catalog and {APPLICABILITY_SAMPLE_SIZE:,} requirement-applicability rows...")
+applicability_count = APPLICABILITY_SAMPLE_SIZE if APPLICABILITY_SAMPLE_SIZE is not None else property_count
+
+print(f"\nSeeding compliance catalog and {applicability_count:,} requirement-applicability rows...")
 frameworks = client.get("/api/v1/compliance/frameworks", headers=headers)
 assert frameworks.status_code == 200, frameworks.text[:300]
 
@@ -146,23 +151,18 @@ cur.execute(
     WHERE p.organisation_id = %(org_id)s
     LIMIT %(sample_size)s
     """,
-    {"org_id": org_id, "requirement_id": requirement_id, "sample_size": APPLICABILITY_SAMPLE_SIZE},
+    {"org_id": org_id, "requirement_id": requirement_id, "sample_size": applicability_count},
 )
 print(f"  done")
 
 cur.close()
 conn.close()
 
-print(f"\n--- N-queries-per-pair endpoint, measured at {APPLICABILITY_SAMPLE_SIZE:,} pairs (not the full {property_count:,}) ---")
-best = timed(
-    f"GET /api/v1/compliance/assurance-report (portfolio-wide, {APPLICABILITY_SAMPLE_SIZE:,} applicability pairs)",
+print(f"\n--- Previously O(pairs)-queries endpoint, now bulk-fetched, measured at the FULL {applicability_count:,} pairs ---")
+timed(
+    f"GET /api/v1/compliance/assurance-report (portfolio-wide, {applicability_count:,} applicability pairs)",
     lambda: client.get("/api/v1/compliance/assurance-report", headers=headers),
-    repeats=2,
-)
-projected = best * (property_count / APPLICABILITY_SAMPLE_SIZE)
-print(
-    f"  linear projection at {property_count:,} properties x 1 requirement each "
-    f"({property_count:,} pairs): ~{projected:.1f}s (EXTRAPOLATED, not measured directly)"
+    repeats=3,
 )
 
 print("\nDone.")

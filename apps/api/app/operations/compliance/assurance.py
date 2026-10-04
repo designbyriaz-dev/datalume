@@ -23,9 +23,17 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.operations.compliance.models import ComplianceDomain, ComplianceRequirement, RequirementApplicability
+from app.operations.compliance.models import (
+    ComplianceAction,
+    ComplianceActionStatus,
+    ComplianceDomain,
+    ComplianceRequirement,
+    Inspection,
+    RequirementApplicability,
+)
 from app.operations.compliance.schemas import BoardAssuranceDomainSummaryOut, BoardAssuranceReportOut
-from app.operations.compliance.status_engine import ComplianceStatus, compliance_status
+from app.operations.compliance.service import get_or_create_status_config
+from app.operations.compliance.status_engine import ComplianceStatus, resolve_compliance_status
 from app.operations.hazards.models import Hazard
 
 
@@ -76,17 +84,80 @@ def get_board_assurance_report(
     open_actions: dict[uuid.UUID, int] = defaultdict(int)
     overdue_actions: dict[uuid.UUID, int] = defaultdict(int)
 
+    # Bulk-fetch what compliance_status() would otherwise look up once
+    # per (entity, requirement) pair — for a portfolio-wide report that
+    # can be tens of thousands of pairs, each costing 3-4 individual
+    # queries (status config, applicability, latest inspection, open
+    # actions) via compliance_status() itself. `row` already satisfies
+    # every filter `compliance_status()`'s own applicability lookup
+    # would apply (same organisation/entity_type/entity_id/requirement_id,
+    # same applicable_from/applicable_to window — applicable_rows was
+    # fetched with that exact window above), so it's passed straight
+    # through as the applicability instead of re-querying for it.
+    # Inspections and open actions are fetched in two bulk queries
+    # scoped to the entities/requirements actually appearing in
+    # applicable_rows, then grouped in Python — same inputs, same
+    # `resolve_compliance_status` decision logic, just O(1) queries instead of
+    # O(pairs).
+    config = get_or_create_status_config(db, organisation_id)
+    today = date.today()
+
+    pair_keys = {(row.entity_type, row.entity_id, row.requirement_id) for row in applicable_rows}
+    entity_types = {k[0] for k in pair_keys}
+    entity_ids = {k[1] for k in pair_keys}
+
+    latest_inspection_by_key: dict[tuple[str, str, uuid.UUID], Inspection] = {}
+    inspections = (
+        db.query(Inspection)
+        .filter(
+            Inspection.organisation_id == organisation_id,
+            Inspection.entity_type.in_(entity_types),
+            Inspection.entity_id.in_(entity_ids),
+            Inspection.requirement_id.in_(requirement_ids),
+        )
+        .order_by(Inspection.inspection_date.desc())
+        .all()
+    ) if requirement_ids else []
+    for inspection in inspections:
+        key = (inspection.entity_type, inspection.entity_id, inspection.requirement_id)
+        if key not in latest_inspection_by_key:  # already ordered desc, so the first one seen per key is the latest
+            latest_inspection_by_key[key] = inspection
+
+    open_actions_by_key: dict[tuple[str, str, uuid.UUID], list[ComplianceAction]] = defaultdict(list)
+    actions = (
+        db.query(ComplianceAction)
+        .filter(
+            ComplianceAction.organisation_id == organisation_id,
+            ComplianceAction.entity_type.in_(entity_types),
+            ComplianceAction.entity_id.in_(entity_ids),
+            ComplianceAction.requirement_id.in_(requirement_ids),
+            ComplianceAction.status == ComplianceActionStatus.OPEN,
+        )
+        .order_by(ComplianceAction.deadline)
+        .all()
+    ) if requirement_ids else []
+    for action in actions:
+        key = (action.entity_type, action.entity_id, action.requirement_id)
+        open_actions_by_key[key].append(action)
+
     for row in applicable_rows:
         requirement = requirements_by_id.get(row.requirement_id)
         if requirement is None:
             continue
-        result = compliance_status(
-            db, organisation_id, entity_type=row.entity_type, entity_id=uuid.UUID(row.entity_id), requirement=requirement
+        key = (row.entity_type, row.entity_id, row.requirement_id)
+        status, _open_action, _days_to_due = resolve_compliance_status(
+            requirement=requirement,
+            applicability=row,
+            latest=latest_inspection_by_key.get(key),
+            open_actions=open_actions_by_key.get(key, []),
+            due_soon_days=config.due_soon_days,
+            never_assessed_grace_days=config.never_assessed_grace_days,
+            today=today,
         )
-        status_counts[requirement.domain_id][result.status.value] += 1
-        if result.status == ComplianceStatus.OPEN_ACTION:
+        status_counts[requirement.domain_id][status.value] += 1
+        if status == ComplianceStatus.OPEN_ACTION:
             open_actions[requirement.domain_id] += 1
-        elif result.status == ComplianceStatus.OVERDUE_ACTION:
+        elif status == ComplianceStatus.OVERDUE_ACTION:
             overdue_actions[requirement.domain_id] += 1
 
     domain_summaries = [

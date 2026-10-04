@@ -134,7 +134,7 @@ def _open_actions(
     )
 
 
-def _resolve_status(
+def resolve_compliance_status(
     *,
     requirement: ComplianceRequirement,
     applicability: RequirementApplicability | None,
@@ -194,7 +194,7 @@ def compliance_status(
     latest = _latest_inspection(db, organisation_id, entity_type, entity_id, requirement.id)
     open_actions = _open_actions(db, organisation_id, entity_type, entity_id, requirement.id)
 
-    status, open_action, days_to_due = _resolve_status(
+    status, open_action, days_to_due = resolve_compliance_status(
         requirement=requirement,
         applicability=applicability,
         latest=latest,
