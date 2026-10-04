@@ -25,20 +25,32 @@ document is currently linked to a specific compliance requirement in
 a way "missing evidence" could query), and external references beyond
 UPRN (no other reference type has a real "every X should have this"
 business rule the way UPRN does).
+
+Each check below queries narrow column projections (just the id/
+reference and whatever the rule itself needs) or real SQL
+GROUP BY/COUNT/window-function aggregation, rather than loading every
+full Property/Component/Document row into Python — found and fixed by
+the same load-testing pass documented in STATUS.md that fixed Repairs/
+Defects Intelligence and the Board Assurance report. The one exception
+is check_duplicate_properties' address-normalisation: collapsing
+*internal* whitespace runs (not just leading/trailing) has no portable
+SQL expression across SQLite (this codebase's test dialect) and
+Postgres without a regex function SQLite doesn't have built in, so
+that one check still normalises in Python — fed by a narrow
+(id, reference, address) projection, not full Property rows.
 """
 
-import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
 from app.development.models import Component, HandoverRecord, Property, PropertyStatus
 from app.documents.models import Document, DocumentStatus
-from app.identifiers.models import ExternalReference
-from app.identifiers.service import get_external_references_bulk
+from app.identifiers.models import ExternalReference, ExternalReferenceType
 from app.operations.stock_condition.models import StockConditionSurvey
 
 
@@ -66,55 +78,55 @@ class CheckResult:
 
 
 def check_missing_property_type(db: Session, organisation_id) -> CheckResult:
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
+    filters = [Property.organisation_id == organisation_id]
+    applicable_count = db.query(Property).filter(*filters).count()
+    missing = (
+        db.query(Property.id, Property.property_reference)
+        .filter(*filters, (Property.property_type.is_(None)) | (Property.property_type == ""))
+        .all()
+    )
     findings = [
-        Finding(
-            "MISSING_PROPERTY_TYPE",
-            FindingSeverity.MEDIUM,
-            "property",
-            str(p.id),
-            f"{p.property_reference} has no property type recorded.",
-        )
-        for p in properties
-        if not p.property_type
+        Finding("MISSING_PROPERTY_TYPE", FindingSeverity.MEDIUM, "property", str(pid), f"{pref} has no property type recorded.")
+        for pid, pref in missing
     ]
-    return CheckResult("MISSING_PROPERTY_TYPE", len(properties), len(findings), findings)
+    return CheckResult("MISSING_PROPERTY_TYPE", applicable_count, len(findings), findings)
 
 
 def check_missing_uprn(db: Session, organisation_id) -> CheckResult:
     # UPRN moved off Property onto app.identifiers.models.ExternalReference
     # in Sprint 7 — see that module's docstring for why. One bulk lookup
-    # here rather than N, same reasoning as development/presenters.py.
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
-    refs_by_id = get_external_references_bulk(db, organisation_id, "property", [p.id for p in properties])
-    findings = [
-        Finding(
-            "MISSING_UPRN",
-            FindingSeverity.LOW,
-            "property",
-            str(p.id),
-            f"{p.property_reference} has no UPRN recorded.",
+    # of just the UPRN-bearing property ids, not a full ExternalReference
+    # row per property.
+    property_rows = db.query(Property.id, Property.property_reference).filter(Property.organisation_id == organisation_id).all()
+    uprn_property_ids = {
+        row[0]
+        for row in db.query(ExternalReference.entity_id).filter(
+            ExternalReference.organisation_id == organisation_id,
+            ExternalReference.entity_type == "property",
+            ExternalReference.reference_type == ExternalReferenceType.UPRN,
         )
-        for p in properties
-        if not refs_by_id.get(str(p.id), {}).get("UPRN")
+    }
+    findings = [
+        Finding("MISSING_UPRN", FindingSeverity.LOW, "property", str(pid), f"{pref} has no UPRN recorded.")
+        for pid, pref in property_rows
+        if str(pid) not in uprn_property_ids
     ]
-    return CheckResult("MISSING_UPRN", len(properties), len(findings), findings)
+    return CheckResult("MISSING_UPRN", len(property_rows), len(findings), findings)
 
 
 def check_missing_postcode(db: Session, organisation_id) -> CheckResult:
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
+    filters = [Property.organisation_id == organisation_id]
+    applicable_count = db.query(Property).filter(*filters).count()
+    missing = (
+        db.query(Property.id, Property.property_reference)
+        .filter(*filters, (Property.postcode.is_(None)) | (Property.postcode == ""))
+        .all()
+    )
     findings = [
-        Finding(
-            "MISSING_POSTCODE",
-            FindingSeverity.LOW,
-            "property",
-            str(p.id),
-            f"{p.property_reference} has no postcode recorded.",
-        )
-        for p in properties
-        if not p.postcode
+        Finding("MISSING_POSTCODE", FindingSeverity.LOW, "property", str(pid), f"{pref} has no postcode recorded.")
+        for pid, pref in missing
     ]
-    return CheckResult("MISSING_POSTCODE", len(properties), len(findings), findings)
+    return CheckResult("MISSING_POSTCODE", applicable_count, len(findings), findings)
 
 
 def _normalize_address(address: str) -> str:
@@ -122,28 +134,32 @@ def _normalize_address(address: str) -> str:
 
 
 def check_duplicate_properties(db: Session, organisation_id) -> CheckResult:
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
-    counts = Counter(_normalize_address(p.address) for p in properties)
+    property_rows = (
+        db.query(Property.id, Property.property_reference, Property.address)
+        .filter(Property.organisation_id == organisation_id)
+        .all()
+    )
+    counts = Counter(_normalize_address(address) for _, _, address in property_rows)
     findings = [
         Finding(
             "DUPLICATE_PROPERTIES",
             FindingSeverity.HIGH,
             "property",
-            str(p.id),
-            f"{p.property_reference}'s address matches {counts[_normalize_address(p.address)] - 1} "
+            str(pid),
+            f"{pref}'s address matches {counts[_normalize_address(address)] - 1} "
             "other propert(y/ies) in this organisation.",
         )
-        for p in properties
-        if counts[_normalize_address(p.address)] > 1
+        for pid, pref, address in property_rows
+        if counts[_normalize_address(address)] > 1
     ]
-    return CheckResult("DUPLICATE_PROPERTIES", len(properties), len(findings), findings)
+    return CheckResult("DUPLICATE_PROPERTIES", len(property_rows), len(findings), findings)
 
 
 def check_missing_stock_condition_survey(db: Session, organisation_id) -> CheckResult:
     """architecture/04-operations-domain.md §6: a stock condition
     survey "feeds... Data Health (missing/stale surveys)" — Sprint 18's
     own instruction, closed here."""
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
+    property_rows = db.query(Property.id, Property.property_reference).filter(Property.organisation_id == organisation_id).all()
     surveyed_property_ids = {
         row[0]
         for row in db.query(StockConditionSurvey.property_id)
@@ -151,48 +167,45 @@ def check_missing_stock_condition_survey(db: Session, organisation_id) -> CheckR
         .distinct()
     }
     findings = [
-        Finding(
-            "MISSING_STOCK_CONDITION_SURVEY",
-            FindingSeverity.MEDIUM,
-            "property",
-            str(p.id),
-            f"{p.property_reference} has no stock condition survey recorded.",
-        )
-        for p in properties
-        if p.id not in surveyed_property_ids
+        Finding("MISSING_STOCK_CONDITION_SURVEY", FindingSeverity.MEDIUM, "property", str(pid), f"{pref} has no stock condition survey recorded.")
+        for pid, pref in property_rows
+        if pid not in surveyed_property_ids
     ]
-    return CheckResult("MISSING_STOCK_CONDITION_SURVEY", len(properties), len(findings), findings)
+    return CheckResult("MISSING_STOCK_CONDITION_SURVEY", len(property_rows), len(findings), findings)
 
 
 def check_stale_stock_condition_survey(db: Session, organisation_id) -> CheckResult:
     """Applies only to properties with at least one survey on record —
     a property with none is check_missing_stock_condition_survey's
     concern, not this one's, so it isn't double-counted as failing two
-    checks for the same underlying gap."""
-    properties = db.query(Property).filter(Property.organisation_id == organisation_id).all()
-    surveys = (
-        db.query(StockConditionSurvey)
+    checks for the same underlying gap. "Latest survey per property" is
+    a window function rather than "fetch every survey, pick the newest
+    in Python" — both SQLite and Postgres support ROW_NUMBER() OVER(...)
+    identically, so this one has no portability concern."""
+    latest_survey = (
+        db.query(
+            StockConditionSurvey.property_id.label("property_id"),
+            StockConditionSurvey.next_survey_due.label("next_survey_due"),
+            func.row_number()
+            .over(partition_by=StockConditionSurvey.property_id, order_by=StockConditionSurvey.survey_date.desc())
+            .label("rn"),
+        )
         .filter(StockConditionSurvey.organisation_id == organisation_id)
-        .order_by(StockConditionSurvey.survey_date.desc())
+        .subquery()
+    )
+    latest_rows = (
+        db.query(Property.id, Property.property_reference, latest_survey.c.next_survey_due)
+        .join(latest_survey, latest_survey.c.property_id == Property.id)
+        .filter(Property.organisation_id == organisation_id, latest_survey.c.rn == 1)
         .all()
     )
-    latest_by_property = {}
-    for s in surveys:
-        latest_by_property.setdefault(s.property_id, s)
-
-    applicable = [p for p in properties if p.id in latest_by_property]
+    today = date.today()
     findings = [
-        Finding(
-            "STALE_STOCK_CONDITION_SURVEY",
-            FindingSeverity.MEDIUM,
-            "property",
-            str(p.id),
-            f"{p.property_reference}'s stock condition survey was due {latest_by_property[p.id].next_survey_due}.",
-        )
-        for p in applicable
-        if latest_by_property[p.id].next_survey_due is not None and latest_by_property[p.id].next_survey_due < date.today()
+        Finding("STALE_STOCK_CONDITION_SURVEY", FindingSeverity.MEDIUM, "property", str(pid), f"{pref}'s stock condition survey was due {due}.")
+        for pid, pref, due in latest_rows
+        if due is not None and due < today
     ]
-    return CheckResult("STALE_STOCK_CONDITION_SURVEY", len(applicable), len(findings), findings)
+    return CheckResult("STALE_STOCK_CONDITION_SURVEY", len(latest_rows), len(findings), findings)
 
 
 def check_orphan_components(db: Session, organisation_id) -> CheckResult:
@@ -204,20 +217,28 @@ def check_orphan_components(db: Session, organisation_id) -> CheckResult:
     it's disconnected from the property hierarchy entirely, which spec
     §24's whole point (every asset traceable to where it physically is)
     depends on."""
-    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
+    filters = [Component.organisation_id == organisation_id]
+    applicable_count = db.query(Component).filter(*filters).count()
+    orphan_condition = (
+        Component.development_id.is_(None)
+        & Component.building_id.is_(None)
+        & Component.property_id.is_(None)
+        & Component.space_id.is_(None)
+        & Component.parent_component_id.is_(None)
+    )
+    orphans = db.query(Component.id, Component.component_reference).filter(*filters, orphan_condition).all()
     findings = [
         Finding(
             "ORPHAN_COMPONENT",
             FindingSeverity.HIGH,
             "component",
-            str(c.id),
-            f"{c.component_reference} has no development, building, property, space, or parent "
+            str(cid),
+            f"{cref} has no development, building, property, space, or parent "
             "component linked — it isn't traceable to anywhere in the portfolio.",
         )
-        for c in components
-        if not any((c.development_id, c.building_id, c.property_id, c.space_id, c.parent_component_id))
+        for cid, cref in orphans
     ]
-    return CheckResult("ORPHAN_COMPONENT", len(components), len(findings), findings)
+    return CheckResult("ORPHAN_COMPONENT", applicable_count, len(findings), findings)
 
 
 def check_duplicate_components(db: Session, organisation_id) -> CheckResult:
@@ -227,34 +248,38 @@ def check_duplicate_components(db: Session, organisation_id) -> CheckResult:
     same place, of the exact same type and manufacturer/model, are a
     near-certain accidental double-entry (a real duplicate boiler two
     rows apart), not two genuinely different assets that happen to
-    match."""
-    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
-
-    def key(c: Component) -> tuple:
-        return (
-            c.component_type_id,
-            c.development_id,
-            c.building_id,
-            c.property_id,
-            c.space_id,
-            (c.manufacturer or "").strip().lower(),
-            (c.model or "").strip().lower(),
+    match. Unlike the address check, LOWER/TRIM/COALESCE are portable
+    SQL functions (no internal-whitespace-collapse needed here), so
+    this key is computed in SQL, not Python."""
+    rows = (
+        db.query(
+            Component.id,
+            Component.component_reference,
+            Component.component_type_id,
+            Component.development_id,
+            Component.building_id,
+            Component.property_id,
+            Component.space_id,
+            func.lower(func.trim(func.coalesce(Component.manufacturer, ""))).label("manufacturer_key"),
+            func.lower(func.trim(func.coalesce(Component.model, ""))).label("model_key"),
         )
-
-    counts = Counter(key(c) for c in components)
+        .filter(Component.organisation_id == organisation_id)
+        .all()
+    )
+    counts = Counter(row[2:] for row in rows)
     findings = [
         Finding(
             "DUPLICATE_COMPONENT",
             FindingSeverity.MEDIUM,
             "component",
-            str(c.id),
-            f"{c.component_reference} matches {counts[key(c)] - 1} other component(s) of the same type, "
+            str(row.id),
+            f"{row.component_reference} matches {counts[row[2:]] - 1} other component(s) of the same type, "
             "make and model at the same location.",
         )
-        for c in components
-        if counts[key(c)] > 1
+        for row in rows
+        if counts[row[2:]] > 1
     ]
-    return CheckResult("DUPLICATE_COMPONENT", len(components), len(findings), findings)
+    return CheckResult("DUPLICATE_COMPONENT", len(rows), len(findings), findings)
 
 
 def check_missing_handover_information(db: Session, organisation_id) -> CheckResult:
@@ -266,8 +291,8 @@ def check_missing_handover_information(db: Session, organisation_id) -> CheckRes
     A property already marked HANDED_OVER with no such row means that
     evidence is missing, whatever the reason (a status set some other
     way, a migrated/imported record, ...)."""
-    properties = (
-        db.query(Property)
+    property_rows = (
+        db.query(Property.id, Property.property_reference)
         .filter(Property.organisation_id == organisation_id, Property.status == PropertyStatus.HANDED_OVER)
         .all()
     )
@@ -280,13 +305,13 @@ def check_missing_handover_information(db: Session, organisation_id) -> CheckRes
             "MISSING_HANDOVER_INFORMATION",
             FindingSeverity.HIGH,
             "property",
-            str(p.id),
-            f"{p.property_reference} is marked HANDED_OVER but has no handover record on file.",
+            str(pid),
+            f"{pref} is marked HANDED_OVER but has no handover record on file.",
         )
-        for p in properties
-        if p.id not in recorded_property_ids
+        for pid, pref in property_rows
+        if pid not in recorded_property_ids
     ]
-    return CheckResult("MISSING_HANDOVER_INFORMATION", len(properties), len(findings), findings)
+    return CheckResult("MISSING_HANDOVER_INFORMATION", len(property_rows), len(findings), findings)
 
 
 def check_missing_serial_number(db: Session, organisation_id) -> CheckResult:
@@ -296,39 +321,35 @@ def check_missing_serial_number(db: Session, organisation_id) -> CheckResult:
     same reason: a component genuinely might not carry one (still being
     commissioned, or a non-serialised item like a fire door), not
     necessarily a data problem."""
-    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
-    refs_by_id = get_external_references_bulk(db, organisation_id, "component", [c.id for c in components])
-    findings = [
-        Finding(
-            "MISSING_SERIAL_NUMBER",
-            FindingSeverity.LOW,
-            "component",
-            str(c.id),
-            f"{c.component_reference} has no manufacturer serial number recorded.",
+    component_rows = db.query(Component.id, Component.component_reference).filter(Component.organisation_id == organisation_id).all()
+    serial_component_ids = {
+        row[0]
+        for row in db.query(ExternalReference.entity_id).filter(
+            ExternalReference.organisation_id == organisation_id,
+            ExternalReference.entity_type == "component",
+            ExternalReference.reference_type == ExternalReferenceType.MANUFACTURER_SERIAL_NUMBER,
         )
-        for c in components
-        if not refs_by_id.get(str(c.id), {}).get("MANUFACTURER_SERIAL_NUMBER")
+    }
+    findings = [
+        Finding("MISSING_SERIAL_NUMBER", FindingSeverity.LOW, "component", str(cid), f"{cref} has no manufacturer serial number recorded.")
+        for cid, cref in component_rows
+        if str(cid) not in serial_component_ids
     ]
-    return CheckResult("MISSING_SERIAL_NUMBER", len(components), len(findings), findings)
+    return CheckResult("MISSING_SERIAL_NUMBER", len(component_rows), len(findings), findings)
 
 
 def check_missing_installation_date(db: Session, organisation_id) -> CheckResult:
     """installation_date feeds indicative_replacement_date (Component's
     own docstring) — without it, spec §26's Component Lifecycle
     Intelligence has nothing to compute a replacement date from."""
-    components = db.query(Component).filter(Component.organisation_id == organisation_id).all()
+    filters = [Component.organisation_id == organisation_id]
+    applicable_count = db.query(Component).filter(*filters).count()
+    missing = db.query(Component.id, Component.component_reference).filter(*filters, Component.installation_date.is_(None)).all()
     findings = [
-        Finding(
-            "MISSING_INSTALLATION_DATE",
-            FindingSeverity.MEDIUM,
-            "component",
-            str(c.id),
-            f"{c.component_reference} has no installation date recorded.",
-        )
-        for c in components
-        if c.installation_date is None
+        Finding("MISSING_INSTALLATION_DATE", FindingSeverity.MEDIUM, "component", str(cid), f"{cref} has no installation date recorded.")
+        for cid, cref in missing
     ]
-    return CheckResult("MISSING_INSTALLATION_DATE", len(components), len(findings), findings)
+    return CheckResult("MISSING_INSTALLATION_DATE", applicable_count, len(findings), findings)
 
 
 def check_invalid_installation_date(db: Session, organisation_id) -> CheckResult:
@@ -337,9 +358,12 @@ def check_invalid_installation_date(db: Session, organisation_id) -> CheckResult
     one's is a present-but-impossible value, so the same gap isn't
     double-counted as failing two checks, same reasoning as
     check_stale_stock_condition_survey above."""
-    components = (
-        db.query(Component)
-        .filter(Component.organisation_id == organisation_id, Component.installation_date.isnot(None))
+    today = date.today()
+    filters = [Component.organisation_id == organisation_id, Component.installation_date.isnot(None)]
+    applicable_count = db.query(Component).filter(*filters).count()
+    invalid = (
+        db.query(Component.id, Component.component_reference, Component.installation_date)
+        .filter(*filters, Component.installation_date > today)
         .all()
     )
     findings = [
@@ -347,13 +371,12 @@ def check_invalid_installation_date(db: Session, organisation_id) -> CheckResult
             "INVALID_INSTALLATION_DATE",
             FindingSeverity.HIGH,
             "component",
-            str(c.id),
-            f"{c.component_reference}'s installation date ({c.installation_date}) is in the future.",
+            str(cid),
+            f"{cref}'s installation date ({installation_date}) is in the future.",
         )
-        for c in components
-        if c.installation_date > date.today()
+        for cid, cref, installation_date in invalid
     ]
-    return CheckResult("INVALID_INSTALLATION_DATE", len(components), len(findings), findings)
+    return CheckResult("INVALID_INSTALLATION_DATE", applicable_count, len(findings), findings)
 
 
 def check_conflicting_external_references(db: Session, organisation_id) -> CheckResult:
@@ -364,26 +387,47 @@ def check_conflicting_external_references(db: Session, organisation_id) -> Check
     exactly the kind of silent problem get_external_references_bulk's
     dict.setdefault would otherwise mask, by quietly keeping only
     whichever row it happened to see last."""
-    references = db.query(ExternalReference).filter(ExternalReference.organisation_id == organisation_id).all()
-    values_by_key: dict[tuple[str, str, str], set[str]] = {}
-    for ref in references:
-        key = (ref.entity_type, ref.entity_id, ref.reference_type.value)
-        values_by_key.setdefault(key, set()).add(ref.value)
-
-    conflicting_keys = {key for key, values in values_by_key.items() if len(values) > 1}
+    filters = [ExternalReference.organisation_id == organisation_id]
+    key_counts = (
+        db.query(
+            ExternalReference.entity_type.label("entity_type"),
+            ExternalReference.entity_id.label("entity_id"),
+            ExternalReference.reference_type.label("reference_type"),
+            func.count(func.distinct(ExternalReference.value)).label("distinct_value_count"),
+        )
+        .filter(*filters)
+        .group_by(ExternalReference.entity_type, ExternalReference.entity_id, ExternalReference.reference_type)
+        .subquery()
+    )
+    applicable_count = db.query(key_counts).count()
+    rows = (
+        db.query(
+            ExternalReference.entity_type,
+            ExternalReference.entity_id,
+            ExternalReference.reference_type,
+            key_counts.c.distinct_value_count,
+        )
+        .join(
+            key_counts,
+            (key_counts.c.entity_type == ExternalReference.entity_type)
+            & (key_counts.c.entity_id == ExternalReference.entity_id)
+            & (key_counts.c.reference_type == ExternalReference.reference_type),
+        )
+        .filter(*filters, key_counts.c.distinct_value_count > 1)
+        .all()
+    )
     findings = [
         Finding(
             "CONFLICTING_EXTERNAL_REFERENCE",
             FindingSeverity.HIGH,
-            ref.entity_type,
-            ref.entity_id,
-            f"{ref.entity_type} {ref.entity_id} has {len(values_by_key[(ref.entity_type, ref.entity_id, ref.reference_type.value)])} "
-            f"different {ref.reference_type.value} values recorded.",
+            entity_type,
+            entity_id,
+            f"{entity_type} {entity_id} has {distinct_value_count} different {reference_type.value} values recorded.",
         )
-        for ref in references
-        if (ref.entity_type, ref.entity_id, ref.reference_type.value) in conflicting_keys
+        for entity_type, entity_id, reference_type, distinct_value_count in rows
     ]
-    return CheckResult("CONFLICTING_EXTERNAL_REFERENCE", len(values_by_key), len(conflicting_keys), findings)
+    failing_count = len({(entity_type, entity_id, reference_type) for entity_type, entity_id, reference_type, _ in rows})
+    return CheckResult("CONFLICTING_EXTERNAL_REFERENCE", applicable_count, failing_count, findings)
 
 
 def check_duplicate_documents(db: Session, organisation_id) -> CheckResult:
@@ -392,28 +436,32 @@ def check_duplicate_documents(db: Session, organisation_id) -> CheckResult:
     to ACTIVE only, since a SUPERSEDED/ARCHIVED row sharing a checksum
     with its own later revision is expected version history, not a
     duplicate."""
-    documents = (
-        db.query(Document)
-        .filter(Document.organisation_id == organisation_id, Document.status == DocumentStatus.ACTIVE)
+    filters = [Document.organisation_id == organisation_id, Document.status == DocumentStatus.ACTIVE]
+    applicable_count = db.query(Document).filter(*filters).count()
+    checksum_counts = (
+        db.query(Document.checksum.label("checksum"), func.count(func.distinct(Document.lineage_id)).label("distinct_lineage_count"))
+        .filter(*filters)
+        .group_by(Document.checksum)
+        .subquery()
+    )
+    rows = (
+        db.query(Document.id, Document.document_reference, checksum_counts.c.distinct_lineage_count)
+        .join(checksum_counts, checksum_counts.c.checksum == Document.checksum)
+        .filter(*filters, checksum_counts.c.distinct_lineage_count > 1)
         .all()
     )
-    lineages_by_checksum: dict[str, set[uuid.UUID]] = {}
-    for d in documents:
-        lineages_by_checksum.setdefault(d.checksum, set()).add(d.lineage_id)
-
     findings = [
         Finding(
             "DUPLICATE_DOCUMENT",
             FindingSeverity.MEDIUM,
             "document",
-            str(d.id),
-            f"{d.document_reference} has the same content as {len(lineages_by_checksum[d.checksum]) - 1} "
+            str(did),
+            f"{dref} has the same content as {distinct_lineage_count - 1} "
             "other document(s) uploaded as separate files rather than a new revision.",
         )
-        for d in documents
-        if len(lineages_by_checksum[d.checksum]) > 1
+        for did, dref, distinct_lineage_count in rows
     ]
-    return CheckResult("DUPLICATE_DOCUMENT", len(documents), len(findings), findings)
+    return CheckResult("DUPLICATE_DOCUMENT", applicable_count, len(findings), findings)
 
 
 RULES = [

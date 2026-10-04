@@ -3323,22 +3323,14 @@ whoever next needs to re-check or extend this). Results:
     left as a documented limitation rather than fixed here, since the
     product's actual usage pattern is shallow pages (recent repairs),
     not browsing to page 2,000.
-- `GET /api/v1/portfolio/summary`: **~3.6 seconds** even after the
-  properties aggregation was rewritten to SQL — tracked down to
-  `run_data_health_checks` (`app/data_health/rules.py`), which the
-  dashboard also calls. It's 14 separate check functions
-  (`check_missing_property_type`, `check_missing_uprn`,
-  `check_duplicate_properties`, and 11 more), several of which
-  independently re-run `db.query(Property)...all()` or
-  `db.query(Component)...all()` for the same org — the same full-table-
-  into-Python pattern, repeated many times over rather than once.
-  **Not rewritten this session** — 14 functions is real surface area,
-  each would need its own correctly-shaped SQL (several do per-row
-  fuzzy matching, e.g. `check_duplicate_properties`' address
-  normalisation, that doesn't translate to a single aggregate query),
-  and rushing that under time pressure risks silently changing what
-  counts as a "finding" rather than just how it's computed. Documented
-  here with a real number instead.
+- ~~`GET /api/v1/portfolio/summary`: **~3.6 seconds**~~ **Fixed** — see
+  the dedicated entry below. Even after the properties aggregation was
+  rewritten to SQL, this was tracked down to `run_data_health_checks`
+  (`app/data_health/rules.py`), which the dashboard also calls: 14
+  separate check functions, several of which independently re-ran
+  `db.query(Property)...all()` or `db.query(Component)...all()` for
+  the same org — the same full-table-into-Python pattern, repeated
+  many times over rather than once.
 - ~~`GET /api/v1/repairs/intelligence`~~ **Fixed** — see the dedicated
   entry below. Originally measured at **~11.4 seconds** at 200,000
   repairs (`app/operations/repairs_intelligence.py`) — loaded every
@@ -3548,6 +3540,86 @@ timing) and zero component signals (this seed never sets
 Full 381-test SQLite suite (the new test included) and the Postgres
 RLS suite green.
 
+**`run_data_health_checks` rewritten — the last of the four, and the
+one that turned out to need the most care, since "14 functions" meant
+14 separate correctness questions, not one.** Re-reading all 14 check
+functions individually (rather than treating "14 functions, some do
+fuzzy matching" as one risk category) showed the real picture: most
+are plain existence/boolean checks (`IS NULL`, a date comparison, an
+all-five-foreign-keys-unset test) with no behavioural subtlety at all;
+a few need a "does this id appear in another table" membership test
+(missing UPRN/serial number/stock survey/handover record); a few need
+a real "GROUP BY, keep groups with more than one row" duplicate check
+(components, external references, documents); and exactly one
+(`check_stale_stock_condition_survey`) needs "the latest row per
+property," which both SQLite and Postgres support identically via
+`ROW_NUMBER() OVER(...)` — no portability concern there either.
+
+Only `check_duplicate_properties`' address matching turned out to have
+a genuine, if narrow, portability snag: `_normalize_address` collapses
+*internal* whitespace runs, not just leading/trailing, which Postgres
+can do with `regexp_replace` but SQLite (this codebase's test dialect)
+can't without a loaded extension. Rather than force a regex into one
+dialect or silently drop the whitespace-collapse behaviour, that one
+check still normalises in Python — fed by a narrow
+`(id, reference, address)` projection instead of full `Property` rows,
+same "SQL where portable, narrow Python projection where it genuinely
+isn't" pattern the date-arithmetic pieces of the two Intelligence
+fixes already used. `check_duplicate_components`'s very similar-
+looking manufacturer/model matching has no such snag — `LOWER`/`TRIM`/
+`COALESCE` are portable, so that one *is* real SQL, computed via
+`GROUP BY` on those exact expressions instead of a Python `key()`
+function per row.
+
+Every rewrite was verified three ways: the existing
+`test_data_health.py` suite (14 tests, several asserting exact
+`applicable_count`/`failing_count`/`affected_entity_id` values, not
+just "didn't crash") passed unchanged on SQLite; a separate direct
+check against **real Postgres** (signing up a fresh org via
+`TestClient` and exercising duplicate properties with irregular
+whitespace, duplicate components with irregular case/whitespace in
+manufacturer/model, a stale-vs-current survey pair for the same
+property, conflicting external references, and duplicate documents)
+confirmed every one of the trickier rewrites — especially the window-
+function "latest survey" and the two normalisation-dependent duplicate
+checks — produces the exact right answer on the dialect that actually
+matters in production, not just the dialect the test suite happens to
+run on; and the load test below.
+
+Load-tested with a clean `git stash` before/after on the same seeded
+20,000-property organisation, measured two ways:
+
+- **Raw query/aggregation time** (calling the 14 rule functions
+  directly, bypassing the API layer): **~1,400ms -> ~171ms, about 8x
+  faster** — this is the actual "load everything into Python" cost
+  this rewrite targeted, and the number directly comparable to the
+  other three fixes.
+- **The full `GET /api/v1/data-health` endpoint**, at a realistic
+  90%-data-coverage seed (18,000 of 20,000 properties have a UPRN and
+  a stock condition survey on file, 2,000 genuinely don't — not the
+  property-count-sized worst case the raw profiling above used, where
+  *every* property fails *every* check at once): **~2,716ms ->
+  ~645ms, about 4.2x faster**, with identical output both times (4,000
+  findings, score 98.6% either way) confirming the rewrite changed
+  speed, not behaviour.
+
+The gap between the 8x raw-query win and the 4.2x end-to-end win is a
+real, separate, newly-surfaced finding, not a flaw in this rewrite:
+`run_data_health_checks` persists one `DataHealthFinding` row per
+finding via a `db.add()` loop, and `get_data_health`
+(`app/data_health/router.py`) returns every one of them in the
+response body — at the realistic 4,000-finding scale this costs real
+time (insert + Pydantic serialisation of 4,000 objects) *in addition
+to* the query time this rewrite fixed, and at the degenerate
+100%-failure-rate scale used for raw profiling (40,000 findings) it
+would dominate completely. This is a different architectural question
+from "Python aggregation vs SQL" — bulk/Core-level insert instead of
+one `db.add()` per row, and/or paginating the findings response — and
+is **not fixed here**, flagged for whoever next finds Data Health
+slow at a very high finding count.
+
+Full 381-test SQLite suite and the Postgres RLS suite green.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3581,21 +3653,25 @@ punch list for whoever takes this toward a real pilot:
   measured against a real 20,000-property/200,000-repair seed, and a
   composite-index migration added once the deep-offset cost was
   actually measured rather than assumed.
-- **One "intelligence"/"summary" endpoint still aggregates in Python
-  instead of SQL — genuinely risky to rewrite, unlike the four that
-  turned out to be mechanical.** `run_data_health_checks` (~3.6s /
-  20,000 properties, via `GET /api/v1/portfolio/summary`) is the one
-  survivor: several of its 14 check functions do real fuzzy address-
-  duplicate matching that a rushed SQL rewrite could silently change,
-  not just speed up — and unlike `get_repairs_intelligence`'s repeat-
-  repair detection (which turned out, on close reading, to be a plain
-  threshold comparison with no fuzzy logic, just an N+1 in how its
-  inputs were fetched — see its own dedicated entry above), there's no
-  equivalent "the business logic itself is actually simple" finding
-  here yet. `get_board_assurance_report`, `commercial/arrears.py`'s
-  two functions, `get_defects_intelligence`, and `get_repairs_
-  intelligence` **are now all fixed** (see their dedicated entries
-  above).
+- ~~Every "intelligence"/"summary" endpoint this session's load
+  testing flagged as aggregating in Python instead of SQL~~ **All
+  fixed.** `get_board_assurance_report`, `commercial/arrears.py`'s two
+  functions, `get_defects_intelligence`, `get_repairs_intelligence`,
+  and `run_data_health_checks` (see each one's own dedicated entry
+  above) all turned out, on close individual reading rather than
+  being judged by category, to be mechanical rewrites with no
+  behaviour-changing business-logic risk once actually read line by
+  line.
+- **New, separate finding from the `run_data_health_checks` load
+  test: Data Health persists and returns one row per finding with no
+  bulk insert or pagination.** At a realistic 4,000-finding scale this
+  already costs real time on top of the (now-fixed) query time; at a
+  degenerate near-100%-failure-rate scale it would dominate
+  completely. A different architectural question from "Python
+  aggregation vs SQL" — bulk/Core-level insert instead of a `db.add()`
+  loop, and/or paginating `GET /api/v1/data-health`'s findings list —
+  not fixed, flagged for whoever next finds Data Health slow at a very
+  high finding count.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row
