@@ -23,6 +23,7 @@ just when a developer happens to have Postgres installed locally.
 """
 
 import os
+import threading
 import uuid
 
 import pytest
@@ -427,3 +428,80 @@ def test_me_shows_a_users_own_memberships_without_leaking_anyone_elses(pg_client
     # row bleed into a query that's scoped to Org A.
     roster = pg_client.get("/api/v1/organisations/members", headers={"X-Organisation-Id": org_a_id})
     assert [m["email"] for m in roster.json()] == [email_a]
+
+
+def test_concurrent_requests_from_different_organisations_never_cross_contaminate():
+    """Every other test above drives the connection pool sequentially —
+    even the "many sequential requests" regression test only ever has
+    one request in flight at a time, which is exactly the condition
+    under which the connection-binding bug (this module's own commit
+    history) could pass by luck. This is the one scenario none of them
+    actually exercise: real concurrent requests from different
+    organisations, genuinely contending for the same small pool
+    (pool_size=5 by default — app/core/db.py) at the same moment, which
+    is the actual production condition both app.core.tenancy's
+    TenantScopedSession/app.current_org_id and the "reset" pool-event
+    listener exist to stay correct under. A sequential test proves the
+    mechanism is correct; this proves it's correct under contention.
+
+    Each worker gets its own real TestClient (its own cookie jar, its
+    own signup, its own org) so N genuinely independent sessions hit
+    the same app/connection pool at the same time — not one client
+    reused across threads, which would just serialize on Python's own
+    GIL around the client's internal state rather than exercising the
+    pool for real. Uses the real redis_client (already running locally
+    for this drill, see STATUS.md) rather than monkeypatching a fake
+    one — a thread's own signup/login needs genuinely working session
+    storage concurrently with every other thread's, not a shared dict
+    whose thread-safety under this test's real concern (the DB
+    connection pool) would be beside the point either way."""
+    if not os.environ.get("REDIS_URL", "").startswith("redis://"):
+        pytest.skip("REDIS_URL isn't set to a reachable real Redis — needed for genuinely concurrent sessions.")
+
+    worker_count = 10
+    iterations_per_worker = 5
+    errors: list[str] = []
+    errors_lock = threading.Lock()
+
+    def worker(i: int) -> None:
+        try:
+            with TestClient(app) as client:
+                email = f"concurrent-{i}-{uuid.uuid4().hex[:8]}@example.com"
+                expected_address = f"Concurrent Property {i}"
+                signup = client.post(
+                    "/api/v1/auth/signup",
+                    json={
+                        "name": f"Concurrent User {i}",
+                        "email": email,
+                        "password": "correct-horse-battery",
+                        "organisation_name": f"RLS Concurrency Org {i}",
+                        "organisation_type": "HOUSING_ASSOCIATION",
+                        "goals": [],
+                    },
+                )
+                if signup.status_code != 201:
+                    raise AssertionError(f"signup failed: {signup.status_code} {signup.text}")
+                org_id = signup.json()["organisation_id"]
+
+                create_resp = client.post(
+                    "/api/v1/properties", headers={"X-Organisation-Id": org_id}, json={"address": expected_address}
+                )
+                if create_resp.status_code != 201:
+                    raise AssertionError(f"create failed: {create_resp.status_code} {create_resp.text}")
+
+                for _ in range(iterations_per_worker):
+                    props = client.get("/api/v1/properties", headers={"X-Organisation-Id": org_id}).json()
+                    addresses = [p["address"] for p in props]
+                    if addresses != [expected_address]:
+                        raise AssertionError(f"org {i} saw {addresses!r}, expected only {expected_address!r}")
+        except Exception as exc:  # noqa: BLE001 — collecting every worker's own failure, not re-raising here
+            with errors_lock:
+                errors.append(f"worker {i}: {exc}")
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(worker_count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], "Cross-contamination or failure under concurrent load:\n" + "\n".join(errors)

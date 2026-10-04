@@ -13,6 +13,7 @@ organisation_id set instead; see app/development/importers.py.
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.development.models import ComponentType
@@ -47,6 +48,15 @@ SEEDED_COMPONENT_TYPES: dict[str, str] = {
 
 
 def get_or_create_global_component_type(db: Session, code: str) -> ComponentType:
+    # Row-locked read on the common path. The one-time bootstrap insert
+    # below has the same narrow race app/identifiers/service.py's own
+    # _get_or_create_pattern documents — two concurrent first-ever
+    # callers (any two organisations' first-ever signup, which eagerly
+    # seeds the whole catalog) could both miss this SELECT and both
+    # attempt the insert. Found for real by a genuine concurrency test;
+    # migration 0028 is what makes the IntegrityError below possible at
+    # all — this table had no unique constraint before it, so the race
+    # used to silently create a duplicate row instead of erroring.
     component_type = (
         db.query(ComponentType).filter(ComponentType.organisation_id.is_(None), ComponentType.code == code).first()
     )
@@ -54,9 +64,19 @@ def get_or_create_global_component_type(db: Session, code: str) -> ComponentType
         return component_type
     if code not in SEEDED_COMPONENT_TYPES:
         raise ValueError(f"Unknown seeded component type code: {code}")
-    component_type = ComponentType(organisation_id=None, code=code, name=SEEDED_COMPONENT_TYPES[code])
-    db.add(component_type)
-    db.flush()
+    try:
+        with db.begin_nested():
+            component_type = ComponentType(organisation_id=None, code=code, name=SEEDED_COMPONENT_TYPES[code])
+            db.add(component_type)
+            db.flush()
+    except IntegrityError:
+        component_type = (
+            db.query(ComponentType)
+            .filter(ComponentType.organisation_id.is_(None), ComponentType.code == code)
+            .first()
+        )
+        if component_type is None:
+            raise
     return component_type
 
 

@@ -3108,6 +3108,86 @@ roster (the risk a careless fix could have introduced).
 suite, migration downgrade/upgrade round-trip, and offline
 `alembic upgrade head --sql` validation all still pass.
 
+**Post-Sprint-24 — a genuine concurrency test, and five real race
+conditions it found that no sequential test (today's or any earlier
+sprint's) could have caught.** Every RLS test above — even the
+sequential-commits regression test — only ever has one request in
+flight at a time, which is exactly the condition under which a
+concurrency bug can pass by luck. `test_concurrent_requests_from_
+different_organisations_never_cross_contaminate` closes that gap for
+real: 10 independent `TestClient` instances (their own cookie jars,
+their own signups, their own orgs — not one client reused across
+threads, which would just serialize on its own internal state rather
+than genuinely contend for the connection pool), each hammering the
+same small pool (`pool_size=5` by default) at the same moment via real
+Python threads, each creating and re-reading its own property five
+times, asserting zero cross-contamination throughout. Needs real Redis
+alongside real Postgres — a thread's own signup/login needs genuinely
+working concurrent session storage, not a shared dict whose thread-
+safety would be beside the point either way — so this one test skips
+unless `REDIS_URL` is also set; CI's `rls` job now runs a `redis:7`
+service container alongside `postgres:16` specifically for it.
+
+First run found a real `UniqueViolation` race, not a test artifact:
+`get_or_create_plan` (`app/platform/billing.py`) and `_get_or_create_
+role` (`app/auth/router.py`) — both lazy "seed this global row the
+first time anyone needs it" functions, both called from signup — use a
+plain check-then-insert with no race protection, even though this
+exact codebase already has the *correct*, established pattern for this
+shape (`db.begin_nested()` + catch `IntegrityError` + re-read the
+winner's row) in three other places (`app/attention/service.py`'s
+`get_or_create_rule`, `app/identifiers/service.py`'s own documented
+`_get_or_create_pattern`). `billing.py`'s own docstring even claimed
+parity with `_get_or_create_role` ("same lazy-upsert pattern as system
+roles") — neither actually had the protection. Fixed both the same
+way the established pattern already does it.
+
+Checking every other "get or create a global row" function in the
+codebase for the same shape (not waiting for the test to find each one
+the hard way) found two more, worse in one way: `get_or_create_global_
+component_type` (`app/development/component_types.py`) and
+`get_or_create_default_framework`/`ensure_compliance_catalog_seeded`
+(`app/operations/compliance/seed.py`) had no unique constraint on the
+underlying table at all — `component_types`/`compliance_frameworks`/
+`compliance_domains` were never given one, so the race wouldn't have
+raised an error, it would have silently created duplicate global
+catalog rows (two "BOILERS" component types, etc.) with no error
+anywhere to notice by. Migration `0028_global_seed_unique_constraints`
+adds the missing partial unique indexes (`WHERE organisation_id IS
+NULL` — the global seeded catalog needs unique codes/names among
+itself, but a per-organisation custom addition, e.g. an unrecognised
+component type auto-created during CSV import, stays free to reuse a
+code another org or the global catalog already uses), and both
+functions now use the same `begin_nested`/`IntegrityError` pattern as
+everywhere else.
+
+Confirmed fixed, not just plausible: the concurrency test failed
+reproducibly (7 of 10 workers) against a fresh database before these
+fixes, and passes reliably across repeated fresh-database runs after
+them. Full 380-test SQLite suite, the 9-test Postgres RLS suite,
+migration downgrade/upgrade round-trip, and offline
+`alembic upgrade head --sql` validation all green.
+
+**Narrower, lower-severity instances of the same unprotected pattern,
+found but not fixed — a real, now-documented follow-up, not silently
+ignored:** `app/development/service.py`'s `get_or_create_handover_
+readiness_weight`/`get_or_create_planned_investment_weight`/
+`get_or_create_planned_investment_config`, `app/operations/service.py`'s
+`get_or_create_repair_rule_config`, `app/operations/compliance/
+service.py`'s `get_or_create_status_config`, `app/operations/hazards/
+service.py`'s `get_or_create_hazard_rule_config`, `app/commercial/
+service.py`'s `get_or_create_reconciliation_config`, and `app/
+development/component_types.py`'s `get_or_create_org_component_type`
+all share the same unprotected check-then-insert shape, but each seeds
+a *per-organisation* singleton row rather than a global one — the race
+window is two concurrent requests for the *same org's* first-ever
+touch of that one config, not every org's first touch colliding with
+every other org's the way signup's global catalogs did. Narrower and
+not caught by this concurrency test (each of its 10 workers is a
+different org, so no two of them ever race for the same org's row),
+but the same real bug in miniature. Left for a dedicated pass rather
+than rushed through alongside the global ones.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3121,6 +3201,14 @@ punch list for whoever takes this toward a real pilot:
   tenant-scoped router, and both layers of architecture 01 §1's tenant
   isolation are genuinely active and proven end to end, not just
   app-layer alone.
+- **Seven per-organisation `get_or_create_*` functions share the same
+  unprotected check-then-insert race** a genuine concurrency test found
+  (and fixed) in five *global*-scope equivalents — see the dedicated
+  entry above for the full list and why the window is narrower (same
+  org, not any two orgs) but still real. A dedicated pass applying the
+  same `begin_nested`/`IntegrityError` pattern already established
+  elsewhere in this codebase, not a design question like the items
+  below.
 - **Real load testing against Postgres-backed infra** — spec §72's
   actual performance requirement (portfolios in the tens of
   thousands) is unverified; this sprint's concurrency smoke-check

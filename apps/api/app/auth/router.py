@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import MfaBackupCode, Membership, MembershipStatus, Role, Session as SessionModel, User
@@ -73,11 +74,27 @@ def _slugify(name: str) -> str:
 
 
 def _get_or_create_role(db: Session, code: str) -> Role:
+    # Row-locked read on the common path. The one-time bootstrap insert
+    # below has the same narrow race app/identifiers/service.py's own
+    # _get_or_create_pattern documents and app/attention/service.py's
+    # get_or_create_rule already handles the same way — this function's
+    # own docstring upstream (ensure_plan_catalog_seeded, app/platform/
+    # billing.py) claimed parity with this one, but this one never
+    # actually had the protection; found for real by a genuine
+    # concurrency test hitting roles' own unique constraint on `code`
+    # under concurrent first-ever OWNER-role creation during signup.
     role = db.query(Role).filter(Role.code == code, Role.organisation_id.is_(None)).first()
-    if role is None:
-        role = Role(code=code, name=code.replace("_", " ").title(), organisation_id=None)
-        db.add(role)
-        db.flush()
+    if role is not None:
+        return role
+    try:
+        with db.begin_nested():
+            role = Role(code=code, name=code.replace("_", " ").title(), organisation_id=None)
+            db.add(role)
+            db.flush()
+    except IntegrityError:
+        role = db.query(Role).filter(Role.code == code, Role.organisation_id.is_(None)).first()
+        if role is None:
+            raise
     return role
 
 

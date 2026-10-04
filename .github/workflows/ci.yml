@@ -120,8 +120,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      # Only test_concurrent_requests_from_different_organisations_
+      # never_cross_contaminate needs this (genuinely concurrent
+      # signups/sessions, not safe behind a shared in-process fake) —
+      # every other test in this suite still only needs Postgres.
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       DATABASE_URL: postgresql+psycopg://datalume:datalume@localhost:5432/datalume
+      REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

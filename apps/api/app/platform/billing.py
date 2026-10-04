@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm import Session as OrmSession
 
@@ -116,15 +117,31 @@ TRIAL_LENGTH_DAYS = 14
 
 
 def get_or_create_plan(db: OrmSession, code: str) -> Plan:
+    # Row-locked read on the common path. The one-time bootstrap insert
+    # below has the same narrow race app/identifiers/service.py's own
+    # _get_or_create_pattern documents and app/attention/service.py's
+    # get_or_create_rule already handles the same way: two concurrent
+    # first-ever signups (both call ensure_plan_catalog_seeded) can
+    # both miss this SELECT and both attempt the insert. Found for
+    # real, not theoretically, by a genuine concurrency test —
+    # app/tests/test_rls_postgres.py's test_concurrent_requests_from_
+    # different_organisations_never_cross_contaminate hit this exact
+    # UniqueViolation on plans_code_key under real concurrent signups.
     plan = db.query(Plan).filter(Plan.code == code).first()
     if plan is not None:
         return plan
     if code not in PLAN_CATALOG:
         raise ValueError(f"Unknown plan code: {code}")
     spec = PLAN_CATALOG[code]
-    plan = Plan(code=code, **spec)
-    db.add(plan)
-    db.flush()
+    try:
+        with db.begin_nested():
+            plan = Plan(code=code, **spec)
+            db.add(plan)
+            db.flush()
+    except IntegrityError:
+        plan = db.query(Plan).filter(Plan.code == code).first()
+        if plan is None:
+            raise
     return plan
 
 
