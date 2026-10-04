@@ -3217,6 +3217,51 @@ too, not just the Postgres-only ones), the 9-test Postgres RLS suite,
 migration downgrade/upgrade round-trip, and offline
 `alembic upgrade head --sql` validation all green.
 
+**Post-Sprint-24 — the one remaining get_or_create race, half-closed
+honestly rather than left alone or oversold.** Migration
+`0030_org_component_type_unique_constraint` adds `UNIQUE
+(organisation_id, code)` to `component_types` — a plain constraint,
+not a partial index like migration 0028's global-catalog one, because
+SQL's NULL-is-never-equal-to-NULL semantics mean it naturally only
+ever constrains the non-NULL-`organisation_id` (per-org custom) rows
+against each other, coexisting without conflict alongside 0028's own
+partial index on the disjoint (global, `organisation_id IS NULL`)
+subset of the same table. `get_or_create_org_component_type`
+(`app/development/component_types.py`) now wraps its insert in the
+same `begin_nested`/`IntegrityError` pattern as everywhere else,
+re-matching via the function's own `find_component_type_by_name` on
+collision (consistent with how the winner was going to be found
+anyway).
+
+This closes the case that actually matters most in practice — two
+concurrent CSV import rows for the same org referencing the exact same
+new type name, where `code` is a deterministic function of `name` so
+both calls would derive the identical code and now genuinely collide.
+It deliberately does **not** close the narrower case `find_
+component_type_by_name`'s own fuzzy, singular/plural-tolerant matching
+exists for in the first place: two concurrent imports of e.g. "Boiler"
+and "Boilers" for the same org derive different codes (`BOILER` vs
+`BOILERS`) that a database constraint has no way to recognise as the
+same thing — the fuzzy equivalence lives only in the Python matching
+logic, not the schema. A real fix for that half would need a
+normalised-form constraint (or matching on something other than the
+raw derived code), which is a genuine design decision, not a
+mechanical application of the pattern used for the other eight —
+documented honestly rather than quietly treated as covered by this
+commit's own test coverage.
+
+Verified against real Postgres: calling the function twice with the
+exact same new name returns the same row both times, not a duplicate.
+Full 380-test SQLite suite, the 9-test Postgres RLS suite, the
+ingestion/component test files specifically (the real CSV-import code
+path this function serves), migration downgrade/upgrade round-trip,
+and offline `alembic upgrade head --sql` validation all green.
+
+With this, every `get_or_create_*`-shaped race this session's own
+concurrency test and the subsequent audit found is either closed or
+has an honestly-documented reason it's only partially closed — nothing
+left silently assumed fixed.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3233,10 +3278,17 @@ punch list for whoever takes this toward a real pilot:
 - ~~Seven per-organisation get_or_create_* functions share the same
   unprotected check-then-insert race as the global ones a concurrency
   test found.~~ **Closed** — see the dedicated migration
-  `0029_per_org_config_unique_constraints` entry above. One function,
-  `get_or_create_org_component_type`, stays open on purpose — it
-  matches by fuzzy name, not exact code, and needs a differently-shaped
-  fix than the mechanical one applied to the other seven.
+  `0029_per_org_config_unique_constraints` entry above.
+- ~~get_or_create_org_component_type matches by fuzzy name, needs a
+  differently-shaped fix.~~ **The exact-duplicate half closed** — see
+  migration `0030_org_component_type_unique_constraint` above. Two
+  concurrent imports of the exact same new type name for the same org
+  now collide for real and resolve correctly. The narrower singular/
+  plural-variant case (e.g. "Boiler" vs "Boilers" racing for the same
+  org) stays open on purpose — a database constraint can't encode that
+  fuzzy equivalence, only exact-code duplication, and the honest fix
+  (match on a normalised form, not raw derived code) needs more design
+  than this mechanical pass.
 - **Real load testing against Postgres-backed infra** — spec §72's
   actual performance requirement (portfolios in the tens of
   thousands) is unverified; this sprint's concurrency smoke-check

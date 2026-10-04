@@ -121,12 +121,34 @@ def get_or_create_org_component_type(db: Session, organisation_id: uuid.UUID, na
     custom — rather than reject the whole row, create a new org-specific
     type on the fly. Matches the taxonomy's "org-extensible" design
     (spec §22) instead of forcing every customer's naming to fit the
-    seeded list exactly."""
+    seeded list exactly.
+
+    Race protection is partial, on purpose — see migration
+    0030_org_component_type_unique_constraint's own docstring. Two
+    concurrent import rows for the same org and the exact same new name
+    now collide for real (code is a deterministic function of name, so
+    same name -> same code -> the unique constraint below catches it,
+    same begin_nested/IntegrityError/re-read pattern as every other
+    get_or_create_* in this codebase). Two concurrent rows for names
+    find_component_type_by_name's own fuzzy singular/plural matching
+    treats as equivalent but that derive genuinely different codes
+    (e.g. "Boiler" vs "Boilers" -> BOILER vs BOILERS) can still each
+    create their own row — a database constraint can't encode that
+    fuzzy equivalence, only exact-code duplication. Narrower, real,
+    deliberately left open rather than papered over with a constraint
+    that would only pretend to close it."""
     existing = find_component_type_by_name(db, organisation_id, name)
     if existing is not None:
         return existing
     code = "".join(c.upper() if c.isalnum() else "_" for c in name.strip()).strip("_") or f"CUSTOM_{uuid.uuid4().hex[:8]}"
-    component_type = ComponentType(organisation_id=organisation_id, code=code, name=name.strip())
-    db.add(component_type)
-    db.flush()
+    try:
+        with db.begin_nested():
+            component_type = ComponentType(organisation_id=organisation_id, code=code, name=name.strip())
+            db.add(component_type)
+            db.flush()
+    except IntegrityError:
+        existing = find_component_type_by_name(db, organisation_id, name)
+        if existing is None:
+            raise
+        return existing
     return component_type

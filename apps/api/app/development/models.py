@@ -174,6 +174,13 @@ class ComponentType(Base):
     (app/development/importers.py) rather than hard-failing the row."""
 
     __tablename__ = "component_types"
+    # Only ever constrains the non-NULL-organisation_id (per-org custom)
+    # rows against each other — NULL organisation_id values are never
+    # equal to one another under standard UNIQUE semantics, which is
+    # exactly why the global catalog's own uniqueness (migration 0028)
+    # needed a separate partial index instead. The two coexist without
+    # conflict, protecting disjoint subsets of this same table.
+    __table_args__ = (UniqueConstraint("organisation_id", "code", name="ux_component_types_org_code"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organisations.id"), nullable=True)
