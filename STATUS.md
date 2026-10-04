@@ -3296,21 +3296,33 @@ stamped, and measured real endpoint latency through the actual
 FastAPI app against real Postgres (`scripts/load_test.py`, kept for
 whoever next needs to re-check or extend this). Results:
 
-- `GET /api/v1/properties` and `GET /api/v1/repairs`: ~15ms and ~65ms
-  respectively at offset 0, flat regardless of how deep the page
-  (confirms pagination actually bounds the work, not just the response
-  size).
-- `GET /api/v1/repairs` at a deep offset (199,000) was measurably
-  slower than at offset 0 (~104ms vs ~65ms) before migration
-  `0031_list_endpoint_sort_indexes` — Postgres had an index on
-  `organisation_id` but had to sort 200,000 matching rows by
-  `reported_date` from scratch on every call. Added `(organisation_id,
-  <date column> DESC)` composite indexes for all four of the endpoints
-  just paginated (`repairs.reported_date`,
+- `GET /api/v1/properties`: ~15-20ms flat regardless of offset — its
+  existing `organisation_id` index and a comparatively small
+  20,000-row table are enough on their own, no new index needed.
+- `GET /api/v1/repairs` degraded with page depth even after being
+  paginated: ~65ms at offset 0 vs ~104ms at a deep offset (199,000, on
+  a 200,000-row table) — the existing `organisation_id`-only index
+  found the org's rows, but Postgres still had to sort all 200,000 of
+  them by `reported_date` from scratch before slicing. Added
+  `(organisation_id, <date column> DESC)` composite indexes for all
+  four of the endpoints just paginated (`repairs.reported_date`,
   `payment_transactions.received_date`, `documents.uploaded_at`,
-  `rent_obligations.due_date`). Re-measured after: offset-0 repairs
-  dropped to ~6ms, the deep-offset case dropped to ~56ms — both
-  endpoints now scale by index lookup, not by the table size swept.
+  `rent_obligations.due_date`) in migration
+  `0031_list_endpoint_sort_indexes`. Re-measured with a controlled A/B
+  (same script and org, index dropped via `alembic downgrade` then
+  restored, isolating the index's real effect from other variance):
+  - Offset 0 (the common case — first page): ~31ms -> ~6ms, a real
+    ~5x improvement, since Postgres now reads rows already in sorted
+    order instead of sorting the whole table first.
+  - A deep offset (199,000): ~67ms -> ~60ms, only a modest gain —
+    Postgres still has to walk and discard ~199,000 index entries
+    before reaching the requested page; the index removes the sort
+    step but not the `OFFSET` walk itself. Real constant-time deep
+    pagination needs keyset/cursor-based pagination instead of
+    `OFFSET`/`LIMIT`, which is an API shape change, not an index —
+    left as a documented limitation rather than fixed here, since the
+    product's actual usage pattern is shallow pages (recent repairs),
+    not browsing to page 2,000.
 - `GET /api/v1/portfolio/summary`: **~3.6 seconds** even after the
   properties aggregation was rewritten to SQL — tracked down to
   `run_data_health_checks` (`app/data_health/rules.py`), which the
@@ -3343,6 +3355,55 @@ Full 380-test SQLite suite, the Postgres RLS suite, the Playwright E2E
 suite, migration downgrade/upgrade round-trip, and offline `alembic
 upgrade head --sql` validation all green on the pagination/index
 changes.
+
+**Load testing, follow-up — the two remaining suspected Python-
+aggregation endpoints measured instead of left on suspicion**
+(`scripts/load_test_part2.py`, reusing the same seeded org):
+
+- `GET /api/v1/defects/intelligence`
+  (`app/development/defects_intelligence.py`) — **~670ms** at 40,000
+  defects (20,000 properties x 2 each). Same full-table-into-Python-
+  `Counter` shape as `repairs_intelligence`, just a smaller table and
+  lighter per-row work (no repeat-failure signal), hence the much
+  smaller number than that endpoint's 11.4s at 200,000 rows — still a
+  real, scaling cost, not rewritten for the same reason as the others.
+- `GET /api/v1/compliance/assurance-report`
+  (`app/operations/compliance/assurance.py`'s
+  `get_board_assurance_report`, portfolio-wide i.e. no
+  `building_id`/`property_id` filter) — a different and more severe
+  shape than the others: it calls `compliance_status()`
+  (`status_engine.py`) once per applicable `(entity, requirement)`
+  pair, and `compliance_status()` itself runs 3-4 queries per call
+  (status config, current applicability, latest inspection, open
+  actions) — an O(pairs) count of individual ORM round trips, not one
+  big table load. Measured directly at 2,000 applicability pairs (one
+  requirement applied to 2,000 of the 20,000 seeded properties):
+  **~1.58 seconds**. Seeding and measuring the full 20,000-pair case
+  directly would mean hundreds of thousands of individual queries in
+  one test run, so the full-scale figure is a linear projection
+  instead, labelled as such rather than measured: **~15.8 seconds** at
+  20,000 properties x 1 requirement each — and real organisations
+  apply several requirements per property (gas, electrical, fire,
+  etc.), so a real portfolio's board assurance report is plausibly
+  slower than this projection, not faster. Of everything this load
+  test found, this is the one most worth prioritising first if this
+  work continues — not because it's used most often (it's a board-
+  level report, not a per-request dashboard call), but because its
+  per-pair query count makes it the only one that gets *categorically*
+  worse, not just linearly slower, as both properties and requirements
+  per property grow.
+- `commercial/arrears.py`'s `arrears_for_lease` and `collection_rate`
+  were read but deliberately not included in this measurement pass —
+  reading the code shows both are naturally bounded differently from
+  the others: `arrears_for_lease` filters to one lease (obligations
+  per lease is naturally small — rent obligations over a lease's own
+  term), and `collection_rate` filters to a date period, not the whole
+  org's history. Both still loop and call
+  `matched_amount_for_obligation` (its own separate query) once per
+  obligation — a real N+1, worth fixing eventually — but it's N+1
+  against a bounded N, not an unbounded org-wide collection scan like
+  the others measured above, so it wasn't assumed to be in the same
+  category without a reason to believe otherwise.
 
 ## Not yet done
 
@@ -3377,23 +3438,26 @@ punch list for whoever takes this toward a real pilot:
   measured against a real 20,000-property/200,000-repair seed, and a
   composite-index migration added once the deep-offset cost was
   actually measured rather than assumed.
-- **Several "intelligence"/"summary" endpoints aggregate in Python
-  instead of SQL, and are now quantified rather than just suspected.**
-  Found by the load test above: `run_data_health_checks`
-  (`app/data_health/rules.py`, 14 check functions, several re-loading
-  the full properties/components table independently) costs the
-  `GET /api/v1/portfolio/summary` home-dashboard call ~3.6s at 20,000
-  properties; `get_repairs_intelligence`
-  (`app/operations/repairs_intelligence.py`) costs ~11.4s at 200,000
-  repairs. Not rewritten — real correctness risk in rushing complex,
+- **Several "intelligence"/"summary"/"assurance" endpoints aggregate
+  in Python (or in O(pairs) individual queries) instead of SQL, and
+  are now quantified rather than just suspected** — see the two
+  dedicated load-testing entries above for the real numbers:
+  `run_data_health_checks` (~3.6s / 20,000 properties, via
+  `GET /api/v1/portfolio/summary`), `get_repairs_intelligence` (~11.4s
+  / 200,000 repairs), `get_defects_intelligence` (~670ms / 40,000
+  defects), and `get_board_assurance_report` (~1.58s measured at 2,000
+  applicability pairs, ~15.8s projected at 20,000 — the worst-shaped
+  of the four, since its cost is driven by individual-query count per
+  `(entity, requirement)` pair, not one big table load). None
+  rewritten this session — real correctness risk in rushing complex,
   already-tested business logic (fuzzy address-duplicate matching,
-  repeat-repair detection) into new SQL under time pressure. Also
-  flagged by the broader grep for the same `.query(...).all()`-then-
-  Python-aggregate shape but not yet measured: `defects_intelligence.py`,
-  `commercial/arrears.py`, `operations/compliance/status_engine.py`.
-  Whoever picks this up next should measure each at realistic volume
-  first, the same way this session did, rather than rewrite on
-  suspicion alone.
+  repeat-repair detection) into new SQL under time pressure.
+  `commercial/arrears.py`'s two functions were read and found to be a
+  genuinely different, narrower shape (bounded by one lease or one
+  date period, not an unbounded org-wide scan) — still has a real N+1
+  worth fixing, just not in the same category as the four above.
+  `get_board_assurance_report` is the one worth prioritising first if
+  this continues, per the reasoning in its own entry above.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row
