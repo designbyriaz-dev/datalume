@@ -3723,11 +3723,21 @@ punch list for whoever takes this toward a real pilot:
   except lease-event monitoring, genuinely missing (see the dedicated
   entry above), the one acceptance-test item in either list that still
   needs real design work rather than a quick form or test fix.
-  Generating a handover report was never actually a gap —
+  ~~Generating a handover report was never actually a gap —
   `HANDOVER_READINESS` is a real, backend-tested report type (see
   `test_reports.py`) that simply hasn't been given its own Playwright
-  spec yet; the 50-step acceptance suite as a whole still covers a
-  real first slice, not every step named across spec §76-78.
+  spec yet~~ **Closed** — `apps/web/e2e/reports.spec.ts` now has a
+  second test alongside the original Development Summary one:
+  generates a Handover Readiness report as PDF (rather than CSV, for
+  some format diversity across the suite) against a real development,
+  watches the same worker-driven PENDING -> READY transition, and
+  downloads the file. `HANDOVER_READINESS` needs no building/property
+  filter fields (unlike `BOARD_ASSURANCE`/
+  `COMPLIANCE_EXECUTIVE_SUMMARY`), so the test is otherwise identical
+  in shape to the existing one. All 31 Playwright specs green. The
+  50-step acceptance suite as a whole still covers a real first slice,
+  not every step named across spec §76-78 — this closes one named gap
+  within it, not the whole list.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

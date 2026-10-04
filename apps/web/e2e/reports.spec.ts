@@ -32,3 +32,34 @@ test("a requested report goes from PENDING to READY and downloads", async ({ pag
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("development_summary.csv");
 });
+
+// HANDOVER_READINESS is a real, backend-tested report type (app/
+// reports/content.py's build_handover_readiness_report, covered by
+// app/tests/test_reports.py) that never had its own Playwright spec —
+// STATUS.md's own words: "the 50-step acceptance suite as a whole
+// still covers a real first slice, not every step." Same background-
+// job shape as the Development Summary test above, just a different
+// report type and format (PDF here, CSV there), and — unlike
+// BOARD_ASSURANCE/COMPLIANCE_EXECUTIVE_SUMMARY — no building/property
+// filter fields to fill in first.
+test("a Handover Readiness report generates and downloads as PDF", async ({ page }) => {
+  await signUp(page, "E2E Handover Report Org");
+
+  await page.goto("/developments");
+  await page.getByLabel("Name").fill("E2E Handover Report Development");
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.getByText("E2E Handover Report Development")).toBeVisible();
+
+  await page.goto("/reports");
+  await page.getByLabel("Report").selectOption({ label: "Handover Readiness" });
+  await page.getByLabel("Format").selectOption({ label: "PDF" });
+  await page.getByRole("button", { name: "Generate report" }).click();
+
+  await expect(page.getByText("PENDING")).toBeVisible();
+  await expect(page.getByText("READY")).toBeVisible({ timeout: 20_000 });
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("handover_readiness.pdf");
+});
