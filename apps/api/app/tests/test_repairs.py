@@ -378,6 +378,61 @@ def test_repairs_intelligence_aggregates(client):
     assert body["average_completion_days"] == 0.0
 
 
+def test_repairs_intelligence_surfaces_repeat_signals(client):
+    """get_repairs_intelligence computes repeat_repair_properties/
+    repeat_failure_components by bulk-querying and grouping in Python
+    rather than calling repeat_repairs_for_property/repeat_failures_
+    for_component once per property/component — this checks that bulk
+    computation lands on exactly the same signals those per-entity
+    functions would produce (see test_repeat_repairs_for_property and
+    test_repeat_failures_for_component for the single-entity version
+    of the same scenario)."""
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    prop = client.post("/api/v1/properties", headers={"X-Organisation-Id": org_id}, json={"address": "Flat 1"}).json()
+    boiler_type_id = _boiler_type_id(client, org_id)
+    component = client.post(
+        "/api/v1/components",
+        headers={"X-Organisation-Id": org_id},
+        json={"component_type_id": boiler_type_id, "property_id": prop["id"]},
+    ).json()
+
+    repair_ids = []
+    for i in range(3):
+        repair = client.post(
+            "/api/v1/repairs",
+            headers={"X-Organisation-Id": org_id},
+            json={
+                "property_id": prop["id"],
+                "component_id": component["id"],
+                "category": "Heating",
+                "description": f"Boiler fault {i}",
+                "reported_date": "2026-01-01",
+            },
+        ).json()
+        repair_ids.append(repair["id"])
+
+    resp = client.get("/api/v1/repairs/intelligence", headers={"X-Organisation-Id": org_id})
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert len(body["repeat_repair_properties"]) == 1
+    property_signal = body["repeat_repair_properties"][0]
+    assert property_signal["property_id"] == prop["id"]
+    assert property_signal["repair_count"] == 3
+    assert property_signal["window_months"] == 12
+    assert property_signal["threshold"] == 3
+    assert sorted(property_signal["repair_ids"]) == sorted(repair_ids)
+
+    assert len(body["repeat_failure_components"]) == 1
+    component_signal = body["repeat_failure_components"][0]
+    assert component_signal["component_id"] == component["id"]
+    assert component_signal["repair_count"] == 3
+    assert component_signal["window_months"] == 18
+    assert component_signal["threshold"] == 3
+    assert sorted(component_signal["repair_ids"]) == sorted(repair_ids)
+
+
 def test_repair_rule_configs_default_and_update(client):
     signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
     org_id = signup["organisation_id"]

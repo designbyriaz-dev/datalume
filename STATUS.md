@@ -3339,17 +3339,14 @@ whoever next needs to re-check or extend this). Results:
   and rushing that under time pressure risks silently changing what
   counts as a "finding" rather than just how it's computed. Documented
   here with a real number instead.
-- `GET /api/v1/repairs/intelligence`: **~11.4 seconds** at 200,000
-  repairs (`app/operations/repairs_intelligence.py`) — loads every
-  repair for the org into Python and computes open/completed/emergency
+- ~~`GET /api/v1/repairs/intelligence`~~ **Fixed** — see the dedicated
+  entry below. Originally measured at **~11.4 seconds** at 200,000
+  repairs (`app/operations/repairs_intelligence.py`) — loaded every
+  repair for the org into Python and computed open/completed/emergency
   counts, category and contractor breakdowns, average completion time,
-  and repeat-repair/repeat-failure signals all in Python via `Counter`.
-  Same reasoning as above for not rewriting now: repeat-repair
-  detection is exactly the kind of deterministic, versioned, auditable
-  business logic spec's own "LLM explains, never calculates" principle
-  cares about getting right, and a rushed SQL rewrite of it carries
-  real correctness risk the mechanical pagination/index fixes above
-  don't.
+  and repeat-repair/repeat-failure signals all in Python via `Counter`,
+  the latter by calling the single-entity repeat-repair/repeat-failure
+  functions once per distinct property/component.
 
 Full 380-test SQLite suite, the Postgres RLS suite, the Playwright E2E
 suite, migration downgrade/upgrade round-trip, and offline `alembic
@@ -3394,8 +3391,10 @@ aggregation endpoints measured instead of left on suspicion**
 
 **`get_board_assurance_report`'s N+1 fixed — a mechanical bulk-fetch,
 not a business-logic rewrite, and load-tested at full scale.**
-Unlike `data_health`/`repairs_intelligence` (still open, see below),
-this one's per-pair cost wasn't one big Python aggregation needing new
+Unlike `data_health`/`repairs_intelligence` (at the time this was
+written — `repairs_intelligence` was fixed later the same session,
+see its own dedicated entry below), this one's per-pair cost wasn't
+one big Python aggregation needing new
 business logic — `status_engine.py` already separated the decision
 logic (`_resolve_status`, now exported as `resolve_compliance_status`
 since it's shared across modules) from the data it needs, so the real
@@ -3498,6 +3497,57 @@ rewrite preserves behaviour, not just improves speed.
 
 Full 380-test SQLite suite and the Postgres RLS suite green.
 
+**`get_repairs_intelligence` rewritten too — the last of the three,
+and the biggest win of any fix this session, found by actually
+separating its two genuinely different halves instead of treating the
+whole function as one risky block.** Its simple counts/breakdowns
+(open/completed/emergency counts, category/contractor breakdowns, cost
+totals) are exactly the same deterministic-aggregation shape as
+`defects_intelligence` and were rewritten the same way, to `COUNT`/
+`GROUP BY`/`SUM`. `average_completion_days` stays a narrow two-column
+Python computation for the same SQLite/Postgres date-arithmetic
+portability reason as the other two fixes.
+
+The repeat-repair/repeat-failure signals were the genuinely riskier-
+looking half — they fold in `repeat_repair.py`'s "N+ repairs within a
+configured window" rule — but reading that module closely (rather
+than assuming "business logic = don't touch") showed the actual
+*decision rule* is a plain threshold comparison with no fuzzy matching
+and no AI-adjacent logic at all; what made the original slow was
+calling the single-entity `repeat_repairs_for_property`/`repeat_
+failures_for_component` functions once per distinct property/
+component, each re-fetching the org's rule config and re-querying
+repairs scoped to just that one entity. `repeat_repair.py` itself is
+untouched — those two functions keep being called per-entity by the
+dedicated property/component endpoints, the attention engine, Ask
+DataLume, and Planned Investment Intelligence, where there's a single
+entity and no N+1 to begin with. `get_repairs_intelligence` instead
+now fetches both rule configs once, bulk-queries repairs within the
+wider of the two rule windows once, and groups them in Python by
+property/component — same threshold-comparison decision rule, applied
+to bulk-fetched data instead of N individual queries.
+
+Added `test_repairs_intelligence_surfaces_repeat_signals`
+(`app/tests/test_repairs.py`) — no existing test exercised
+`repeat_repair_properties`/`repeat_failure_components` through the
+intelligence endpoint itself, so this checks the bulk computation
+lands on exactly the signal the single-entity functions would
+produce for the same data (mirrors `test_repeat_repairs_for_property`/
+`test_repeat_failures_for_component`'s own scenario).
+
+Load-tested with a clean `git stash` before/after on the same seeded
+20,000-property/200,000-repair organisation (repairs seeded 10 per
+property, within the rule's 12-month window — a worst case where
+every single property triggers the signal, not a sparse one):
+**~56.7s -> ~840ms, roughly 67x faster** — the largest improvement of
+any fix this session — correctly returning all 20,000 triggered
+property signals (confirmed via the response body, not just the
+timing) and zero component signals (this seed never sets
+`component_id` on its repairs, so there's nothing to trigger there).
+
+Full 381-test SQLite suite (the new test included) and the Postgres
+RLS suite green.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3531,20 +3581,21 @@ punch list for whoever takes this toward a real pilot:
   measured against a real 20,000-property/200,000-repair seed, and a
   composite-index migration added once the deep-offset cost was
   actually measured rather than assumed.
-- **Two "intelligence"/"summary" endpoints still aggregate in Python
-  instead of SQL — genuinely risky to rewrite, unlike the three that
+- **One "intelligence"/"summary" endpoint still aggregates in Python
+  instead of SQL — genuinely risky to rewrite, unlike the four that
   turned out to be mechanical.** `run_data_health_checks` (~3.6s /
-  20,000 properties, via `GET /api/v1/portfolio/summary`) and
-  `get_repairs_intelligence` (~11.4s / 200,000 repairs) both involve
-  real business logic — fuzzy address-duplicate matching, configurable
-  time-windowed repeat-repair detection — that a rushed SQL rewrite
-  could silently change, not just speed up. `get_board_assurance_
-  report`, `commercial/arrears.py`'s two functions, and `get_defects_
+  20,000 properties, via `GET /api/v1/portfolio/summary`) is the one
+  survivor: several of its 14 check functions do real fuzzy address-
+  duplicate matching that a rushed SQL rewrite could silently change,
+  not just speed up — and unlike `get_repairs_intelligence`'s repeat-
+  repair detection (which turned out, on close reading, to be a plain
+  threshold comparison with no fuzzy logic, just an N+1 in how its
+  inputs were fetched — see its own dedicated entry above), there's no
+  equivalent "the business logic itself is actually simple" finding
+  here yet. `get_board_assurance_report`, `commercial/arrears.py`'s
+  two functions, `get_defects_intelligence`, and `get_repairs_
   intelligence` **are now all fixed** (see their dedicated entries
-  above) — each turned out, on close reading, to be a mechanical
-  bulk-fetch or aggregation rewrite with no fuzzy matching or
-  configurable business rules in its own logic, so none carried the
-  same risk as the two still open.
+  above).
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row
