@@ -335,3 +335,33 @@ def test_report_worker_processes_a_job_created_through_a_real_request(pg_client)
 
     status_resp = pg_client.get(f"/api/v1/reports/{job_id}", headers={"X-Organisation-Id": org_id})
     assert status_resp.json()["status"] == "READY"
+
+
+def test_many_sequential_requests_each_commit_and_refresh_correctly(pg_client):
+    """Regression guard for the bug scripts/seed_demo.py's own real run
+    found: TenantScopedSession's connection-scoped set_config
+    (is_local=false) only holds if the *same* request keeps the *same*
+    physical connection for its whole lifetime — true for a plain
+    sessionmaker(bind=engine) session only by luck of low pool
+    contention (a single isolated test, like the one above creating one
+    property, can pass even when the underlying assumption is false,
+    because nothing else is competing for a connection to get handed
+    back instead). The real seed script — several POST requests in a
+    row against the same org, exactly like this test — hit it for
+    real: add_development's db.commit() then db.refresh(dev) failed
+    with "Could not refresh instance" on what was, by then, an
+    unscoped connection. app/core/db.py's _RequestSession (binding each
+    request's Session to one explicitly-held Connection instead of
+    letting SQLAlchemy silently swap connections between transactions)
+    is what actually fixes this; this test is what makes sure it stays
+    fixed, since a single-request test alone wouldn't reliably catch a
+    regression here either."""
+    org_id = _signup(pg_client, "RLS Sequential Commits Org")
+    for i in range(5):
+        resp = pg_client.post(
+            "/api/v1/developments", headers={"X-Organisation-Id": org_id}, json={"name": f"Development {i}"}
+        )
+        assert resp.status_code == 201, resp.text
+
+    list_resp = pg_client.get("/api/v1/developments", headers={"X-Organisation-Id": org_id})
+    assert len(list_resp.json()) == 5

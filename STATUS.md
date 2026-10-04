@@ -2995,7 +2995,7 @@ request actually tried to exercise RLS for real for the first time:
    (previously one global query); the attention scan already had one,
    it just never scoped inside it.
 
-`app/tests/test_rls_postgres.py` grew from 3 tests to 9, including two
+`app/tests/test_rls_postgres.py` grew from 3 tests to 6, including two
 that exist specifically because they failed first and caught real bugs
 above, not because they were planned: `test_rls_context_does_not_leak_
 to_a_connection_reused_by_a_different_org` (bug 2) and `test_a_real_
@@ -3008,6 +3008,90 @@ run directly against the same database, asserting it actually reaches
 pass unaffected — every fix here is additive/corrective to the
 Postgres-only code path, gated the same way `TenantScopedSession`
 already was.
+
+**Post-Sprint-24 — a real backup/restore drill, closing STATUS.md's
+other long-standing "no real Postgres to drill against" gap — and, in
+verifying it properly rather than trusting a clean exit code, two more
+real bugs found.** Seeded both fictional demo organisations
+(`scripts/seed_demo.py`, run for the first time ever against real
+Postgres — every development/building/property/component/repair/
+compliance domain/hazard/lease/payment it creates, plus two real
+Attention Engine scans, all went through the real API, all genuinely
+RLS-scoped) end to end, then: `pg_dump -Fc` a real logical backup,
+`DROP DATABASE` to genuinely destroy it (not simulated — the user
+confirmed this explicitly, since dropping a database is a correctly-
+classifier-blocked destructive action even for a local throwaway test
+DB), `CREATE DATABASE` fresh, `pg_restore` from the backup. Verified,
+not assumed: identical row counts across every table checked
+(properties, developments, leases, repairs, attention_signals,
+memberships, organisations), both organisation names intact, all 50
+RLS policies restored, the `datalume` role still correctly non-
+superuser (RLS stays enforced post-restore, not silently defeated) —
+and the *real application*, not just raw SQL, signing in and reading
+real org-scoped data back out correctly afterward.
+
+Two more bugs surfaced doing this properly:
+
+7. `scripts/seed_demo.py`'s own `ensure_org_and_owner` creates the org/
+   workspace/membership rows the same deliberately-unscoped way
+   signup's real endpoint used to (bug 3 above) — same chicken-and-egg
+   fix, scoping to `org.id` once it's known, applied here too (this
+   script predates the signup fix and was never updated alongside it).
+8. The real app run this way caught something the earlier single-
+   request/sequential-in-one-test RLS tests hadn't: `TenantScopedSession`'s
+   connection-scoped `set_config` only holds if the *same* request keeps
+   the *same* physical connection throughout — true by luck under low
+   pool contention (a lone test creating one property), false under
+   the seed script's busier, multi-request-per-org pattern. A plain
+   `sessionmaker(bind=engine)` session releases its connection back to
+   the pool on every commit and may be handed a *different* one on the
+   next query — exactly what `add_development`'s `db.commit()` then
+   `db.refresh(dev)` hit. Fixed properly this time, not by luck: `app/
+   core/db.py`'s `SessionLocal` now explicitly holds one `Connection`
+   for the Session's whole life (`_RequestSession`, replacing the plain
+   `sessionmaker`) rather than letting SQLAlchemy silently swap
+   connections between transactions — the fix lives in the one shared
+   factory every caller (`get_db`, the worker, the seed script, Stripe
+   billing) already goes through, not something each call site needs
+   to know about. `close()` releases the held connection itself, which
+   is what lets the existing `"reset"` pool-event listener still do its
+   job on checkin. A new regression test,
+   `test_many_sequential_requests_each_commit_and_refresh_correctly`,
+   exists specifically because a single-request test alone would not
+   reliably have caught this — it has to create several things in a row
+   against the same org, the way the seed script actually did, to force
+   the same connection-reuse condition under real (if light) pool
+   contention.
+
+**One more real, structurally different bug found via this drill's own
+after-the-fact verification, not fixed:** `GET /api/v1/auth/me`
+(`app/auth/router.py`) queries `memberships` filtered by `user_id`
+alone, deliberately spanning every organisation the signed-in user
+belongs to — the workspace-switcher list. `memberships` is RLS-
+protected, and there is no single organisation to scope this query to;
+scoping it to any one org would make the user's *other* orgs
+disappear from their own switcher. Post-restore, logging in via the
+real demo credentials and calling the real `/me` endpoint returned
+`memberships: []` even though both the row and a correctly-scoped
+`GET /api/v1/properties` for that same org worked fine — proving the
+backup/restore itself is sound and isolating this as a separate,
+genuine gap. Same underlying shape as the worker jobs finding above
+(a legitimate cross-tenant access pattern RLS-as-designed doesn't
+support) but worse: the worker can reasonably loop over every
+organisation once a day, but `/me` runs on every login and page load,
+so "loop over every org in the system checking membership" doesn't
+scale here the way it does for a nightly job. The bounded fix that
+doesn't need a new Postgres role or deployment credential: widen
+`memberships`' own RLS policy with an additional `OR user_id =
+current_setting('app.current_user_id', true)::uuid` clause (a new
+migration) and set that second session variable in `get_current_user`
+— a user's own membership rows become visible regardless of org
+context, without weakening what any org-scoped "list my organisation's
+members" query can see, since that path stays additionally filtered by
+`organisation_id` at the app layer exactly as it already is. Not
+implemented without checking first — it's a real schema/policy change,
+not a quick fix, same reasoning as leaving the worker's BYPASSRLS
+question open rather than guessing.
 
 ## Not yet done
 
@@ -3026,11 +3110,24 @@ punch list for whoever takes this toward a real pilot:
   actual performance requirement (portfolios in the tens of
   thousands) is unverified; this sprint's concurrency smoke-check
   (above) is a much smaller, explicitly-labelled substitute.
-- **A real backup drill** — architecture §5's Postgres snapshot/WAL
-  archiving and object-storage versioning are both infra-managed
-  (Azure-side), not application code to write; there's no real
-  Postgres/cloud storage in this sandbox to actually drill a restore
-  against.
+- ~~A real backup drill~~ **The Postgres half closed** — see the
+  dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
+  against real seeded demo data, verified (not assumed) down to row
+  counts, RLS policies, and role permissions, plus the real application
+  reading it back correctly afterward. Architecture §5's *object-
+  storage* versioning half stays open — that's genuinely Azure-side
+  infra-managed tooling, not application code, and there's still no
+  real cloud storage in this sandbox to drill against.
+- **A genuine RLS gap found by the backup drill's own verification,
+  not fixed:** `GET /api/v1/auth/me` needs a user's memberships across
+  every org they belong to (the workspace switcher) — a legitimately
+  cross-tenant query for one user that the current RLS policy on
+  `memberships` can't support without either a new Postgres role or a
+  widened policy (`OR user_id = current_setting('app.current_user_id',
+  true)::uuid`, a real migration). See the dedicated entry above for
+  the bounded fix that doesn't need a new deployment credential — a
+  real schema/policy change, left for the user to decide rather than
+  guessed at.
 - **Full OTel/Sentry wiring to a real collector** — architecture §3
   names both; this sprint built the structured-logging half for real
   (see above) since it's independently valuable and fully verifiable

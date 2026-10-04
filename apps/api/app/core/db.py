@@ -1,14 +1,51 @@
 from collections.abc import Generator
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session
 
 from app.core.config import get_settings
 
 settings = get_settings()
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+class _RequestSession(Session):
+    """A Session bound to one explicitly-held Connection for its whole
+    life, rather than SQLAlchemy's default of lazily re-acquiring a
+    (possibly different) connection from the pool after every commit.
+
+    Why this matters here specifically: TenantScopedSession sets
+    app.current_org_id on whichever physical connection is live at that
+    moment. A plain `sessionmaker(bind=engine)` session releases its
+    connection back to the pool on every commit and re-acquires one —
+    not necessarily the same one — on the next query, so a single
+    request that commits mid-way (common in this codebase — e.g.
+    development/router.py's add_property: db.commit() then
+    db.refresh(prop)) could silently end up running its next query on
+    an entirely different, never-scoped connection. Confirmed by hand:
+    this exact scenario broke scripts/seed_demo.py (RLS-blocked
+    db.refresh on a freshly-committed Development) even after the
+    connection-scoped set_config fix in tenancy.py, specifically
+    because that fix assumed one request keeps one connection
+    throughout — an assumption nothing enforced until this class.
+
+    close() releases the held connection back to the pool itself
+    (Session.close() alone does not, when bound to a Connection rather
+    than an Engine) — which is what lets app/core/db.py's own "reset"
+    pool-event listener do its job on checkin, same as before."""
+
+    def __init__(self, **kwargs):
+        self._tenancy_connection = engine.connect()
+        super().__init__(bind=self._tenancy_connection, **kwargs)
+
+    def close(self):
+        super().close()
+        self._tenancy_connection.close()
+
+
+def SessionLocal() -> Session:
+    return _RequestSession(autoflush=False, autocommit=False)
 
 
 # TenantScopedSession (app/core/tenancy.py) sets app.current_org_id via

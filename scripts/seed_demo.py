@@ -48,6 +48,7 @@ from starlette.testclient import TestClient
 from app.auth.models import Membership, MembershipStatus, Role, User
 from app.core.db import SessionLocal
 from app.core.security import hash_password
+from app.core.tenancy import TenantScopedSession
 from app.main import app
 from app.organisations.models import Organisation, OrganisationType, Workspace
 
@@ -74,10 +75,23 @@ def ensure_org_and_owner(db, *, slug: str, name: str, org_type: OrganisationType
         org = Organisation(name=name, slug=slug, organisation_type=org_type, goals=goals)
         db.add(org)
         db.flush()
-        db.add(Workspace(organisation_id=org.id, name="Default Workspace", workspace_type="DEFAULT"))
         print(f"Created organisation {org.name} ({org.slug})")
     else:
         print(f"Organisation {org.slug} already exists, reusing")
+
+    # Same bootstrap problem app/auth/router.py's signup() fixes for the
+    # real endpoint this script deliberately doesn't go through for org
+    # creation (see module docstring: everything else here drives the
+    # real API, but an org can't sign itself up) — workspaces/
+    # memberships/audit_events are all RLS-protected and fail closed
+    # with no tenant context. Unconditional, not just in the `created`
+    # branch above: the membership check/insert below runs either way,
+    # and is just as RLS-protected whether this org is brand new or
+    # already existed from a prior run of this script.
+    TenantScopedSession(db, org.id)
+
+    if created:
+        db.add(Workspace(organisation_id=org.id, name="Default Workspace", workspace_type="DEFAULT"))
 
     user = db.query(User).filter(User.email == owner_email).first()
     if user is None:
