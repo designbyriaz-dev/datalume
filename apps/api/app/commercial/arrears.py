@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 
 from app.commercial.models import AllocationStatus, PaymentAllocation, PaymentTransaction, RentObligation, RentObligationStatus
 from app.commercial.schemas import ArrearsSnapshotOut, CollectionRateOut
-from app.commercial.service import matched_amount_for_obligation
+from app.commercial.service import matched_amounts_for_obligations
 
 AGE_BUCKETS = ("CURRENT", "1-30", "31-60", "61-90", "90+")
 
@@ -66,8 +66,9 @@ def arrears_for_lease(db: Session, organisation_id: uuid.UUID, lease_id: uuid.UU
     total_outstanding = 0
     credits_pence = 0
 
+    matched_by_obligation = matched_amounts_for_obligations(db, organisation_id, [o.id for o in obligations])
     for obligation in obligations:
-        matched = matched_amount_for_obligation(db, organisation_id, obligation.id)
+        matched = matched_by_obligation.get(obligation.id, 0)
         outstanding = obligation.amount_due_pence - matched
         if outstanding > 0:
             total_outstanding += outstanding
@@ -122,7 +123,8 @@ def collection_rate(db: Session, organisation_id: uuid.UUID, period_start: date,
         .all()
     )
     due = sum(o.amount_due_pence for o in obligations)
-    collected = sum(matched_amount_for_obligation(db, organisation_id, o.id) for o in obligations)
+    matched_by_obligation = matched_amounts_for_obligations(db, organisation_id, [o.id for o in obligations])
+    collected = sum(matched_by_obligation.get(o.id, 0) for o in obligations)
     rate = collected / due if due else 1.0
 
     return CollectionRateOut(

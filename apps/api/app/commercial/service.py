@@ -3,6 +3,7 @@ entry calls the same function" reasoning as every other *_service.py
 in this codebase."""
 
 import uuid
+from collections import defaultdict
 from datetime import date
 
 from sqlalchemy.exc import IntegrityError
@@ -229,6 +230,33 @@ def matched_amount_for_obligation(db: Session, organisation_id: uuid.UUID, rent_
 
 def outstanding_for_obligation(db: Session, organisation_id: uuid.UUID, obligation: RentObligation) -> int:
     return obligation.amount_due_pence - matched_amount_for_obligation(db, organisation_id, obligation.id)
+
+
+def matched_amounts_for_obligations(
+    db: Session, organisation_id: uuid.UUID, obligation_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+    """Same reconciliation source of truth as `matched_amount_for_
+    obligation`, batched — one query for every obligation in
+    `obligation_ids` instead of one query per obligation, for callers
+    that need this for a whole collection rather than a single
+    obligation (arrears.py's `arrears_for_lease`/`collection_rate`:
+    both used to call `matched_amount_for_obligation` once per
+    obligation in a loop, each call its own query)."""
+    if not obligation_ids:
+        return {}
+    rows = (
+        db.query(PaymentAllocation.rent_obligation_id, PaymentAllocation.amount_allocated_pence)
+        .filter(
+            PaymentAllocation.organisation_id == organisation_id,
+            PaymentAllocation.rent_obligation_id.in_(obligation_ids),
+            PaymentAllocation.allocation_status == AllocationStatus.MATCHED,
+        )
+        .all()
+    )
+    totals: dict[uuid.UUID, int] = defaultdict(int)
+    for rent_obligation_id, amount_allocated_pence in rows:
+        totals[rent_obligation_id] += amount_allocated_pence
+    return dict(totals)
 
 
 def create_rent_obligation(

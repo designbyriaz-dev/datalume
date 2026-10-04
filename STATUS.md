@@ -3380,18 +3380,14 @@ aggregation endpoints measured instead of left on suspicion**
   check functions or `repairs_intelligence`'s repeat-repair detection,
   this one's fix was mechanical rather than a business-logic rewrite —
   see below.
-- `commercial/arrears.py`'s `arrears_for_lease` and `collection_rate`
-  were read but deliberately not included in this measurement pass —
-  reading the code shows both are naturally bounded differently from
-  the others: `arrears_for_lease` filters to one lease (obligations
-  per lease is naturally small — rent obligations over a lease's own
-  term), and `collection_rate` filters to a date period, not the whole
-  org's history. Both still loop and call
-  `matched_amount_for_obligation` (its own separate query) once per
-  obligation — a real N+1, worth fixing eventually — but it's N+1
-  against a bounded N, not an unbounded org-wide collection scan like
-  the others measured above, so it wasn't assumed to be in the same
-  category without a reason to believe otherwise.
+- ~~`commercial/arrears.py`'s `arrears_for_lease` and `collection_rate`~~
+  **Fixed** — see the dedicated entry below. Originally read but
+  deliberately not included in the first measurement pass: both are
+  naturally bounded differently from the other four (`arrears_for_
+  lease` filters to one lease, `collection_rate` filters to a date
+  period, neither an unbounded org-wide scan), so this was N+1 against
+  a bounded N, not the same category of problem — still worth fixing
+  since it was easy and safe, just not as urgent.
 
 **`get_board_assurance_report`'s N+1 fixed — a mechanical bulk-fetch,
 not a business-logic rewrite, and load-tested at full scale.**
@@ -3436,6 +3432,29 @@ Full 380-test SQLite suite, the dedicated `test_assurance_report.py`/
 `test_reports.py`/compliance test files (51 tests), and the Postgres
 RLS suite all green.
 
+**`commercial/arrears.py`'s bounded-N N+1 fixed too, same mechanical
+bulk-fetch pattern.** `matched_amount_for_obligation`
+(`app/commercial/service.py`) was a single-obligation query, called
+once per obligation in a loop by both `arrears_for_lease` and
+`collection_rate`. Added `matched_amounts_for_obligations` — the same
+function, batched: one query for every obligation ID passed in,
+grouped into a `dict[obligation_id, matched_pence]` by Python — and
+both callers now build that dict once before their loop instead of
+querying inside it. No decision logic changed, same as the board
+assurance fix.
+
+Load-tested with a new `scripts/load_test_part3.py` (seeds 5,000
+leases and 15,000 rent obligations/payment allocations for the same
+org, due within one quarter — the shape `collection_rate`'s own
+org-wide date-range query actually hits): a clean before/after (code
+stashed via `git stash`, measured, restored, re-measured, against the
+exact same seeded data) showed `GET /api/v1/collection-rate` dropping
+from **~4.2s to ~340ms** at 15,000 obligations — about **12x faster**
+— with the computed collection rate (0.7) identical before and after,
+confirming the fix changed performance, not behaviour.
+
+Full 380-test SQLite suite and the Postgres RLS suite green.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3478,14 +3497,11 @@ punch list for whoever takes this toward a real pilot:
   defects) are all still unrewritten — real correctness risk in
   rushing complex, already-tested business logic (fuzzy address-
   duplicate matching, repeat-repair detection) into new SQL under time
-  pressure. The fourth, `get_board_assurance_report`, **is now fixed**
-  (see its own dedicated entry above) — it turned out to be a
-  mechanical bulk-fetch fix rather than a business-logic rewrite, so
-  it didn't carry the same risk as the other three.
-  `commercial/arrears.py`'s two functions were read and found to be a
-  genuinely different, narrower shape (bounded by one lease or one
-  date period, not an unbounded org-wide scan) — still has a real N+1
-  worth fixing, just not in the same category as the others.
+  pressure. `get_board_assurance_report` and `commercial/arrears.py`'s
+  two functions (`arrears_for_lease`, `collection_rate`) **are now
+  fixed** (see their dedicated entries above) — both turned out to be
+  mechanical bulk-fetch fixes rather than business-logic rewrites, so
+  neither carried the same risk as the three still open.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row
