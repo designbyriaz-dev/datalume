@@ -4,9 +4,9 @@ DefectsIntelligenceOut's docstring for why this isn't a scored/weighted
 engine like Data Health (Sprint 5)."""
 
 import uuid
-from collections import Counter
 from datetime import date
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.development.models import Component, ComponentType, Defect, DefectStatus
@@ -21,8 +21,9 @@ OPEN_STATUSES = (
 RESOLVED_STATUSES = (DefectStatus.COMPLETED, DefectStatus.CLOSED)
 
 
-def _top_counts(counter: Counter, limit: int = 10) -> list[DefectsByKeyOut]:
-    return [DefectsByKeyOut(key=key, count=count) for key, count in counter.most_common(limit)]
+def _top_n(rows: list[tuple[str, int]], limit: int = 10) -> list[DefectsByKeyOut]:
+    top = sorted(rows, key=lambda row: row[1], reverse=True)[:limit]
+    return [DefectsByKeyOut(key=key, count=count) for key, count in top]
 
 
 def get_defects_intelligence(
@@ -32,67 +33,100 @@ def get_defects_intelligence(
     development_id: uuid.UUID | None = None,
     building_id: uuid.UUID | None = None,
 ) -> DefectsIntelligenceOut:
-    query = db.query(Defect).filter(Defect.organisation_id == organisation_id)
+    filters = [Defect.organisation_id == organisation_id]
     if development_id is not None:
-        query = query.filter(Defect.development_id == development_id)
+        filters.append(Defect.development_id == development_id)
     if building_id is not None:
-        query = query.filter(Defect.building_id == building_id)
-    defects = query.all()
+        filters.append(Defect.building_id == building_id)
 
     today = date.today()
-    open_count = sum(1 for d in defects if d.status in OPEN_STATUSES)
-    overdue_count = sum(
-        1 for d in defects if d.status in OPEN_STATUSES and d.target_date is not None and d.target_date < today
+    base = db.query(Defect).filter(*filters)
+
+    total_count = base.count()
+    open_count = base.filter(Defect.status.in_(OPEN_STATUSES)).count()
+    overdue_count = base.filter(
+        Defect.status.in_(OPEN_STATUSES), Defect.target_date.isnot(None), Defect.target_date < today
+    ).count()
+    warranty_related_count = base.filter(Defect.warranty_related.is_(True)).count()
+
+    contractor_rows = (
+        db.query(Defect.contractor, func.count())
+        .filter(*filters, Defect.contractor.isnot(None))
+        .group_by(Defect.contractor)
+        .all()
     )
-    warranty_related_count = sum(1 for d in defects if d.warranty_related)
+    category_rows = db.query(Defect.category, func.count()).filter(*filters).group_by(Defect.category).all()
 
-    contractor_counts = Counter(d.contractor for d in defects if d.contractor)
-    category_counts = Counter(d.category for d in defects)
-
-    component_ids = [d.component_id for d in defects if d.component_id]
-    component_type_names: dict[uuid.UUID, str] = {}
-    if component_ids:
-        components = db.query(Component).filter(Component.id.in_(component_ids)).all()
-        type_ids = {c.component_type_id for c in components}
-        types_by_id = {t.id: t.name for t in db.query(ComponentType).filter(ComponentType.id.in_(type_ids))}
-        component_by_id = {c.id: c for c in components}
-        component_type_names = {
-            cid: types_by_id.get(component_by_id[cid].component_type_id, "Unknown") for cid in component_ids
-        }
-    component_type_counts = Counter(component_type_names.values())
+    # by_component_type counts *distinct affected components* per type,
+    # not defects per type — preserved exactly from the original
+    # Python implementation, which deduped defects down to their
+    # component_id before counting, so several defects against the
+    # same component only ever counted that one component once.
+    distinct_component_ids = (
+        db.query(Defect.component_id).filter(*filters, Defect.component_id.isnot(None)).distinct().subquery()
+    )
+    component_type_rows = (
+        db.query(ComponentType.name, func.count())
+        .select_from(distinct_component_ids)
+        .join(Component, Component.id == distinct_component_ids.c.component_id)
+        .join(ComponentType, ComponentType.id == Component.component_type_id)
+        .group_by(ComponentType.name)
+        .all()
+    )
 
     # "7 properties have repeat water-ingress defects" (spec §35) — a
     # category counts as "repeat" when it occurs more than once at the
     # same property (or, for a defect with no property_id, the same
     # building/component instead — whichever location it's actually
-    # tied to).
-    location_category_counts = Counter(
-        (d.property_id or d.building_id or d.component_id, d.category)
-        for d in defects
-        if d.property_id or d.building_id or d.component_id
+    # tied to): group by (location, category), keep groups with more
+    # than one defect, then count how many such locations exist per
+    # category.
+    location = func.coalesce(Defect.property_id, Defect.building_id, Defect.component_id)
+    location_category_counts = (
+        db.query(location.label("location"), Defect.category.label("category"), func.count().label("defect_count"))
+        .filter(*filters, location.isnot(None))
+        .group_by(location, Defect.category)
+        .subquery()
     )
-    repeat_category_counts = Counter()
-    for (_, category), count in location_category_counts.items():
-        if count > 1:
-            repeat_category_counts[category] += 1
+    repeat_category_rows = (
+        db.query(location_category_counts.c.category, func.count())
+        .filter(location_category_counts.c.defect_count > 1)
+        .group_by(location_category_counts.c.category)
+        .all()
+    )
 
-    resolution_days = [
-        (d.completion_date - d.reported_date).days
-        for d in defects
-        if d.status in RESOLVED_STATUSES and d.completion_date is not None
-    ]
+    total_estimated_cost_pence, total_actual_cost_pence = (
+        db.query(
+            func.coalesce(func.sum(Defect.estimated_cost_pence), 0),
+            func.coalesce(func.sum(Defect.actual_cost_pence), 0),
+        )
+        .filter(*filters)
+        .one()
+    )
+
+    # average_resolution_days needs (completion_date - reported_date)
+    # in days, which isn't portable the same way across SQLite (this
+    # codebase's test dialect) and Postgres (production) — so this
+    # stays a Python computation, just fed by a narrow two-column
+    # projection instead of loading every full Defect row.
+    resolution_pairs = (
+        db.query(Defect.reported_date, Defect.completion_date)
+        .filter(*filters, Defect.status.in_(RESOLVED_STATUSES), Defect.completion_date.isnot(None))
+        .all()
+    )
+    resolution_days = [(completion - reported).days for reported, completion in resolution_pairs]
     average_resolution_days = round(sum(resolution_days) / len(resolution_days), 1) if resolution_days else None
 
     return DefectsIntelligenceOut(
-        total_count=len(defects),
+        total_count=total_count,
         open_count=open_count,
         overdue_count=overdue_count,
         warranty_related_count=warranty_related_count,
-        by_contractor=_top_counts(contractor_counts),
-        by_category=_top_counts(category_counts),
-        by_component_type=_top_counts(component_type_counts),
-        repeat_categories=_top_counts(repeat_category_counts),
-        total_estimated_cost_pence=sum(d.estimated_cost_pence or 0 for d in defects),
-        total_actual_cost_pence=sum(d.actual_cost_pence or 0 for d in defects),
+        by_contractor=_top_n(contractor_rows),
+        by_category=_top_n(category_rows),
+        by_component_type=_top_n(component_type_rows),
+        repeat_categories=_top_n(repeat_category_rows),
+        total_estimated_cost_pence=total_estimated_cost_pence,
+        total_actual_cost_pence=total_actual_cost_pence,
         average_resolution_days=average_resolution_days,
     )

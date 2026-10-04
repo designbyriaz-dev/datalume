@@ -3360,13 +3360,16 @@ changes.
 aggregation endpoints measured instead of left on suspicion**
 (`scripts/load_test_part2.py`, reusing the same seeded org):
 
-- `GET /api/v1/defects/intelligence`
-  (`app/development/defects_intelligence.py`) — **~670ms** at 40,000
-  defects (20,000 properties x 2 each). Same full-table-into-Python-
-  `Counter` shape as `repairs_intelligence`, just a smaller table and
-  lighter per-row work (no repeat-failure signal), hence the much
-  smaller number than that endpoint's 11.4s at 200,000 rows — still a
-  real, scaling cost, not rewritten for the same reason as the others.
+- ~~`GET /api/v1/defects/intelligence`~~ **Fixed** — see the dedicated
+  entry below. Originally measured at **~670ms** at 40,000 defects
+  (20,000 properties x 2 each); same full-table-into-Python-`Counter`
+  shape as `repairs_intelligence`, just a smaller table and lighter
+  per-row work (no repeat-failure signal), hence the much smaller
+  number than that endpoint's 11.4s at 200,000 rows. Unlike
+  `repairs_intelligence`'s repeat-repair detection, every number this
+  endpoint returns is a deterministic count/sum/average with no fuzzy
+  matching or time-windowed business logic — so it turned out to be a
+  mechanical SQL rewrite, not a risky one.
 - ~~`GET /api/v1/compliance/assurance-report`~~ **Fixed** — see the
   dedicated entry below. It was a different and more severe shape than
   the other three: `get_board_assurance_report` called
@@ -3391,7 +3394,7 @@ aggregation endpoints measured instead of left on suspicion**
 
 **`get_board_assurance_report`'s N+1 fixed — a mechanical bulk-fetch,
 not a business-logic rewrite, and load-tested at full scale.**
-Unlike `data_health`/`repairs_intelligence`/`defects_intelligence`,
+Unlike `data_health`/`repairs_intelligence` (still open, see below),
 this one's per-pair cost wasn't one big Python aggregation needing new
 business logic — `status_engine.py` already separated the decision
 logic (`_resolve_status`, now exported as `resolve_compliance_status`
@@ -3455,6 +3458,46 @@ confirming the fix changed performance, not behaviour.
 
 Full 380-test SQLite suite and the Postgres RLS suite green.
 
+**`get_defects_intelligence` rewritten to SQL — reassessed as safe
+once actually read closely, not just assumed risky by category.**
+Re-reading `app/development/defects_intelligence.py` line by line
+(rather than lumping it in with `data_health`/`repairs_intelligence`
+by shape alone) showed every number it returns — open/overdue/
+warranty-related counts, cost sums, per-contractor/category/component-
+type breakdowns, the repeat-category signal — is a deterministic
+count, sum, or average with no fuzzy string matching and no
+configurable, time-windowed business rule the way
+`repairs_intelligence`'s repeat-repair detection or `data_health`'s
+address-normalisation check have. That made it a safe, mechanical
+rewrite, not a risky one, despite living in the same "load everything
+into Python" category as the other two.
+
+Rewritten to real SQL aggregation: `COUNT`/`GROUP BY` for every count
+and breakdown, `SUM` for the cost totals, a `HAVING`-shaped subquery
+(group by location+category, keep groups with more than one defect,
+count per category) for the repeat-category signal. Two deliberate
+exceptions, both documented inline: `by_component_type` still counts
+*distinct affected components* per type rather than *defects* per
+type, preserving an existing quirk in the original Python
+implementation exactly rather than silently changing it while
+rewriting; and `average_resolution_days` stays a Python computation
+fed by a narrow two-column projection (`reported_date`,
+`completion_date` only, not full rows) rather than a SQL date-diff,
+since `completion_date - reported_date` isn't portable the same way
+across SQLite (this codebase's test dialect) and Postgres
+(production) — a case where keeping one small piece in Python was the
+more honest choice than forcing SQL portability that doesn't really
+exist.
+
+Load-tested the same way as the other two fixes: `git stash` on the
+same seeded 40,000-defect org, measured before, restored, measured
+again. **~682ms -> ~110ms, about 6x faster.** The existing
+`test_defects_intelligence_aggregates` test (exact small-scale
+assertions, not just a smoke check) passed unchanged, confirming the
+rewrite preserves behaviour, not just improves speed.
+
+Full 380-test SQLite suite and the Postgres RLS suite green.
+
 ## Not yet done
 
 Sprint 24 closed out the roadmap's stated 24 sprints. What's left is
@@ -3488,20 +3531,20 @@ punch list for whoever takes this toward a real pilot:
   measured against a real 20,000-property/200,000-repair seed, and a
   composite-index migration added once the deep-offset cost was
   actually measured rather than assumed.
-- **Several "intelligence"/"summary" endpoints aggregate in Python
-  instead of SQL, quantified rather than just suspected, three still
-  open.** See the dedicated load-testing entries above for the real
-  numbers: `run_data_health_checks` (~3.6s / 20,000 properties, via
-  `GET /api/v1/portfolio/summary`), `get_repairs_intelligence` (~11.4s
-  / 200,000 repairs), and `get_defects_intelligence` (~670ms / 40,000
-  defects) are all still unrewritten — real correctness risk in
-  rushing complex, already-tested business logic (fuzzy address-
-  duplicate matching, repeat-repair detection) into new SQL under time
-  pressure. `get_board_assurance_report` and `commercial/arrears.py`'s
-  two functions (`arrears_for_lease`, `collection_rate`) **are now
-  fixed** (see their dedicated entries above) — both turned out to be
-  mechanical bulk-fetch fixes rather than business-logic rewrites, so
-  neither carried the same risk as the three still open.
+- **Two "intelligence"/"summary" endpoints still aggregate in Python
+  instead of SQL — genuinely risky to rewrite, unlike the three that
+  turned out to be mechanical.** `run_data_health_checks` (~3.6s /
+  20,000 properties, via `GET /api/v1/portfolio/summary`) and
+  `get_repairs_intelligence` (~11.4s / 200,000 repairs) both involve
+  real business logic — fuzzy address-duplicate matching, configurable
+  time-windowed repeat-repair detection — that a rushed SQL rewrite
+  could silently change, not just speed up. `get_board_assurance_
+  report`, `commercial/arrears.py`'s two functions, and `get_defects_
+  intelligence` **are now all fixed** (see their dedicated entries
+  above) — each turned out, on close reading, to be a mechanical
+  bulk-fetch or aggregation rewrite with no fuzzy matching or
+  configurable business rules in its own logic, so none carried the
+  same risk as the two still open.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row
