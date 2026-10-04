@@ -3771,6 +3771,36 @@ punch list for whoever takes this toward a real pilot:
   endpoint costs at scale, and a decision about who's allowed to see
   it), so flagged here rather than attempted under this pass's "find
   the gap, close it" momentum.
+- ~~Handover Readiness' `COMMISSIONING_EVIDENCE` check
+  (`check_commissioning_evidence`, spec §76 steps 34-35's "see missing
+  information" / "resolve missing data") could never genuinely pass
+  for any component any user actually created~~ **Closed** — the
+  exact same "backend built, frontend incomplete" shape as the
+  Building Control reference gap fixed earlier this session: the
+  check has required a `Document` whose `document_type` contains
+  "COMMISSIONING" since Post-Sprint-24, but the component evidence
+  upload form's own type list never offered it. Added `"COMMISSIONING"`
+  to `ComponentDetailClient.tsx`'s `DOCUMENT_TYPES` and a new spec,
+  `apps/web/e2e/commissioning-evidence.spec.ts`, proving the check
+  genuinely flips from failing to passing once such a document exists
+  — not just that the upload succeeds. 35 Playwright specs green.
+- **While building that fix, found two more checks in the same
+  registry with the identical shape, still open — real missing UI,
+  not missing tests.** `check_warranties_received` needs a `Warranty`
+  with `component_id` set, but no page anywhere lets a user create a
+  warranty scoped to a component — the building detail page's "Add a
+  warranty" form (used by `defects-and-warranties.spec.ts`) only ever
+  creates building-scoped ones. `check_om_documentation` needs a
+  `Document` with `related_entity_type="development"`, but there is
+  no document/evidence upload UI on the development detail page at
+  all (`ComponentDetailClient.tsx` has one, `DevelopmentDetailClient.
+  tsx` has none). Between these two and the already-fixed commissioning
+  gap, every one of Handover Readiness' 9 checks is now genuinely
+  satisfiable through the UI except these two — so no development can
+  ever reach 100% readiness without an override, by UI omission rather
+  than by any real incompleteness in the underlying data model. Not
+  fixed here (both need a small real UI addition, not a test), flagged
+  for whoever picks up the already-suggested background task for this.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 

@@ -20,7 +20,7 @@ import {
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
-const DOCUMENT_TYPES = ["EVIDENCE", "DRAWING", "SPECIFICATION", "CERTIFICATE", "REPORT", "PHOTOGRAPH", "OTHER"];
+const DOCUMENT_TYPES = ["EVIDENCE", "DRAWING", "SPECIFICATION", "CERTIFICATE", "COMMISSIONING", "REPORT", "PHOTOGRAPH", "OTHER"];
 
 const COMPLIANCE_STATUS_VARIANT: Record<string, "success" | "warning" | "critical" | "neutral"> = {
   CURRENT: "success",
