@@ -3743,6 +3743,34 @@ punch list for whoever takes this toward a real pilot:
   still covers a real first slice, not every step named across spec
   §76-78 — this closes the reports-generation slice of it completely,
   not the whole list.
+- ~~Spec §76 step 11, "Add floors," had a real backend (`POST`/`GET
+  /api/v1/floors`) and UI (the building detail page's own "Add a
+  floor" form) but no Playwright spec~~ **Closed** — see
+  `apps/web/e2e/floors.spec.ts`. Every other spec that touches a
+  building stopped at creating it on the `/buildings` list; this one
+  is the first to actually open a building's detail page (reached via
+  its generated `BLD-NNNNNN` reference, itself step 10) and use the
+  floor form there. 34 Playwright specs green.
+- **Checked the rest of spec §76's 50 steps against both the backend
+  and the frontend while looking for the floors gap above, and found
+  two genuinely missing features, not just missing tests** — worth
+  recording precisely since "not yet done" so far in this file has
+  mostly meant "exists but untested," and these two don't exist at
+  all: step 21, "Upload drawing metadata" (no `Drawing` model, no
+  route, no UI — grepped for "drawing" across the whole backend and
+  found nothing), and step 50, "Audit all significant changes" (every
+  domain writes to `AuditEvent` via `record_audit_event`
+  (`app/platform/audit.py`) and has done since early in this build,
+  but there is no `GET` endpoint anywhere that reads `AuditEvent` back
+  and no page that would show it — the audit *trail* is real and has
+  been all along, there is just no way for a user to ever see it).
+  Neither is a quick E2E-test addition like floors/the report types
+  above — both need real backend + frontend work first (an audit log
+  endpoint needs its own pagination given this file's own load-testing
+  entries' recurring theme of what an unbounded "list everything"
+  endpoint costs at scale, and a decision about who's allowed to see
+  it), so flagged here rather than attempted under this pass's "find
+  the gap, close it" momentum.
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
