@@ -4100,7 +4100,17 @@ Specifically flagged as gaps to close early, not deferred to "later":
   fixed an unrelated self-inflicted mistake — a prior entry's edit had
   accidentally deleted the "## How to run this locally" heading below;
   restored it.)
-
+- **`ci.yml` (unlike `codeql.yml`) had no explicit `permissions:`
+  block** — its four jobs only check out code and run tests/builds,
+  never push commits, comment on PRs, or touch releases, but were
+  implicitly relying on the repository's own default `GITHUB_TOKEN`
+  scope rather than declaring their own. Checked the actual repo
+  setting first (Settings -> Actions -> Workflow permissions) rather
+  than assuming: already "Read repository contents and packages
+  permissions" (read-only), so this wasn't a live gap, just implicit
+  rather than explicit — added `permissions: contents: read` at the
+  workflow level anyway so it stays true even if that default setting
+  is ever changed later, same reasoning `codeql.yml` already applies.
 
 ## How to run this locally
 

@@ -27,6 +27,15 @@ on:
   pull_request:
     branches: [main]
 
+# None of these jobs push commits, comment on PRs, or touch releases —
+# every one of them only checks out code and runs tests/builds. Declared
+# explicitly (the repo's own default is already read-only, Settings ->
+# Actions -> Workflow permissions) so that stays true even if that
+# default is ever changed, rather than depending on it implicitly —
+# same reasoning as codeql.yml's own explicit permissions: block.
+permissions:
+  contents: read
+
 jobs:
   api:
     name: API tests
