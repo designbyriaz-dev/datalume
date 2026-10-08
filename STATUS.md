@@ -3662,16 +3662,36 @@ punch list for whoever takes this toward a real pilot:
   being judged by category, to be mechanical rewrites with no
   behaviour-changing business-logic risk once actually read line by
   line.
-- **New, separate finding from the `run_data_health_checks` load
-  test: Data Health persists and returns one row per finding with no
-  bulk insert or pagination.** At a realistic 4,000-finding scale this
-  already costs real time on top of the (now-fixed) query time; at a
-  degenerate near-100%-failure-rate scale it would dominate
-  completely. A different architectural question from "Python
-  aggregation vs SQL" — bulk/Core-level insert instead of a `db.add()`
-  loop, and/or paginating `GET /api/v1/data-health`'s findings list —
-  not fixed, flagged for whoever next finds Data Health slow at a very
-  high finding count.
+- ~~`run_data_health_checks` persists one row per finding with no bulk
+  insert or pagination~~ **The bulk-insert half genuinely closed, the
+  pagination half only partial — documented honestly rather than
+  claimed as fully fixed.** `run_data_health_checks`
+  (`app/data_health/rules.py`) now replaces the per-row `db.add()`
+  loop with a single `sqlalchemy.insert(DataHealthFinding)` Core
+  statement. Measured directly (isolated from everything else, same
+  SQLite session either way): **~125ms -> ~32ms at 4,000 findings
+  (3.9x), ~1,123ms -> ~283ms at 40,000 (4.0x)** — a real, unconditional
+  win, since this step runs on every call regardless of pagination.
+  `GET /api/v1/data-health` also gained `limit`/`offset` query params
+  (`findings_total` added to the response so a paginated caller still
+  knows the real count) — but measured against real Postgres at
+  80,000 findings, `?limit=100` took **~1,913ms vs ~2,060ms
+  unpaginated — only ~7% faster, not the "fast regardless of total
+  count" result pagination delivered for repairs/payments/documents
+  elsewhere in this file.** The reason: `limit`/`offset` slice the
+  Python list *after* `run_data_health_checks` has already evaluated
+  every check, built every `Finding` object, and (now efficiently, but
+  still unconditionally) bulk-inserted every row — the same "computed
+  fresh on every read, nothing persisted to go stale" design this
+  codebase uses for Data Health/Handover Readiness/every repeat-signal
+  engine, which this fix correctly left alone rather than quietly
+  changing. Genuinely paginating a *read* of already-computed findings
+  (as opposed to the Pydantic response list) would mean serving
+  `DataHealthFinding` rows straight from the table instead of
+  recomputing-then-slicing on every call — a real architectural
+  change to that "never stale" guarantee, not a pagination-parameter
+  fix, and out of scope here. Full 382-test SQLite suite (the new
+  pagination test included) and the Postgres RLS suite green.
 - ~~A real backup drill~~ **The Postgres half closed** — see the
   dedicated entry above: real `pg_dump`/`DROP DATABASE`/`pg_restore`
   against real seeded demo data, verified (not assumed) down to row
