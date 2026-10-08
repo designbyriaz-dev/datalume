@@ -3829,13 +3829,36 @@ punch list for whoever takes this toward a real pilot:
   generated reference, the type genuinely recorded as `DRAWING`, and
   correct entity-linking cross-checked via the general documents list
   — not just that the upload succeeds. 42 Playwright specs green.
-  `api.uploadDocumentVersion`/`POST /documents/{id}/versions` (the
+  ~~`api.uploadDocumentVersion`/`POST /documents/{id}/versions` (the
   "never overwrite, create a new revision instead" endpoint) exists
   and is already exercised by `app/tests/test_documents.py`, but no
   page anywhere has a "upload new version" button yet for *any*
-  document type, drawings included — a smaller, separate, genuinely
-  open gap, left here rather than folded into this fix since it's not
-  specific to drawings.
+  document type, drawings included~~ **Closed.** Added a "New version"
+  action to both `ComponentDetailClient.tsx`'s and
+  `DevelopmentDetailClient.tsx`'s Evidence sections: clicking it reveals
+  an inline revision+file form scoped to that document row, and
+  submitting calls the existing `api.uploadDocumentVersion`. Proven via
+  `apps/web/e2e/document-new-version.spec.ts` (component-level and
+  development-level) that the new version takes the previous one's
+  place in the current-versions list — same title/type/reference,
+  still exactly one `<li>` for it — rather than appearing as a second,
+  duplicate-looking row, matching spec §28's "never silently overwrite"
+  rule (the old row is marked `SUPERSEDED` on the backend, never edited
+  in place; `GET /documents` already defaults to `current_only=true`).
+  Caught two bugs while building this: first, adding a revision label
+  to the document list's display text broke five pre-existing specs
+  whose assertions matched the old `(TYPE)`-only text exactly — reverted
+  the display change rather than updating five unrelated tests to
+  match a cosmetic addition nothing asked for. Second, a latent race in
+  the components "Add" form — the Type `<select>`'s default option is
+  set by a `useEffect` once the list loads, and a test clicking "Add"
+  before that default lands gets rejected with "Choose a component
+  type first" even though the dropdown visually shows a selection —
+  already worked around in `repeat-component-failure.spec.ts`/
+  `component-warranty.spec.ts` but not in `drawing-metadata.spec.ts` or
+  `commissioning-evidence.spec.ts`, which had been passing on luck;
+  applied the same explicit-select-and-retry fix to both. 44 Playwright
+  specs green, `npm run lint` clean.
 - **Checked Handover Readiness's own nine checks for the same
   "backend built, UI incomplete" shape as the Building Control
   reference gap above, and found two more: `check_warranties_received`

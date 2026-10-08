@@ -33,6 +33,15 @@ test("uploading commissioning evidence against a component clears the readiness 
   await expect(page.getByText("Flat 1, E2E Commissioning Block")).toBeVisible();
 
   await page.goto("/components");
+  // The form's own useEffect sets an initial default type as soon as
+  // the list loads; on a slower runner that default selection can
+  // still be in flight when "Add" fires — select a real type
+  // explicitly and retry until it's taken, same fix as
+  // repeat-component-failure.spec.ts/component-warranty.spec.ts.
+  await expect(async () => {
+    await page.getByLabel("Type").selectOption({ label: "Boilers" });
+    await expect(page.getByLabel("Type").locator("option:checked")).toHaveText("Boilers");
+  }).toPass({ timeout: 10_000 });
   await page.locator("#component-manufacturer").fill("E2E Commissioning Boiler Co");
   await page.getByLabel("Property (optional)").selectOption({ label: "Flat 1, E2E Commissioning Block" });
   await page.getByRole("button", { name: "Add" }).click();

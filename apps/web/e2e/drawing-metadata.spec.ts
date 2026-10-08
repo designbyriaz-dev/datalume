@@ -19,6 +19,15 @@ test("a drawing uploaded against a component captures real metadata and is linke
   await signUp(page, "E2E Drawing Org");
 
   await page.goto("/components");
+  // The form's own useEffect sets an initial default type as soon as
+  // the list loads; on a slower runner that default selection can
+  // still be in flight when "Add" fires — select a real type
+  // explicitly and retry until it's taken, same fix as
+  // repeat-component-failure.spec.ts/component-warranty.spec.ts.
+  await expect(async () => {
+    await page.getByLabel("Type").selectOption({ label: "Boilers" });
+    await expect(page.getByLabel("Type").locator("option:checked")).toHaveText("Boilers");
+  }).toPass({ timeout: 10_000 });
   await page.locator("#component-manufacturer").fill("E2E Drawing Boiler Co");
   await page.getByRole("button", { name: "Add" }).click();
   await expect(page.getByText("E2E Drawing Boiler Co")).toBeVisible();

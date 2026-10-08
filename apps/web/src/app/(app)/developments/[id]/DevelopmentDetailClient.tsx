@@ -57,6 +57,14 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
   const [docSubmitting, setDocSubmitting] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
 
+  // "New version" is a per-row toggle — only one document's inline
+  // upload form is open at a time, keyed by that document's own id.
+  const [newVersionDocId, setNewVersionDocId] = useState<string | null>(null);
+  const [newVersionRevision, setNewVersionRevision] = useState("B");
+  const [newVersionFile, setNewVersionFile] = useState<File | null>(null);
+  const [newVersionSubmitting, setNewVersionSubmitting] = useState(false);
+  const [newVersionError, setNewVersionError] = useState<string | null>(null);
+
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
   }
@@ -187,6 +195,32 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
       triggerBlobDownload(blob, doc.title);
     } catch {
       setDocError("Download failed.");
+    }
+  }
+
+  function onStartNewVersion(documentId: string) {
+    setNewVersionDocId(documentId);
+    setNewVersionRevision("B");
+    setNewVersionFile(null);
+    setNewVersionError(null);
+  }
+
+  async function onUploadNewVersion(documentId: string) {
+    const id = orgId();
+    if (!id || !newVersionFile || !newVersionRevision.trim()) {
+      setNewVersionError("Give the new version a revision label and choose a file first.");
+      return;
+    }
+    setNewVersionSubmitting(true);
+    setNewVersionError(null);
+    try {
+      await api.uploadDocumentVersion(id, documentId, newVersionRevision.trim(), newVersionFile);
+      setNewVersionDocId(null);
+      await Promise.all([refreshDocuments(), refreshHandover()]);
+    } catch {
+      setNewVersionError("Couldn't upload that version.");
+    } finally {
+      setNewVersionSubmitting(false);
     }
   }
 
@@ -356,20 +390,53 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
                 padding: "10px 0",
                 borderTop: "1px solid var(--border-subtle)",
                 fontSize: 13,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
               }}
             >
-              <span>
-                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
-                  {d.document_reference}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>
+                  <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                    {d.document_reference}
+                  </span>
+                  {d.title} <span style={{ color: "var(--text-secondary)" }}>({d.document_type})</span>
                 </span>
-                {d.title} <span style={{ color: "var(--text-secondary)" }}>({d.document_type})</span>
-              </span>
-              <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={() => onDownloadDocument(d)}>
-                Download
-              </button>
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--text-secondary)" }}
+                    onClick={() => (newVersionDocId === d.id ? setNewVersionDocId(null) : onStartNewVersion(d.id))}
+                  >
+                    New version
+                  </button>
+                  <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={() => onDownloadDocument(d)}>
+                    Download
+                  </button>
+                </span>
+              </div>
+              {newVersionDocId === d.id && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                  <label htmlFor="new-version-revision" style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                    Revision
+                  </label>
+                  <input
+                    id="new-version-revision"
+                    style={{ ...inputStyle, width: 60 }}
+                    value={newVersionRevision}
+                    onChange={(e) => setNewVersionRevision(e.target.value)}
+                  />
+                  <input
+                    id="new-version-file"
+                    type="file"
+                    onChange={(e) => setNewVersionFile(e.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                    onClick={() => onUploadNewVersion(d.id)}
+                    disabled={newVersionSubmitting}
+                  >
+                    {newVersionSubmitting ? "Uploading…" : "Upload"}
+                  </button>
+                  {newVersionError && <span style={{ color: "var(--color-critical)", fontSize: 12 }}>{newVersionError}</span>}
+                </div>
+              )}
             </li>
           ))}
         </ul>
