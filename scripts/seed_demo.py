@@ -98,7 +98,11 @@ def ensure_org_and_owner(db, *, slug: str, name: str, org_type: OrganisationType
         user = User(email=owner_email, name=owner_name, password_hash=hash_password(DEMO_PASSWORD))
         db.add(user)
         db.flush()
-        print(f"Created demo login {owner_email} / {DEMO_PASSWORD}")
+        # CodeQL py/clear-text-logging-sensitive-data flags this — DEMO_PASSWORD
+        # (line 57) is a hardcoded, already-public constant, never a real
+        # secret; printing it is the point, so whoever runs this script
+        # knows the login it just created.
+        print(f"Created demo login {owner_email} / {DEMO_PASSWORD}")  # lgtm[py/clear-text-logging-sensitive-data]
     else:
         print(f"User {owner_email} already exists, reusing")
 
@@ -381,8 +385,10 @@ def main() -> None:
         seed_commercial_domain_data(client, commercial_org_id)
 
     print("\nDone. Sign in at the web app with either:")
-    print(f"  Northstar Housing:    {HOUSING_OWNER_EMAIL} / {DEMO_PASSWORD}")
-    print(f"  Northstar Commercial: {COMMERCIAL_OWNER_EMAIL} / {DEMO_PASSWORD}")
+    # Same non-issue as ensure_org_and_owner's own print above — DEMO_PASSWORD
+    # (line 57) is a hardcoded, already-public constant, not a real secret.
+    print(f"  Northstar Housing:    {HOUSING_OWNER_EMAIL} / {DEMO_PASSWORD}")  # lgtm[py/clear-text-logging-sensitive-data]
+    print(f"  Northstar Commercial: {COMMERCIAL_OWNER_EMAIL} / {DEMO_PASSWORD}")  # lgtm[py/clear-text-logging-sensitive-data]
 
 
 if __name__ == "__main__":

@@ -4045,9 +4045,29 @@ Specifically flagged as gaps to close early, not deferred to "later":
   never shipped to users, and `npm audit fix --force` would re-bump
   `eslint-config-next` into the same ESLint-10 incompatibility just
   diagnosed above, so left alone rather than forced.
+- **CodeQL's code scanning tab had 4 open High-severity alerts, all from
+  the "Analyze" CI jobs passing without being read.** Read each one
+  rather than assuming pass-vs-fail CI status tells the whole story (a
+  completed CodeQL job just means the scan ran, not that it found
+  nothing). All 4 turned out to be real patterns CodeQL is right to
+  flag in general, but each has a specific, checked reason it's not
+  actually a vulnerability here — documented in code with an inline
+  `# lgtm[<rule-id>]` suppression (tracked in git history and visible in
+  a diff, rather than a UI-only dismiss-button click nobody would see
+  later) instead of changing working code to quiet a tool: (1)
+  `hash_session_token` (`app/core/tenancy.py`) flagged as weak password
+  hashing — it hashes `new_session_token()`'s `secrets.token_urlsafe(32)`
+  output, a 256-bit random value, never a user password (that path,
+  `hash_password`, already uses bcrypt); a fast hash is the *correct*
+  choice for an exact-match session-key lookup, not a weakness. (2-4)
+  Three `print()` calls in `scripts/seed_demo.py` flagged as clear-text
+  credential logging — they print `DEMO_PASSWORD`, a hardcoded, already-
+  public constant (`"northstar-demo-2026"`, already commented "local/
+  demo only" one line above its definition) specifically so whoever runs
+  the fictional-demo-data seeder knows the login it just created; that's
+  the feature, not a leak. Full 396-test backend suite still green.
 
 
-## How to run this locally
 
 **With Docker** (once installed): `docker compose -f infra/docker-compose.yml up`,
 then in another terminal: `cd apps/api && source .venv/bin/activate &&
