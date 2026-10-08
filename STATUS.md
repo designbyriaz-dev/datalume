@@ -3791,6 +3791,39 @@ punch list for whoever takes this toward a real pilot:
   endpoint costs at scale, and a decision about who's allowed to see
   it), so flagged here rather than attempted under this pass's "find
   the gap, close it" momentum.
+- **Checked Handover Readiness's own nine checks for the same
+  "backend built, UI incomplete" shape as the Building Control
+  reference gap above, and found two more: `check_warranties_received`
+  and `check_om_documentation` (both `app/development/handover.py`)
+  could never pass for any real development.** `check_warranties_
+  received` has always queried `Warranty.component_id` — the model has
+  supported a nullable `component_id` FK since `Warranty` was added —
+  but the only "Add a warranty" form in the UI
+  (`BuildingDetailClient.tsx`) only ever created building-scoped
+  warranties, never component-scoped ones. `check_om_documentation`
+  has always queried for a `Document` with
+  `related_entity_type="development"` and a `document_type` containing
+  "O&M" — `Document.related_entity_type`/`related_entity_id` has
+  always supported linking to any entity, and
+  `ComponentDetailClient.tsx`'s own "Evidence" section already proved
+  that exact pattern for components (`construction-evidence.spec.ts`)
+  — but `DevelopmentDetailClient.tsx` had no equivalent upload section
+  at all. **Both closed.** Added a component-scoped "Add a warranty"
+  form to `ComponentDetailClient.tsx`, reusing `api.createWarranty`
+  exactly as the building form does, just passing `component_id`
+  instead of `building_id`; added an "Evidence" section to
+  `DevelopmentDetailClient.tsx`, modeled directly on
+  `ComponentDetailClient.tsx`'s own, uploading with
+  `related_entity_type="development"` against the development's own
+  id (and now refreshing handover readiness alongside the document
+  list on upload, so the score reflects it without a full page
+  reload). `component-warranty.spec.ts` and
+  `development-om-documentation.spec.ts` each prove the specific check
+  genuinely flips from failing ("N component warranties missing" /
+  "O&M documentation missing" in the development detail page's own
+  readiness.missing list) to passing once the real UI action is taken
+  — not just that the upload/add action itself succeeds. All 39
+  Playwright specs green.
 - ~~Handover Readiness' `COMMISSIONING_EVIDENCE` check
   (`check_commissioning_evidence`, spec §76 steps 34-35's "see missing
   information" / "resolve missing data") could never genuinely pass
@@ -3804,23 +3837,14 @@ punch list for whoever takes this toward a real pilot:
   `apps/web/e2e/commissioning-evidence.spec.ts`, proving the check
   genuinely flips from failing to passing once such a document exists
   — not just that the upload succeeds. 35 Playwright specs green.
-- **While building that fix, found two more checks in the same
-  registry with the identical shape, still open — real missing UI,
-  not missing tests.** `check_warranties_received` needs a `Warranty`
-  with `component_id` set, but no page anywhere lets a user create a
-  warranty scoped to a component — the building detail page's "Add a
-  warranty" form (used by `defects-and-warranties.spec.ts`) only ever
-  creates building-scoped ones. `check_om_documentation` needs a
-  `Document` with `related_entity_type="development"`, but there is
-  no document/evidence upload UI on the development detail page at
-  all (`ComponentDetailClient.tsx` has one, `DevelopmentDetailClient.
-  tsx` has none). Between these two and the already-fixed commissioning
-  gap, every one of Handover Readiness' 9 checks is now genuinely
-  satisfiable through the UI except these two — so no development can
-  ever reach 100% readiness without an override, by UI omission rather
-  than by any real incompleteness in the underlying data model. Not
-  fixed here (both need a small real UI addition, not a test), flagged
-  for whoever picks up the already-suggested background task for this.
+- ~~While building that fix, found two more checks in the same
+  registry with the identical shape, still open~~ **Both also closed**
+  — see the dedicated `check_warranties_received`/`check_om_
+  documentation` entry above. Every one of Handover Readiness' 9
+  checks is now genuinely satisfiable through the UI — a development
+  can reach 100% readiness without an override purely by providing
+  real data through the real UI, not just by the override-reason
+  escape hatch `handover-authorisation.spec.ts` exercises.
 - ~~Spec §77: "Upload compliance" had no Playwright spec~~ **Closed**
   — unlike the UI gaps just above, this one turned out to already be
   fully wired end to end: `COMPLIANCE_INSPECTIONS`
