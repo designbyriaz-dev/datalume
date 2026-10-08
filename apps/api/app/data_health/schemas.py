@@ -20,3 +20,4 @@ class DataHealthOut(BaseModel):
     score_pct: float
     checks: list[CheckSummary]
     findings: list[FindingOut]
+    findings_total: int

@@ -44,7 +44,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import func
+from sqlalchemy import func, insert
 from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
@@ -486,18 +486,20 @@ def run_data_health_checks(db: Session, organisation_id) -> tuple[float, list[Ch
     results = [rule(db, organisation_id) for rule in RULES]
 
     db.query(DataHealthFinding).filter(DataHealthFinding.organisation_id == organisation_id).delete()
-    for result in results:
-        for f in result.findings:
-            db.add(
-                DataHealthFinding(
-                    organisation_id=organisation_id,
-                    check_code=f.check_code,
-                    severity=f.severity,
-                    affected_entity_type=f.affected_entity_type,
-                    affected_entity_id=f.affected_entity_id,
-                    message=f.message,
-                )
-            )
+    rows = [
+        {
+            "organisation_id": organisation_id,
+            "check_code": f.check_code,
+            "severity": f.severity,
+            "affected_entity_type": f.affected_entity_type,
+            "affected_entity_id": f.affected_entity_id,
+            "message": f.message,
+        }
+        for result in results
+        for f in result.findings
+    ]
+    if rows:
+        db.execute(insert(DataHealthFinding), rows)
     db.flush()
 
     score = sum(r.pass_ratio for r in results) / len(results) * 100 if results else 100.0

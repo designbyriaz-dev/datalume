@@ -98,6 +98,30 @@ def test_data_health_requires_org_header(client):
     assert resp.status_code == 400
 
 
+def test_data_health_findings_pagination(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    _add_property(client, org_id, address="1 Incomplete Close")  # 4 findings: uprn, postcode, type, survey
+
+    unpaginated = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    assert len(unpaginated["findings"]) == 4
+    assert unpaginated["findings_total"] == 4
+
+    first_page = client.get(
+        "/api/v1/data-health", headers={"X-Organisation-Id": org_id}, params={"limit": 2, "offset": 0}
+    ).json()
+    second_page = client.get(
+        "/api/v1/data-health", headers={"X-Organisation-Id": org_id}, params={"limit": 2, "offset": 2}
+    ).json()
+    assert len(first_page["findings"]) == 2
+    assert len(second_page["findings"]) == 2
+    assert first_page["findings_total"] == 4
+    assert second_page["findings_total"] == 4
+    assert {f["check_code"] for f in first_page["findings"]}.isdisjoint(
+        {f["check_code"] for f in second_page["findings"]}
+    )
+
+
 def test_data_health_recompute_clears_stale_findings(client):
     """A property that gets fixed should stop appearing on the next check
     — findings are recomputed fresh each time, not accumulated forever."""
