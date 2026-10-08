@@ -4049,23 +4049,33 @@ Specifically flagged as gaps to close early, not deferred to "later":
   the "Analyze" CI jobs passing without being read.** Read each one
   rather than assuming pass-vs-fail CI status tells the whole story (a
   completed CodeQL job just means the scan ran, not that it found
-  nothing). All 4 turned out to be real patterns CodeQL is right to
-  flag in general, but each has a specific, checked reason it's not
-  actually a vulnerability here — documented in code with an inline
-  `# lgtm[<rule-id>]` suppression (tracked in git history and visible in
-  a diff, rather than a UI-only dismiss-button click nobody would see
-  later) instead of changing working code to quiet a tool: (1)
-  `hash_session_token` (`app/core/tenancy.py`) flagged as weak password
-  hashing — it hashes `new_session_token()`'s `secrets.token_urlsafe(32)`
-  output, a 256-bit random value, never a user password (that path,
-  `hash_password`, already uses bcrypt); a fast hash is the *correct*
-  choice for an exact-match session-key lookup, not a weakness. (2-4)
-  Three `print()` calls in `scripts/seed_demo.py` flagged as clear-text
-  credential logging — they print `DEMO_PASSWORD`, a hardcoded, already-
-  public constant (`"northstar-demo-2026"`, already commented "local/
-  demo only" one line above its definition) specifically so whoever runs
-  the fictional-demo-data seeder knows the login it just created; that's
-  the feature, not a leak. Full 396-test backend suite still green.
+  nothing). All 4 turned out to be real patterns CodeQL is right to flag
+  in general, but each has a specific, checked reason it's not actually
+  a vulnerability here: (1) `hash_session_token` (`app/core/tenancy.py`)
+  flagged as weak password hashing — it hashes `new_session_token()`'s
+  `secrets.token_urlsafe(32)` output, a 256-bit random value, never a
+  user password (that path, `hash_password`, already uses bcrypt); a
+  fast hash is the *correct* choice for an exact-match session-key
+  lookup, not a weakness. (2-4) Three `print()` calls in
+  `scripts/seed_demo.py` flagged as clear-text credential logging — they
+  print `DEMO_PASSWORD`, a hardcoded, already-public constant
+  (`"northstar-demo-2026"`, already commented "local/demo only" one line
+  above its definition) specifically so whoever runs the fictional-
+  demo-data seeder knows the login it just created; that's the feature,
+  not a leak. First attempt used an inline `# lgtm[<rule-id>]` comment on
+  each line, assuming it would suppress re-detection the way it did on
+  the old lgtm.com service — wrong: GitHub's CodeQL Action doesn't honor
+  that syntax, confirmed directly when the next push opened 4 brand-new
+  alerts at the same (shifted) lines despite the comments. Fixed
+  properly: dismissed each of the 4 new alerts via GitHub's own
+  "Dismiss alert" UI with a `False positive` reason and a comment
+  explaining why, which is the mechanism GitHub's CodeQL Action actually
+  supports — confirmed by re-checking the code scanning tab afterward
+  (0 open, 9 closed). Left the explanatory code comments in place (they
+  document the reasoning regardless of whether they suppress anything)
+  but removed the inert `# lgtm[...]` suffixes so a future reader isn't
+  misled into thinking they do something. Full 396-test backend suite
+  still green.
 
 
 

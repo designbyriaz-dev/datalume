@@ -24,16 +24,19 @@ redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
 def hash_session_token(token: str) -> str:
     # CodeQL py/weak-sensitive-data-hashing flags this as password hashing —
-    # it isn't. `token` is always app.core.security.new_session_token()'s
-    # secrets.token_urlsafe(32): a 256-bit random value, never a
-    # user-chosen secret. A fast hash is correct (even preferred) here —
-    # it's an exact-match lookup key (Redis session keys, SessionModel.
-    # token_hash), and a computationally-expensive hash like bcrypt would
-    # only slow down every authenticated request for no security benefit,
-    # since brute-forcing a 256-bit random value is infeasible regardless
-    # of hash speed. See app/core/security.py.hash_password for the
-    # actual password path, which does use bcrypt.
-    return hashlib.sha256(token.encode()).hexdigest()  # lgtm[py/weak-sensitive-data-hashing]
+    # it isn't (dismissed as a false positive on the alert itself; this
+    # comment is just the why, GitHub's CodeQL Action doesn't support the
+    # old lgtm[rule-id] inline-suppression syntax). `token` is always
+    # app.core.security.new_session_token()'s secrets.token_urlsafe(32): a
+    # 256-bit random value, never a user-chosen secret. A fast hash is
+    # correct (even preferred) here — it's an exact-match lookup key
+    # (Redis session keys, SessionModel.token_hash), and a computationally-
+    # expensive hash like bcrypt would only slow down every authenticated
+    # request for no security benefit, since brute-forcing a 256-bit
+    # random value is infeasible regardless of hash speed. See
+    # app/core/security.py.hash_password for the actual password path,
+    # which does use bcrypt.
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _set_current_user_context(db: Session, user_id: uuid.UUID) -> None:
