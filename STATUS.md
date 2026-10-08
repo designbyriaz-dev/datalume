@@ -4,6 +4,86 @@ Living document — what actually exists vs. what's planned. The sprint
 table in `architecture/10-roadmap-and-acceptance.md` is the plan; this
 file is the ground truth of what's built. Update it as work continues.
 
+## Current state (read this first)
+
+This section is a synthesis, kept separate from the chronological build
+log below it (`## Done`, then `## Not yet done`) — that log is the
+actual source of truth and is never rewritten to stay tidy; if this
+summary and the log below ever disagree, the log is right. Update this
+section's claims, not its shape, as work continues; it should stay a
+short synthesis, not grow into a second log.
+
+**What this is**: DataLume Property Intelligence, a multi-tenant B2B
+SaaS for UK housing associations, local authorities, managing agents,
+commercial landlords, and property developers — one shared data model
+and intelligence engine, adaptive per organisation type, not separate
+products per sector (CLAUDE.md's own non-negotiable).
+
+**All 24 sprints from the roadmap are built and tested**, each adding a
+real domain, not a mock screen: foundation/auth/tenant isolation (1),
+billing scaffolding (2), CSV ingestion with real provenance (3),
+versioned document storage (4), the property/development/building/
+component hierarchy with a real configurable reference engine (5-8),
+specifications and a real Golden Thread composition (9), construction
+evidence and a six-state change-control workflow (10), defects and
+warranties (11), a weighted Handover Readiness engine (12), Property
+360 (13), repairs and repeat-failure signals (14), a 21-domain
+compliance framework with inspections/actions/hazards and a
+deterministic status engine (15-17), stock condition and planned
+investment scoring (18), tenancies and commercial leases (19), rent/
+payments/arrears reconciliation (20), a scheduled cross-domain
+Attention Engine (21), "Ask DataLume" — deterministic tools the LLM
+explains but never calculates from (22), worker-driven report
+generation across 5 report types (23), and a hardening pass covering
+the tenant-isolation fuzz suite, structured audit logging, and an
+honest accounting of what this sandbox can't verify for real (24). See
+`## Done` below for the sprint-by-sprint detail, each with its own
+real bugs-found-and-fixed and live-verification notes.
+
+**Substantial work continued past Sprint 24**, once this sandbox
+gained real Postgres/Redis access and a real GitHub remote with CI:
+Row Level Security wired in and proven against real
+Postgres (not just app-layer filtering); N+1 query rewrites and load
+testing against a 20,000-property/200,000-repair seed; a real backup
+drill (`pg_dump`/restore, row counts and RLS policies verified after);
+a systematic audit that found and closed a recurring "backend built,
+nobody ever wired the frontend to it" pattern across more than a dozen
+features (Building Control/BSR references, component-scoped
+warranties, COMMISSIONING/drawing document types, document version
+uploads, a real audit-log page, and — a genuinely missing table, not a
+UI gap — Building Control's own application-lifecycle record,
+spec §30); a full dependency, CodeQL, and GitHub-security-settings
+sweep (0 open Dependabot alerts, 0 open code-scanning alerts, Actions
+pinned to commit SHAs, `main` protected against force-push/deletion);
+and the one concurrency bug this project's own migration history had
+documented as deliberately deferred (two components named "Boiler"/
+"Boilers" racing to create themselves) finally closed with a real
+normalized-matching column and a genuine threaded test against
+Postgres. See `## Not yet done` below for the full list of what was
+found and fixed this way, in each case with the specific reasoning for
+why it was safe.
+
+**Verification state**, most recently confirmed: 397 backend tests
+green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
+a local Redis this sandbox doesn't always have running — an
+environment gap, not a skip hiding a failure), 47 Playwright E2E specs
+green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
+runs all of this plus CodeQL on every push to `main` — last confirmed
+fully green.
+
+**What's deliberately not done, and why** (not a backlog — each of
+these was checked and the reasoning written down, not just left
+unmentioned): full OpenTelemetry/Sentry wiring to a real collector and
+object-storage-level document versioning both need real infrastructure
+this sandbox doesn't have; Data Health covers 10 of spec §42's 15
+items, with the remaining 5 (missing warranties/specifications/
+evidence/external-references/building-relationships) deliberately left
+rather than implemented as noisy blanket rules with no per-type "this
+should have one" flag to drive them; the fuzzy singular/plural
+component-type-matching gap, long the one open item in this list, was
+closed in a later session (see above). Full detail and reasoning for
+each is in `## Not yet done` below.
+
 ## Done
 
 **Architecture Pack** (`architecture/`) — all 11 documents, covering the
