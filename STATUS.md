@@ -4028,6 +4028,23 @@ Specifically flagged as gaps to close early, not deferred to "later":
   deliberately left unbumped until their respective ecosystems support
   the new majors; Dependabot will re-propose them once a compatible
   `typescript-eslint`/`eslint-config-next` release exists.
+- **While investigating the Dependabot PR above, `npm audit` surfaced 6
+  real high-severity CVEs in the exact pinned `next` version
+  (16.3.7)** — cache poisoning of SSG/ISR pages, information disclosure
+  via the dev server's MCP endpoint and App Router metadata image
+  routes, and Server-Side Request Forgery in Image Optimization among
+  them (full list in the advisory links `npm audit` prints). A fix
+  existed at `next@16.4.0` — a minor, non-breaking version per npm's own
+  `isSemVerMajor: false` — so bumped straight to it rather than leaving
+  known CVEs sitting in a pinned version. Verified clean the same way as
+  the eslint-config-next fix (`npm run build && npm run lint`, `tsc
+  --noEmit`, all 46 Playwright specs). `npm audit fix` (no `--force`)
+  separately cleared `sharp`/`source-map-js`/`braces` as a side effect.
+  5 high-severity findings remain, all transitively via `eslint-config-
+  next`'s own outdated `micromatch`/`fast-glob` — dev-only lint tooling,
+  never shipped to users, and `npm audit fix --force` would re-bump
+  `eslint-config-next` into the same ESLint-10 incompatibility just
+  diagnosed above, so left alone rather than forced.
 
 
 ## How to run this locally
