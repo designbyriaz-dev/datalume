@@ -7,10 +7,12 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
 import {
   api,
+  type BuildingControlRecordOut,
   type BuildingOut,
   type ComplianceRequirementOut,
   type ComplianceStatusOut,
   type DefectOut,
+  type DocumentOut,
   type FloorOut,
   type GoldenThread,
   type PropertyOut,
@@ -18,6 +20,9 @@ import {
   type SpecificationOut,
   type WarrantyOut,
 } from "@/lib/api";
+
+const BUILDING_CONTROL_EVIDENCE_TYPES = ["CERTIFICATE", "DRAWING", "SPECIFICATION", "EVIDENCE", "OTHER"];
+const BUILDING_CONTROL_STATUSES = ["SUBMITTED", "APPROVED", "CONDITIONAL", "COMPLETED", "REJECTED"];
 
 const COMPLIANCE_STATUS_VARIANT: Record<string, "success" | "warning" | "critical" | "neutral"> = {
   CURRENT: "success",
@@ -99,6 +104,31 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   const [warrantySubmitting, setWarrantySubmitting] = useState(false);
   const [warrantyFormError, setWarrantyFormError] = useState<string | null>(null);
 
+  const [buildingControlRecords, setBuildingControlRecords] = useState<BuildingControlRecordOut[] | null>(null);
+  const [bcBody, setBcBody] = useState("");
+  const [bcApplicationDate, setBcApplicationDate] = useState("");
+  const [bcApplicationReference, setBcApplicationReference] = useState("");
+  const [bcBsrReference, setBcBsrReference] = useState("");
+  const [bcSubmitting, setBcSubmitting] = useState(false);
+  const [bcFormError, setBcFormError] = useState<string | null>(null);
+
+  // "Manage" is a per-row toggle — only one record's status-update +
+  // evidence panel is open at a time, keyed by that record's own id.
+  const [bcManagingId, setBcManagingId] = useState<string | null>(null);
+  const [bcStatus, setBcStatus] = useState<string>("SUBMITTED");
+  const [bcApprovalDate, setBcApprovalDate] = useState("");
+  const [bcConditions, setBcConditions] = useState("");
+  const [bcCompletionReference, setBcCompletionReference] = useState("");
+  const [bcUpdateSubmitting, setBcUpdateSubmitting] = useState(false);
+  const [bcUpdateError, setBcUpdateError] = useState<string | null>(null);
+
+  const [bcEvidenceByRecord, setBcEvidenceByRecord] = useState<Record<string, DocumentOut[]>>({});
+  const [bcEvidenceTitle, setBcEvidenceTitle] = useState("");
+  const [bcEvidenceType, setBcEvidenceType] = useState<string>(BUILDING_CONTROL_EVIDENCE_TYPES[0] ?? "CERTIFICATE");
+  const [bcEvidenceFile, setBcEvidenceFile] = useState<File | null>(null);
+  const [bcEvidenceSubmitting, setBcEvidenceSubmitting] = useState(false);
+  const [bcEvidenceError, setBcEvidenceError] = useState<string | null>(null);
+
   const [applicability, setApplicability] = useState<RequirementApplicabilityOut[] | null>(null);
   const [requirements, setRequirements] = useState<ComplianceRequirementOut[] | null>(null);
   const [complianceStatuses, setComplianceStatuses] = useState<ComplianceStatusOut[]>([]);
@@ -141,6 +171,19 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     setWarranties(await api.listWarranties(id, { building_id: buildingId }));
   }
 
+  async function refreshBuildingControlRecords() {
+    const id = orgId();
+    if (!id) return;
+    setBuildingControlRecords(await api.listBuildingControlRecords(id, { building_id: buildingId }));
+  }
+
+  async function refreshBuildingControlEvidence(recordId: string) {
+    const id = orgId();
+    if (!id) return;
+    const docs = await api.listDocuments(id, { related_entity_type: "building_control_record", related_entity_id: recordId });
+    setBcEvidenceByRecord((prev) => ({ ...prev, [recordId]: docs }));
+  }
+
   async function refreshApplicability() {
     const id = orgId();
     if (!id) return;
@@ -164,6 +207,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
           thread,
           defectList,
           warrantyList,
+          buildingControlList,
           applicabilityList,
           requirementList,
           statusList,
@@ -175,6 +219,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
           api.getGoldenThread(id, buildingId),
           api.listDefects(id, { building_id: buildingId }),
           api.listWarranties(id, { building_id: buildingId }),
+          api.listBuildingControlRecords(id, { building_id: buildingId }),
           api.listApplicability(id, { entity_type: "building", entity_id: buildingId }),
           api.listComplianceRequirements(id),
           api.listComplianceStatuses(id, "building", buildingId),
@@ -186,6 +231,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         setGoldenThread(thread);
         setDefects(defectList);
         setWarranties(warrantyList);
+        setBuildingControlRecords(buildingControlList);
         setApplicability(applicabilityList);
         setRequirements(requirementList);
         setComplianceStatuses(statusList);
@@ -319,6 +365,90 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     await refreshWarranties();
   }
 
+  async function onAddBuildingControlRecord() {
+    const id = orgId();
+    if (!id) return;
+    setBcSubmitting(true);
+    setBcFormError(null);
+    try {
+      await api.createBuildingControlRecord(id, {
+        building_id: buildingId,
+        body: bcBody.trim() || undefined,
+        application_date: bcApplicationDate || undefined,
+        application_reference: bcApplicationReference.trim() || undefined,
+        bsr_reference: bcBsrReference.trim() || undefined,
+      });
+      setBcBody("");
+      setBcApplicationDate("");
+      setBcApplicationReference("");
+      setBcBsrReference("");
+      await refreshBuildingControlRecords();
+    } catch {
+      setBcFormError("Couldn't add that building control record.");
+    } finally {
+      setBcSubmitting(false);
+    }
+  }
+
+  function onStartManagingBuildingControlRecord(record: BuildingControlRecordOut) {
+    setBcManagingId(record.id);
+    setBcStatus(record.status);
+    setBcApprovalDate(record.approval_date ?? "");
+    setBcConditions(record.conditions ?? "");
+    setBcCompletionReference(record.completion_reference ?? "");
+    setBcUpdateError(null);
+    setBcEvidenceTitle("");
+    setBcEvidenceFile(null);
+    setBcEvidenceError(null);
+    if (!bcEvidenceByRecord[record.id]) {
+      void refreshBuildingControlEvidence(record.id);
+    }
+  }
+
+  async function onUpdateBuildingControlRecord(recordId: string) {
+    const id = orgId();
+    if (!id) return;
+    setBcUpdateSubmitting(true);
+    setBcUpdateError(null);
+    try {
+      await api.updateBuildingControlRecord(id, recordId, {
+        status: bcStatus,
+        approval_date: bcApprovalDate || undefined,
+        conditions: bcConditions.trim() || undefined,
+        completion_reference: bcCompletionReference.trim() || undefined,
+      });
+      setBcCompletionReference("");
+      await refreshBuildingControlRecords();
+    } catch {
+      setBcUpdateError("Couldn't update that record.");
+    } finally {
+      setBcUpdateSubmitting(false);
+    }
+  }
+
+  async function onUploadBuildingControlEvidence(recordId: string) {
+    const id = orgId();
+    if (!id || !bcEvidenceFile || !bcEvidenceTitle.trim()) {
+      setBcEvidenceError("Give the evidence a title and choose a file first.");
+      return;
+    }
+    setBcEvidenceSubmitting(true);
+    setBcEvidenceError(null);
+    try {
+      await api.uploadDocument(id, bcEvidenceTitle.trim(), bcEvidenceType, bcEvidenceFile, {
+        related_entity_type: "building_control_record",
+        related_entity_id: recordId,
+      });
+      setBcEvidenceTitle("");
+      setBcEvidenceFile(null);
+      await refreshBuildingControlEvidence(recordId);
+    } catch {
+      setBcEvidenceError("Couldn't upload that evidence.");
+    } finally {
+      setBcEvidenceSubmitting(false);
+    }
+  }
+
   async function onAddApplicability() {
     const id = orgId();
     if (!id || !applicabilityRequirementId) {
@@ -355,7 +485,17 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!building || !floors || !properties || !specifications || !defects || !warranties || !applicability || !requirements) {
+  if (
+    !building ||
+    !floors ||
+    !properties ||
+    !specifications ||
+    !defects ||
+    !warranties ||
+    !buildingControlRecords ||
+    !applicability ||
+    !requirements
+  ) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -794,6 +934,211 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
                   </button>
                 )}
               </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 24,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a Building Control record</h2>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.4fr 1fr 1fr 1fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="bc-body" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Building Control body
+            </label>
+            <input
+              id="bc-body"
+              style={inputStyle}
+              value={bcBody}
+              onChange={(e) => setBcBody(e.target.value)}
+              placeholder="e.g. Local Authority Building Control"
+            />
+          </div>
+          <div>
+            <label htmlFor="bc-application-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Application date
+            </label>
+            <input
+              id="bc-application-date"
+              style={inputStyle}
+              type="date"
+              value={bcApplicationDate}
+              onChange={(e) => setBcApplicationDate(e.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="bc-application-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Application reference
+            </label>
+            <input id="bc-application-reference" style={inputStyle} value={bcApplicationReference} onChange={(e) => setBcApplicationReference(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="bc-bsr-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              BSR reference
+            </label>
+            <input id="bc-bsr-reference" style={inputStyle} value={bcBsrReference} onChange={(e) => setBcBsrReference(e.target.value)} />
+          </div>
+          <button style={primaryBtn} onClick={onAddBuildingControlRecord} disabled={bcSubmitting}>
+            {bcSubmitting ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {bcFormError && <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{bcFormError}</div>}
+      </div>
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Building Control records</h2>
+      {buildingControlRecords.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>
+          No Building Control records yet.
+        </div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {buildingControlRecords.map((r) => (
+            <li key={r.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>
+                  {r.body ?? "Building Control"}{" "}
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {r.application_reference && <>· App ref {r.application_reference} </>}
+                    {r.bsr_reference && <>· BSR {r.bsr_reference} </>}
+                    {r.completion_reference && <>· Completion ref {r.completion_reference} </>}
+                  </span>
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusBadge
+                    label={r.status}
+                    variant={
+                      r.status === "COMPLETED" || r.status === "APPROVED"
+                        ? "success"
+                        : r.status === "REJECTED"
+                          ? "critical"
+                          : r.status === "CONDITIONAL"
+                            ? "warning"
+                            : "neutral"
+                    }
+                  />
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--text-secondary)" }}
+                    onClick={() => (bcManagingId === r.id ? setBcManagingId(null) : onStartManagingBuildingControlRecord(r))}
+                  >
+                    Manage
+                  </button>
+                </span>
+              </div>
+              {bcManagingId === r.id && (
+                <div style={{ marginTop: 10, padding: 12, background: "var(--bg-app)", borderRadius: 6 }}>
+                  <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr auto", alignItems: "end" }}>
+                    <div>
+                      <label htmlFor="bc-status" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                        Status
+                      </label>
+                      <select id="bc-status" style={inputStyle} value={bcStatus} onChange={(e) => setBcStatus(e.target.value)}>
+                        {BUILDING_CONTROL_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="bc-approval-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                        Approval date
+                      </label>
+                      <input
+                        id="bc-approval-date"
+                        style={inputStyle}
+                        type="date"
+                        value={bcApprovalDate}
+                        onChange={(e) => setBcApprovalDate(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="bc-completion-reference" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                        Completion reference
+                      </label>
+                      <input
+                        id="bc-completion-reference"
+                        style={inputStyle}
+                        value={bcCompletionReference}
+                        onChange={(e) => setBcCompletionReference(e.target.value)}
+                      />
+                    </div>
+                    <button
+                      style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                      onClick={() => onUpdateBuildingControlRecord(r.id)}
+                      disabled={bcUpdateSubmitting}
+                    >
+                      {bcUpdateSubmitting ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <label htmlFor="bc-conditions" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+                      Conditions
+                    </label>
+                    <textarea
+                      id="bc-conditions"
+                      style={{ ...inputStyle, width: "100%", minHeight: 50 }}
+                      value={bcConditions}
+                      onChange={(e) => setBcConditions(e.target.value)}
+                    />
+                  </div>
+                  {bcUpdateError && <div style={{ color: "var(--color-critical)", fontSize: 12, marginTop: 6 }}>{bcUpdateError}</div>}
+
+                  <h3 style={{ fontSize: 13, fontWeight: 700, margin: "16px 0 8px" }}>Supporting evidence</h3>
+                  {(bcEvidenceByRecord[r.id] ?? []).length === 0 ? (
+                    <div style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 8 }}>No evidence linked yet.</div>
+                  ) : (
+                    <ul style={{ listStyle: "none", padding: 0, margin: "0 0 8px" }}>
+                      {(bcEvidenceByRecord[r.id] ?? []).map((d) => (
+                        <li key={d.id} style={{ fontSize: 12, padding: "4px 0" }}>
+                          {d.title} <span style={{ color: "var(--text-secondary)" }}>({d.document_type})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <input
+                      id="bc-evidence-title"
+                      style={{ ...inputStyle, width: 180 }}
+                      placeholder="Evidence title"
+                      value={bcEvidenceTitle}
+                      onChange={(e) => setBcEvidenceTitle(e.target.value)}
+                    />
+                    <select
+                      id="bc-evidence-type"
+                      style={inputStyle}
+                      value={bcEvidenceType}
+                      onChange={(e) => setBcEvidenceType(e.target.value)}
+                    >
+                      {BUILDING_CONTROL_EVIDENCE_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      id="bc-evidence-file"
+                      type="file"
+                      onChange={(e) => setBcEvidenceFile(e.target.files?.[0] ?? null)}
+                    />
+                    <button
+                      style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                      onClick={() => onUploadBuildingControlEvidence(r.id)}
+                      disabled={bcEvidenceSubmitting}
+                    >
+                      {bcEvidenceSubmitting ? "Uploading…" : "Upload"}
+                    </button>
+                    {bcEvidenceError && <span style={{ color: "var(--color-critical)", fontSize: 12 }}>{bcEvidenceError}</span>}
+                  </div>
+                </div>
+              )}
             </li>
           ))}
         </ul>

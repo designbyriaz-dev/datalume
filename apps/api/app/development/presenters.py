@@ -14,8 +14,25 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.development.models import Building, ChangeControl, Component, ComponentType, Development, Property, Warranty
-from app.development.schemas import BuildingOut, ChangeControlOut, ComponentOut, DevelopmentOut, PropertyOut, WarrantyOut
+from app.development.models import (
+    Building,
+    BuildingControlRecord,
+    ChangeControl,
+    Component,
+    ComponentType,
+    Development,
+    Property,
+    Warranty,
+)
+from app.development.schemas import (
+    BuildingControlRecordOut,
+    BuildingOut,
+    ChangeControlOut,
+    ComponentOut,
+    DevelopmentOut,
+    PropertyOut,
+    WarrantyOut,
+)
 from app.identifiers.service import get_external_references, get_external_references_bulk
 
 
@@ -285,3 +302,30 @@ def warranty_to_out(warranty: Warranty) -> WarrantyOut:
 
 def warranties_to_out(warranties: list[Warranty]) -> list[WarrantyOut]:
     return [warranty_to_out(w) for w in warranties]
+
+
+def building_control_record_to_out(
+    db: Session, organisation_id: uuid.UUID, record: BuildingControlRecord
+) -> BuildingControlRecordOut:
+    refs = get_external_references(db, organisation_id, "building_control_record", record.id)
+    return BuildingControlRecordOut(
+        id=record.id,
+        development_id=record.development_id,
+        building_id=record.building_id,
+        body=record.body,
+        status=record.status.value,
+        application_date=record.application_date,
+        approval_date=record.approval_date,
+        conditions=record.conditions,
+        application_reference=refs.get("BUILDING_CONTROL_REFERENCE"),
+        completion_reference=refs.get("BUILDING_CONTROL_COMPLETION_REFERENCE"),
+        bsr_reference=refs.get("BSR_REFERENCE"),
+        created_by=record.created_by,
+        created_at=record.created_at,
+    )
+
+
+def building_control_records_to_out(
+    db: Session, organisation_id: uuid.UUID, records: list[BuildingControlRecord]
+) -> list[BuildingControlRecordOut]:
+    return [building_control_record_to_out(db, organisation_id, r) for r in records]

@@ -532,3 +532,45 @@ class HandoverRecord(Base, ProvenanceMixin):
     readiness_score_pct: Mapped[float] = mapped_column(Float)
     readiness_snapshot: Mapped[list] = mapped_column(JSON)
     override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class BuildingControlStatus(str, enum.Enum):
+    SUBMITTED = "SUBMITTED"
+    APPROVED = "APPROVED"
+    CONDITIONAL = "CONDITIONAL"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+
+
+class BuildingControlRecord(Base, ProvenanceMixin):
+    """Building Control & regulatory mapping — spec §30, architecture
+    03 §5's `building_control_records`. Development/Building already
+    capture a bare `building_control_reference`/`bsr_reference` pair as
+    plain ExternalReference values (set at creation, shown on their own
+    detail pages) — this table is additive, not a replacement: it tracks
+    the actual application lifecycle spec §30 also asks for (body,
+    application/approval dates, status, conditions) that those two bare
+    strings never captured. Its own application/completion/BSR
+    references route through external_references too, same hard rule as
+    every other official identifier in this codebase (see
+    identifiers/models.py's own docstring) — reference VALUES are never
+    columns here. "Completion certificate metadata" (spec §30) is
+    deliberately not a separate field: the completion certificate is
+    itself a Document (status §28's own metadata fields already cover
+    it) linked via the same related_entity_type/id evidence pattern
+    every other section uses, here "building_control_record".
+    """
+
+    __tablename__ = "building_control_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organisation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organisations.id"))
+    development_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("developments.id"), nullable=True)
+    building_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("buildings.id"), nullable=True)
+    body: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[BuildingControlStatus] = mapped_column(
+        Enum(BuildingControlStatus), default=BuildingControlStatus.SUBMITTED
+    )
+    application_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    approval_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    conditions: Mapped[str | None] = mapped_column(Text, nullable=True)

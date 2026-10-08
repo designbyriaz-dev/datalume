@@ -23,6 +23,7 @@ from app.reports.router import router as reports_router
 import app.commercial.importers  # noqa: F401  (registers IMPORTERS["RENT_OBLIGATIONS", "PAYMENTS"] as a side effect)
 import app.development.importers  # noqa: F401  (registers IMPORTERS["PROPERTIES", "COMPONENTS"] as a side effect)
 import app.operations.importers  # noqa: F401  (registers IMPORTERS["REPAIRS", "COMPLIANCE_INSPECTIONS"] as a side effect)
+from app.development.building_control_router import router as building_control_router
 from app.development.change_control_router import router as change_control_router
 from app.development.components_router import router as components_router
 from app.development.defects_router import router as defects_router
@@ -72,6 +73,7 @@ app.include_router(specifications_router)
 app.include_router(change_control_router)
 app.include_router(defects_router)
 app.include_router(warranties_router)
+app.include_router(building_control_router)
 app.include_router(handover_router)
 app.include_router(portfolio_router)
 app.include_router(repairs_router)

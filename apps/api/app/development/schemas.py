@@ -472,6 +472,40 @@ class WarrantyOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CreateBuildingControlRecordRequest(BaseModel):
+    development_id: uuid.UUID | None = None
+    building_id: uuid.UUID | None = None
+    body: str | None = None
+    application_date: date | None = None
+    application_reference: str | None = None
+    bsr_reference: str | None = None
+
+
+class UpdateBuildingControlRecordRequest(BaseModel):
+    status: str | None = None
+    approval_date: date | None = None
+    conditions: str | None = None
+    completion_reference: str | None = None
+
+
+class BuildingControlRecordOut(BaseModel):
+    id: uuid.UUID
+    development_id: uuid.UUID | None
+    building_id: uuid.UUID | None
+    body: str | None
+    status: str
+    application_date: date | None
+    approval_date: date | None
+    conditions: str | None
+    application_reference: str | None
+    completion_reference: str | None
+    bsr_reference: str | None
+    created_by: uuid.UUID | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class UpdatePropertyStatusRequest(BaseModel):
     status: str
 

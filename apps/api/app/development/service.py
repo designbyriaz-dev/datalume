@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from app.core.provenance import SourceType
 from app.development.models import (
     Building,
+    BuildingControlRecord,
+    BuildingControlStatus,
     ChangeControl,
     ChangeControlStatus,
     Component,
@@ -1232,6 +1234,128 @@ def void_warranty(
         after={"status": "VOID"},
     )
     return warranty
+
+
+def create_building_control_record(
+    db: Session,
+    organisation_id: uuid.UUID,
+    *,
+    development_id: uuid.UUID | None = None,
+    building_id: uuid.UUID | None = None,
+    body: str | None = None,
+    application_date: date | None = None,
+    application_reference: str | None = None,
+    bsr_reference: str | None = None,
+    source_type: SourceType = SourceType.MANUAL,
+    actor_user_id: uuid.UUID | None = None,
+) -> BuildingControlRecord:
+    if development_id is not None:
+        _get_org_development(db, organisation_id, development_id)
+    if building_id is not None:
+        _get_org_building(db, organisation_id, building_id)
+
+    record = BuildingControlRecord(
+        organisation_id=organisation_id,
+        development_id=development_id,
+        building_id=building_id,
+        body=body,
+        status=BuildingControlStatus.SUBMITTED,
+        application_date=application_date,
+        source_type=source_type,
+        created_by=actor_user_id,
+        updated_by=actor_user_id,
+    )
+    db.add(record)
+    db.flush()
+
+    if application_reference:
+        record_external_reference(
+            db,
+            organisation_id,
+            entity_type="building_control_record",
+            entity_id=record.id,
+            reference_type=ExternalReferenceType.BUILDING_CONTROL_REFERENCE,
+            value=application_reference,
+            source_type=source_type,
+            actor_user_id=actor_user_id,
+        )
+    if bsr_reference:
+        record_external_reference(
+            db,
+            organisation_id,
+            entity_type="building_control_record",
+            entity_id=record.id,
+            reference_type=ExternalReferenceType.BSR_REFERENCE,
+            value=bsr_reference,
+            source_type=source_type,
+            actor_user_id=actor_user_id,
+        )
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="building_control_record.created",
+        entity_type="building_control_record",
+        entity_id=str(record.id),
+        after={
+            "development_id": str(development_id) if development_id else None,
+            "building_id": str(building_id) if building_id else None,
+            "body": body,
+        },
+    )
+    return record
+
+
+def update_building_control_record(
+    db: Session,
+    organisation_id: uuid.UUID,
+    record: BuildingControlRecord,
+    *,
+    status: str | None = None,
+    approval_date: date | None = None,
+    conditions: str | None = None,
+    completion_reference: str | None = None,
+    actor_user_id: uuid.UUID | None = None,
+) -> BuildingControlRecord:
+    before = {
+        "status": record.status.value,
+        "approval_date": str(record.approval_date) if record.approval_date else None,
+    }
+    if status is not None:
+        record.status = BuildingControlStatus(status)
+    if approval_date is not None:
+        record.approval_date = approval_date
+    if conditions is not None:
+        record.conditions = conditions
+    record.updated_by = actor_user_id
+
+    if completion_reference:
+        record_external_reference(
+            db,
+            organisation_id,
+            entity_type="building_control_record",
+            entity_id=record.id,
+            reference_type=ExternalReferenceType.BUILDING_CONTROL_COMPLETION_REFERENCE,
+            value=completion_reference,
+            source_type=SourceType.MANUAL,
+            actor_user_id=actor_user_id,
+        )
+
+    record_audit_event(
+        db,
+        organisation_id=organisation_id,
+        actor_user_id=actor_user_id,
+        action_code="building_control_record.updated",
+        entity_type="building_control_record",
+        entity_id=str(record.id),
+        before=before,
+        after={
+            "status": record.status.value,
+            "approval_date": str(record.approval_date) if record.approval_date else None,
+        },
+    )
+    return record
 
 
 def get_or_create_handover_readiness_weight(

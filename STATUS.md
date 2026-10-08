@@ -3871,6 +3871,47 @@ punch list for whoever takes this toward a real pilot:
   there (a row-count check on the `<tr>`, same shape as the other two
   tests' `<li>` check). 45 Playwright specs green, `npm run lint`
   clean.
+- **Spec §30 / architecture 03 §5's `building_control_records` table
+  never existed at all — not a "backend built, frontend incomplete"
+  gap like most of this file's other entries, a genuinely missing
+  table.** `Building.building_control_reference`/`bsr_reference` (see
+  building-control-reference.spec.ts) are bare `ExternalReference`
+  strings captured at building/development creation — real, but only
+  two fields. Spec §30 asks for the actual application lifecycle:
+  Building Control body, application/approval dates, status,
+  conditions, a separate completion reference, and supporting
+  evidence — none of which existed anywhere. Added the real table,
+  additive and untouched-existing-data: new migration
+  `0032_building_control_records` (real RLS, same
+  `_tenant_rls`/`_provenance_columns` pattern as every other table,
+  verified against a real local Postgres — fresh-database
+  `alembic upgrade head` all the way to head, downgrade, and the
+  resulting schema/constraints/policy inspected directly via `psql`,
+  not just assumed from the migration's own code), a new
+  `ExternalReferenceType.BUILDING_CONTROL_COMPLETION_REFERENCE` member
+  (application/BSR reuse the two existing reference types; only the
+  completion reference needed a new one), `app/development/
+  building_control_router.py` (`POST`/`GET`/`PATCH
+  /api/v1/building-control-records`, gated by the existing
+  `development.write` permission, no new permission needed), and
+  `create_building_control_record`/`update_building_control_record`
+  in `service.py`. "Completion certificate metadata" (spec §30) is
+  deliberately not a separate field — the completion certificate is
+  itself a Document, linked via the same `related_entity_type`/`id`
+  evidence pattern every other section uses here
+  ("building_control_record"), so its own metadata (title, reference,
+  upload date) already is that. Added a "Building Control records"
+  section to `BuildingDetailClient.tsx` (add/list/manage-status/
+  evidence-upload, reusing the "New version"-style per-row toggle
+  pattern) and `app/tests/test_building_control_records.py` (9 tests:
+  creation against both a building and a development, missing-parent
+  404, status transition with approval date and completion reference,
+  invalid-status 400, list filtering, evidence linking, permission
+  gate, tenant isolation). Deliberately NOT built: spec §31's full
+  `regulatory_requirements`/`requirement_applicability` chain — a
+  separate, much larger piece of work this table doesn't depend on and
+  this entry doesn't claim to close. 47 Playwright specs green, 396
+  backend tests green, `npm run lint` clean.
 - **Checked Handover Readiness's own nine checks for the same
   "backend built, UI incomplete" shape as the Building Control
   reference gap above, and found two more: `check_warranties_received`

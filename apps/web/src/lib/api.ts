@@ -475,6 +475,22 @@ export type WarrantyOut = {
   created_at: string;
 };
 
+export type BuildingControlRecordOut = {
+  id: string;
+  development_id: string | null;
+  building_id: string | null;
+  body: string | null;
+  status: "SUBMITTED" | "APPROVED" | "CONDITIONAL" | "COMPLETED" | "REJECTED";
+  application_date: string | null;
+  approval_date: string | null;
+  conditions: string | null;
+  application_reference: string | null;
+  completion_reference: string | null;
+  bsr_reference: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type TimelineEvent = {
   action_code: string;
   entity_type: string;
@@ -1843,6 +1859,44 @@ export const api = {
       params.set("expiring_within_days", String(filters.expiring_within_days));
     const qs = params.toString();
     return request<WarrantyOut[]>(`/api/v1/warranties${qs ? `?${qs}` : ""}`, { organisationId });
+  },
+  createBuildingControlRecord: (
+    organisationId: string,
+    payload: {
+      development_id?: string;
+      building_id?: string;
+      body?: string;
+      application_date?: string;
+      application_reference?: string;
+      bsr_reference?: string;
+    },
+  ) =>
+    request<BuildingControlRecordOut>("/api/v1/building-control-records", {
+      method: "POST",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  updateBuildingControlRecord: (
+    organisationId: string,
+    recordId: string,
+    payload: { status?: string; approval_date?: string; conditions?: string; completion_reference?: string },
+  ) =>
+    request<BuildingControlRecordOut>(`/api/v1/building-control-records/${recordId}`, {
+      method: "PATCH",
+      organisationId,
+      body: JSON.stringify(payload),
+    }),
+  listBuildingControlRecords: (
+    organisationId: string,
+    filters?: { development_id?: string; building_id?: string },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.development_id) params.set("development_id", filters.development_id);
+    if (filters?.building_id) params.set("building_id", filters.building_id);
+    const qs = params.toString();
+    return request<BuildingControlRecordOut[]>(`/api/v1/building-control-records${qs ? `?${qs}` : ""}`, {
+      organisationId,
+    });
   },
   requestReport: (
     organisationId: string,
