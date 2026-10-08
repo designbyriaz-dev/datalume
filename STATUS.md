@@ -63,7 +63,7 @@ Postgres. See `## Not yet done` below for the full list of what was
 found and fixed this way, in each case with the specific reasoning for
 why it was safe.
 
-**Verification state**, most recently confirmed: 397 backend tests
+**Verification state**, most recently confirmed: 400 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
 environment gap, not a skip hiding a failure), 47 Playwright E2E specs
@@ -75,14 +75,21 @@ fully green.
 these was checked and the reasoning written down, not just left
 unmentioned): full OpenTelemetry/Sentry wiring to a real collector and
 object-storage-level document versioning both need real infrastructure
-this sandbox doesn't have; Data Health covers 10 of spec §42's 15
-items, with the remaining 5 (missing warranties/specifications/
-evidence/external-references/building-relationships) deliberately left
-rather than implemented as noisy blanket rules with no per-type "this
-should have one" flag to drive them; the fuzzy singular/plural
+this sandbox doesn't have; Data Health covers 12 of spec §42's 15
+items (missing warranties and missing external references beyond UPRN
+closed in a later session, each scoped narrowly — a curated list of
+component types that genuinely carry a manufacturer warranty, and
+buildings that actually meet the Building Safety Act's higher-risk
+threshold — rather than as a blanket rule); missing specifications and
+missing evidence remain genuinely open (no defensible per-type rule
+for the former, no requirement-to-evidence tracking to query yet for
+the latter); missing building relationships isn't really "not yet
+done" at all — architecture 03 and spec §19 both say not every
+hierarchy level is required, so flagging the absence of one would
+contradict the design, not complete it. The fuzzy singular/plural
 component-type-matching gap, long the one open item in this list, was
-closed in a later session (see above). Full detail and reasoning for
-each is in `## Not yet done` below.
+also closed in a later session (see above). Full detail and reasoning
+for each is in `## Not yet done` below.
 
 ## Done
 
@@ -4074,24 +4081,56 @@ punch list for whoever takes this toward a real pilot:
 
 Specifically flagged as gaps to close early, not deferred to "later":
 
-- **Data Health still doesn't cover all 15 items in spec §42.** Orphan
-  components, duplicate components, missing handover information,
-  missing serial numbers, missing/invalid installation dates,
-  conflicting external references, and duplicate documents are all
-  closed now (see the dedicated entries above) — still open: missing
-  warranties, missing specifications, missing evidence, missing
-  external references beyond UPRN, missing building relationships.
-  Missing component types is not really open — `Component.
-  component_type_id` is `NOT NULL` at the schema level, so no row can
-  ever fail that check; there's nothing to query. Missing evidence
-  needs real new tracking this codebase doesn't have yet (no document
-  is linked to a specific compliance requirement in a way "missing
-  evidence" could query). Missing warranties/specifications and missing
-  building relationships were deliberately left as gaps rather than
-  implemented as noisy blanket rules — see `rules.py`'s own module
-  docstring for why (no per-component-type "this should have one" flag
-  exists, and spec §19 explicitly says not to require every hierarchy
-  level).
+- ~~Data Health still doesn't cover all 15 items in spec §42.~~ **Two
+  more of the five remaining items closed in a later session; the
+  other three correctly stay open or out of scope, not just left
+  unmentioned.** Orphan components, duplicate components, missing
+  handover information, missing serial numbers, missing/invalid
+  installation dates, conflicting external references, and duplicate
+  documents were already closed (see the dedicated entries above).
+  Missing warranties and missing external references beyond UPRN are
+  now closed too — `check_missing_warranty_for_expected_component_type`
+  and `check_missing_bsr_reference_for_higher_risk_buildings`
+  (`app/data_health/rules.py`), both scoped narrowly rather than as
+  the "blanket rule that would flag components/buildings that
+  plausibly shouldn't be flagged" this file had always said was the
+  actual blocker, not the absence of a design: warranties check only
+  `TYPES_EXPECTING_WARRANTY`, a curated list of mechanical/electrical/
+  fire-safety plant (boilers, heat pumps, lifts, smoke/CO alarms,
+  sprinklers, electrical installations, consumer units, solar PV, EV
+  infrastructure) where a manufacturer/installer warranty is standard
+  UK housing-association practice — not fabric/structural types like
+  roofs or kitchens, which plausibly carry a different, building-level
+  warranty entirely or none at all. BSR reference checks only
+  buildings meeting the Building Safety Act 2022's actual higher-risk
+  threshold (≥18m or ≥7 storeys) — a low-rise building genuinely
+  doesn't need BSR registration, so checking every building regardless
+  of height would have been exactly the wrong, noisy rule. Both query
+  against the real data sources already established elsewhere
+  (`Warranty.component_id`/`status`, the same table Handover
+  Readiness's `check_warranties_received` uses; `ExternalReference`
+  with `entity_type="building"`, the same scope
+  `check_building_control_reference` already uses), not new parallel
+  columns. Verified with 3 new backend tests (SQLite) plus a direct
+  check against real Postgres (fresh database, `app.main` imported
+  first per this file's own "How to run this locally" note, both
+  checks run directly and their counts/finding-ids asserted) — full
+  400-test backend suite green.
+
+  Still genuinely open: missing specifications (unlike warranties,
+  there's no defensible per-type "this type always needs one" list —
+  whether a specification exists is project-specific in a way a fixed
+  type list can't capture) and missing evidence (no document is
+  currently linked to a specific compliance requirement in a way
+  "missing evidence" could query — needs new tracking, not a new rule
+  against data that already exists). Missing component types still
+  isn't really open — `Component.component_type_id` is `NOT NULL` at
+  the schema level, so no row can ever fail that check. Missing
+  building relationships is now understood as correctly, permanently
+  out of scope rather than "not yet done" — architecture 03's own
+  design and spec §19 explicitly say not every hierarchy level is
+  required, so a property or component with no building link is a
+  deliberate, valid shape, not a data problem a check should flag.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable

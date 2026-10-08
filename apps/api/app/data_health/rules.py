@@ -14,17 +14,29 @@ Sprint 5 only had Property to check against; component and handover
 checks landed Post-Sprint-24, once those domain models existed.
 Serial numbers/installation dates/conflicting references/invalid
 dates/duplicate documents closed Post-Sprint-24 too (see those
-functions' own docstrings). Still open, and deliberately not
-implemented as a blanket rule: missing component types (Component.
-component_type_id is NOT NULL at the schema level — no row can ever
-fail this, so there's nothing to query), missing warranties/
-specifications (no per-component-type flag exists for "this type is
-expected to have one" — a blanket check would flag components that
-plausibly shouldn't, e.g. structural elements), missing evidence (no
-document is currently linked to a specific compliance requirement in
-a way "missing evidence" could query), and external references beyond
-UPRN (no other reference type has a real "every X should have this"
-business rule the way UPRN does).
+functions' own docstrings). Missing warranties and missing external
+references beyond UPRN closed in a later session still — see
+check_missing_warranty_for_expected_component_type and
+check_missing_bsr_reference_for_higher_risk_buildings's own docstrings
+for how each one avoids being the "noisy blanket rule" earlier
+versions of this docstring worried about, by scoping to a real,
+specific subset rather than every row.
+
+Still genuinely open, and still deliberately not implemented: missing
+component types (Component.component_type_id is NOT NULL at the
+schema level — no row can ever fail this, so there's nothing to
+query), missing specifications (unlike warranties, there's no
+defensible per-component-type "this type always needs one" list —
+whether a specification document exists is project- and context-
+specific in a way a fixed type list can't capture), missing evidence
+(no document is currently linked to a specific compliance requirement
+in a way "missing evidence" could query — this needs new tracking,
+not a new rule against what already exists), and missing building
+relationships (architecture 03's own design, and spec §19 explicitly,
+say not every hierarchy level is required — a property or component
+with no building link is a deliberate, valid shape, not a data
+problem, so this one isn't "not yet done", it's correctly out of
+scope permanently).
 
 Each check below queries narrow column projections (just the id/
 reference and whatever the rule itself needs) or real SQL
@@ -48,7 +60,16 @@ from sqlalchemy import func, insert
 from sqlalchemy.orm import Session
 
 from app.data_health.models import DataHealthFinding, FindingSeverity
-from app.development.models import Component, HandoverRecord, Property, PropertyStatus
+from app.development.models import (
+    Building,
+    Component,
+    ComponentType,
+    HandoverRecord,
+    Property,
+    PropertyStatus,
+    Warranty,
+    WarrantyStatus,
+)
 from app.documents.models import Document, DocumentStatus
 from app.identifiers.models import ExternalReference, ExternalReferenceType
 from app.operations.stock_condition.models import StockConditionSurvey
@@ -464,6 +485,119 @@ def check_duplicate_documents(db: Session, organisation_id) -> CheckResult:
     return CheckResult("DUPLICATE_DOCUMENT", applicable_count, len(findings), findings)
 
 
+# Component types where a manufacturer/installer warranty is standard,
+# universal UK housing-association practice: mechanical, electrical,
+# and fire-safety plant. Deliberately narrower than "every component
+# type" — a roof, a kitchen, or a structural element might carry a
+# building-level NHBC-style structural warranty, a different thing
+# entirely from a per-component manufacturer warranty, and plausibly
+# has no warranty record of this kind at all. This list is the real,
+# scoped answer to the "blanket rule would flag components that
+# shouldn't be flagged" concern this check was originally left unbuilt
+# over, not a workaround of it.
+TYPES_EXPECTING_WARRANTY = {
+    "BOILERS",
+    "HEAT_PUMPS",
+    "HEATING_SYSTEMS",
+    "LIFTS",
+    "SMOKE_ALARMS",
+    "CO_ALARMS",
+    "SPRINKLERS",
+    "ELECTRICAL_INSTALLATIONS",
+    "CONSUMER_UNITS",
+    "SOLAR_PV",
+    "EV_INFRASTRUCTURE",
+}
+
+
+def check_missing_warranty_for_expected_component_type(db: Session, organisation_id) -> CheckResult:
+    """spec §42's "Missing warranties" — scoped to
+    TYPES_EXPECTING_WARRANTY above, not every component (see that
+    constant's own docstring for why). Checks against the real Warranty
+    register (component_id set, status ACTIVE) — the same data source
+    Handover Readiness's check_warranties_received already uses
+    (app/development/handover.py) — not Component.warranty_start/
+    warranty_expiry, a simpler parallel pair of columns with no form
+    field in the UI to actually set them."""
+    rows = (
+        db.query(Component.id, Component.component_reference)
+        .join(ComponentType, ComponentType.id == Component.component_type_id)
+        .filter(Component.organisation_id == organisation_id, ComponentType.code.in_(TYPES_EXPECTING_WARRANTY))
+        .all()
+    )
+    warrantied_component_ids = {
+        row[0]
+        for row in db.query(Warranty.component_id).filter(
+            Warranty.organisation_id == organisation_id,
+            Warranty.component_id.isnot(None),
+            Warranty.status == WarrantyStatus.ACTIVE,
+        )
+    }
+    findings = [
+        Finding(
+            "MISSING_WARRANTY",
+            FindingSeverity.MEDIUM,
+            "component",
+            str(cid),
+            f"{cref} is a type that should have a warranty on file, but none is recorded.",
+        )
+        for cid, cref in rows
+        if cid not in warrantied_component_ids
+    ]
+    return CheckResult("MISSING_WARRANTY", len(rows), len(findings), findings)
+
+
+# The Building Safety Act 2022's higher-risk building threshold — at
+# least 18 metres in height or at least 7 storeys. Buildings below this
+# genuinely don't need BSR registration, so flagging every building
+# without a BSR reference would be exactly the kind of noisy,
+# wrong-for-most-rows rule this check was originally left unbuilt over;
+# scoping to the real statutory threshold instead of guessing is what
+# makes this one correct rather than just quieter.
+HIGHER_RISK_BUILDING_HEIGHT_METRES = 18.0
+HIGHER_RISK_BUILDING_STOREYS = 7
+
+
+def check_missing_bsr_reference_for_higher_risk_buildings(db: Session, organisation_id) -> CheckResult:
+    """spec §42's "Missing external references" (beyond UPRN, which
+    check_missing_uprn already covers) — scoped to BSR references on
+    higher-risk buildings specifically. No other external reference
+    type has a real "every X should have this" rule the way UPRN and
+    this one do: planning/building-control references, for instance,
+    genuinely don't apply to existing stock the way they do to a
+    new-build development, so there's no single threshold to check them
+    against the way there is here."""
+    higher_risk = (
+        db.query(Building.id, Building.building_reference)
+        .filter(
+            Building.organisation_id == organisation_id,
+            (Building.height >= HIGHER_RISK_BUILDING_HEIGHT_METRES)
+            | (Building.storeys >= HIGHER_RISK_BUILDING_STOREYS),
+        )
+        .all()
+    )
+    bsr_building_ids = {
+        row[0]
+        for row in db.query(ExternalReference.entity_id).filter(
+            ExternalReference.organisation_id == organisation_id,
+            ExternalReference.entity_type == "building",
+            ExternalReference.reference_type == ExternalReferenceType.BSR_REFERENCE,
+        )
+    }
+    findings = [
+        Finding(
+            "MISSING_BSR_REFERENCE",
+            FindingSeverity.HIGH,
+            "building",
+            str(bid),
+            f"{bref} meets the Building Safety Act's higher-risk threshold but has no BSR reference recorded.",
+        )
+        for bid, bref in higher_risk
+        if str(bid) not in bsr_building_ids
+    ]
+    return CheckResult("MISSING_BSR_REFERENCE", len(higher_risk), len(findings), findings)
+
+
 RULES = [
     check_missing_property_type,
     check_missing_uprn,
@@ -479,6 +613,8 @@ RULES = [
     check_invalid_installation_date,
     check_conflicting_external_references,
     check_duplicate_documents,
+    check_missing_warranty_for_expected_component_type,
+    check_missing_bsr_reference_for_higher_risk_buildings,
 ]
 
 

@@ -371,3 +371,106 @@ def test_data_health_flags_duplicate_documents(client):
     flagged_ids = {f["affected_entity_id"] for f in findings}
     assert flagged_ids == {first["id"], second["id"]}
     assert upload_other["id"] not in flagged_ids
+
+
+def _other_component_type_id(client, org_id):
+    types = client.get("/api/v1/component-types", headers={"X-Organisation-Id": org_id}).json()
+    return next(t["id"] for t in types if t["code"] == "OTHER")
+
+
+def test_data_health_flags_missing_warranty_only_for_expected_component_types(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    other_type_id = _other_component_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Warranty Close")
+
+    warrantied_boiler = _add_component(client, org_id, boiler_type_id, prop["id"])
+    client.post(
+        "/api/v1/warranties",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "provider": "Worcester Bosch",
+            "warranty_type": "Manufacturer",
+            "start_date": "2024-01-15",
+            "expiry_date": "2034-01-15",
+            "component_id": warrantied_boiler["id"],
+        },
+    )
+    unwarrantied_boiler = _add_component(client, org_id, boiler_type_id, prop["id"])
+    # OTHER isn't in TYPES_EXPECTING_WARRANTY — not applicable, so this
+    # one must never show up as a finding despite also having no warranty.
+    _add_component(client, org_id, other_type_id, prop["id"])
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_WARRANTY"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == unwarrantied_boiler["id"]
+
+    check = next(c for c in body["checks"] if c["check_code"] == "MISSING_WARRANTY")
+    # Only the two boilers are applicable — the OTHER-typed component
+    # never counts, applicable or failing.
+    assert check["applicable_count"] == 2
+    assert check["failing_count"] == 1
+
+
+def test_data_health_flags_missing_warranty_ignores_a_voided_one(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    boiler_type_id = _boiler_type_id(client, org_id)
+    prop = _add_property(client, org_id, address="1 Voided Warranty Close")
+
+    component = _add_component(client, org_id, boiler_type_id, prop["id"])
+    warranty = client.post(
+        "/api/v1/warranties",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "provider": "Worcester Bosch",
+            "warranty_type": "Manufacturer",
+            "start_date": "2024-01-15",
+            "expiry_date": "2034-01-15",
+            "component_id": component["id"],
+        },
+    ).json()
+    client.post(f"/api/v1/warranties/{warranty['id']}/void", headers={"X-Organisation-Id": org_id})
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_WARRANTY"]
+    # A VOID warranty doesn't count as "on file" for this purpose — the
+    # component is flagged the same as if it had none.
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == component["id"]
+
+
+def test_data_health_flags_missing_bsr_reference_only_for_higher_risk_buildings(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+
+    low_rise = client.post(
+        "/api/v1/buildings", headers={"X-Organisation-Id": org_id}, json={"name": "Low Rise Block", "storeys": 3}
+    ).json()
+    high_rise_with_bsr = client.post(
+        "/api/v1/buildings",
+        headers={"X-Organisation-Id": org_id},
+        json={"name": "High Rise Block With BSR", "storeys": 10, "bsr_reference": "BSR-9001"},
+    ).json()
+    high_rise_without_bsr = client.post(
+        "/api/v1/buildings",
+        headers={"X-Organisation-Id": org_id},
+        json={"name": "High Rise Block Without BSR", "storeys": 10},
+    ).json()
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_BSR_REFERENCE"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == high_rise_without_bsr["id"]
+
+    check = next(c for c in body["checks"] if c["check_code"] == "MISSING_BSR_REFERENCE")
+    # Only the two 10-storey buildings are applicable — the 3-storey one
+    # is below the Building Safety Act's higher-risk threshold entirely,
+    # not just passing the check.
+    assert check["applicable_count"] == 2
+    assert check["failing_count"] == 1
+    flagged_ids = {f["affected_entity_id"] for f in findings}
+    assert low_rise["id"] not in flagged_ids
+    assert high_rise_with_bsr["id"] not in flagged_ids
