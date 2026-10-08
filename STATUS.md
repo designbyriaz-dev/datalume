@@ -3638,15 +3638,11 @@ punch list for whoever takes this toward a real pilot:
   test found.~~ **Closed** — see the dedicated migration
   `0029_per_org_config_unique_constraints` entry above.
 - ~~get_or_create_org_component_type matches by fuzzy name, needs a
-  differently-shaped fix.~~ **The exact-duplicate half closed** — see
-  migration `0030_org_component_type_unique_constraint` above. Two
-  concurrent imports of the exact same new type name for the same org
-  now collide for real and resolve correctly. The narrower singular/
-  plural-variant case (e.g. "Boiler" vs "Boilers" racing for the same
-  org) stays open on purpose — a database constraint can't encode that
-  fuzzy equivalence, only exact-code duplication, and the honest fix
-  (match on a normalised form, not raw derived code) needs more design
-  than this mechanical pass.
+  differently-shaped fix.~~ **Both halves now closed** — see migration
+  `0030_org_component_type_unique_constraint` above for the exact-
+  duplicate half, and the dedicated entry below for the singular/
+  plural-variant half, closed in a later session once the normalised-
+  form design this entry said it needed was actually worked out.
 - ~~Real load testing against Postgres-backed infra~~ **Closed** — see
   the dedicated entry above. Four previously-unpaginated list
   endpoints (repairs, payments, rent obligations, documents) fixed,
@@ -4111,6 +4107,56 @@ Specifically flagged as gaps to close early, not deferred to "later":
   rather than explicit — added `permissions: contents: read` at the
   workflow level anyway so it stays true even if that default setting
   is ever changed later, same reasoning `codeql.yml` already applies.
+- **Closed the singular/plural component-type race migration 0030
+  deliberately left open** (see that migration's own docstring and the
+  dedicated entry above): two concurrent CSV import rows for the same
+  org and names `find_component_type_by_name`'s own fuzzy matching
+  already treats as equivalent — "Boiler" vs "Boilers" — derive
+  genuinely different `code` values (BOILER vs BOILERS), so 0030's
+  (organisation_id, code) constraint never saw them as a collision;
+  each could still create its own row. The honest fix 0030 said it
+  needed: a persisted `normalized_name` column (lower-cased, trimmed,
+  the same naive de-pluralisation `_singularish` already used for
+  matching, now computed once at write time instead of recomputed per
+  candidate on every read) with its own `(organisation_id,
+  normalized_name)` unique constraint — migration
+  `0033_component_type_normalized_name`, added nullable, backfilled
+  from each existing row's own `name`, then enforced NOT NULL, same
+  three-step shape as `0026_rent_obligation_provenance`.
+  `get_or_create_org_component_type`/`get_or_create_global_component_type`
+  now set it on every insert; the existing begin_nested/IntegrityError/
+  re-read pattern needed no new logic, just a second constraint for it
+  to actually catch. Verified three ways: a sequential regression test
+  (`test_get_or_create_org_component_type_reuses_a_singular_plural_
+  variant`) proving two calls for "Bespoke Heater" then "Bespoke
+  Heaters" return the same row; a genuine concurrency test
+  (`test_concurrent_org_component_type_creation_with_singular_plural_
+  names_creates_only_one_row`, `test_rls_postgres.py`) with each
+  thread on its own engine/connection, held at a `threading.Barrier`
+  until both are genuinely in flight together against real Postgres —
+  confirmed this actually catches the race, not just proves it absent,
+  by temporarily reverting the fix (model + service code, migration
+  downgraded one step) and watching the same test fail 3/3 with "Two
+  rows were created for equivalent names", then restoring the fix and
+  re-confirming 5/5 green; and the full migration chain applied clean
+  on a fresh Postgres database, from 0001 straight through 0033.
+  (Incidental finding while debugging a false alarm during this: a
+  migration backfill's own `UPDATE` runs through RLS same as any other
+  DML, since migrations run as the unprivileged `datalume` role, not a
+  superuser — so a backfill can only reach org-scoped rows if the
+  migration happens to be RLS-scoped to them, which it generally
+  isn't. Not a real risk here: it fails loudly at the following `ALTER
+  COLUMN ... SET NOT NULL` (an RLS-blind DDL check) rather than
+  silently leaving rows half-migrated, and every environment that
+  actually runs this migration — CI's fresh service container, any
+  future first deployment — starts from an empty table anyway. Worth
+  knowing as a general shape for the next backfill migration on an
+  already-RLS-protected table with genuinely pre-existing data, not
+  worth a structural fix against a scenario that doesn't apply to any
+  database this project actually has.) Full 397-test SQLite suite and
+  9/9 reachable Postgres RLS tests green (the 10th needs a local Redis
+  this sandbox didn't have running — a pre-existing, unrelated
+  environment gap, not a new skip).
 
 ## How to run this locally
 

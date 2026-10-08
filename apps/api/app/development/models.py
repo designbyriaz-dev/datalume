@@ -180,12 +180,25 @@ class ComponentType(Base):
     # exactly why the global catalog's own uniqueness (migration 0028)
     # needed a separate partial index instead. The two coexist without
     # conflict, protecting disjoint subsets of this same table.
-    __table_args__ = (UniqueConstraint("organisation_id", "code", name="ux_component_types_org_code"),)
+    #
+    # ux_component_types_org_normalized_name (migration 0033) is the
+    # real fix for the race migration 0030 deliberately left open: two
+    # concurrent get_or_create_org_component_type calls for names that
+    # normalize the same way (e.g. "Boiler" vs "Boilers") derive
+    # different `code` values (BOILER vs BOILERS), so the code-based
+    # constraint alone never saw them as a collision. normalized_name is
+    # the actual uniqueness key those two calls share — see
+    # app/development/component_types.py's own _normalize_name.
+    __table_args__ = (
+        UniqueConstraint("organisation_id", "code", name="ux_component_types_org_code"),
+        UniqueConstraint("organisation_id", "normalized_name", name="ux_component_types_org_normalized_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organisation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organisations.id"), nullable=True)
     code: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(128))
+    normalized_name: Mapped[str] = mapped_column(String(128))
     parent_type_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("component_types.id"), nullable=True)
 
 

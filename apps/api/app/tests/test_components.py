@@ -243,6 +243,42 @@ def test_component_type_matching_is_singular_plural_tolerant(client):
         db.close()
 
 
+def test_get_or_create_org_component_type_reuses_a_singular_plural_variant(client):
+    """Direct regression test for migration 0033's own fix, not just
+    find_component_type_by_name's read-side matching: creating a brand-
+    new custom type under one name, then calling get_or_create again with
+    its singular/plural variant, must return the SAME row — not create a
+    second one. "Bespoke Heater"/"Bespoke Heaters" derive different
+    `code` values (BESPOKE_HEATER vs BESPOKE_HEATERS), which is exactly
+    the case the old code-only uniqueness (migration 0030) couldn't
+    catch even sequentially, let alone under real concurrency (see
+    test_rls_postgres.py's own concurrency test for the genuinely
+    concurrent version of this)."""
+    from app.development.component_types import get_or_create_org_component_type
+    from app.development.models import ComponentType
+    import app.core.db as db_module
+
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = uuid.UUID(signup["organisation_id"])
+
+    db = db_module.SessionLocal()
+    try:
+        first = get_or_create_org_component_type(db, org_id, "Bespoke Heater")
+        db.commit()
+        second = get_or_create_org_component_type(db, org_id, "Bespoke Heaters")
+        db.commit()
+
+        assert first.id == second.id
+        matching_rows = (
+            db.query(ComponentType)
+            .filter(ComponentType.organisation_id == org_id, ComponentType.normalized_name == "bespoke heater")
+            .count()
+        )
+        assert matching_rows == 1
+    finally:
+        db.close()
+
+
 # --- CSV import ---------------------------------------------------------------
 
 

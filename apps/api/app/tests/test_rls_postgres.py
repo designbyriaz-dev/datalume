@@ -35,7 +35,8 @@ from sqlalchemy.orm import sessionmaker
 import app.core.db as db_module
 from app.core.provenance import SourceType
 from app.core.tenancy import TenantScopedSession
-from app.development.models import Property
+from app.development.component_types import get_or_create_org_component_type
+from app.development.models import ComponentType, Property
 from app.main import app
 from app.organisations.models import Organisation, OrganisationType
 
@@ -505,3 +506,76 @@ def test_concurrent_requests_from_different_organisations_never_cross_contaminat
         t.join()
 
     assert errors == [], "Cross-contamination or failure under concurrent load:\n" + "\n".join(errors)
+
+
+def test_concurrent_org_component_type_creation_with_singular_plural_names_creates_only_one_row(pg_session):
+    """Direct concurrency proof for migration 0033's own fix — the race
+    migration 0030 deliberately left open: two concurrent CSV import
+    rows for the same org, one naming "Bespoke Heater" and the other
+    "Bespoke Heaters" (the exact shape find_component_type_by_name's
+    singular/plural matching already treats as equivalent), derive
+    genuinely different `code` values and so never collided against
+    0030's (organisation_id, code) constraint — each could create its
+    own row. Each thread gets its own engine/session/connection (a
+    shared Session isn't thread-safe, and the point is two genuinely
+    concurrent transactions, not one serialized by Python's GIL around
+    a single connection) scoped via the same TenantScopedSession class
+    every real request goes through. A barrier holds both threads at
+    the same instant right before their own get_or_create call, so this
+    doesn't just prove the function is *eventually* consistent across
+    two sequential calls (test_components.py's own
+    test_get_or_create_org_component_type_reuses_a_singular_plural_
+    variant already covers that) — it proves the database's own unique
+    constraint, not just application-level timing, is what prevents the
+    duplicate when both transactions are genuinely in flight together.
+    """
+    org = _make_org(pg_session, "RLS Component Type Race Org")
+    org_id = org.id
+
+    names = ["Bespoke Heater", "Bespoke Heaters"]
+    barrier = threading.Barrier(len(names))
+    results: list[object] = [None, None]
+    errors: list[str] = []
+    errors_lock = threading.Lock()
+
+    def worker(i: int, name: str) -> None:
+        engine = create_engine(DATABASE_URL)
+        SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+        session = SessionLocal()
+        try:
+            TenantScopedSession(session, org_id)
+            barrier.wait(timeout=10)
+            component_type = get_or_create_org_component_type(session, org_id, name)
+            session.commit()
+            results[i] = component_type.id
+        except Exception as exc:  # noqa: BLE001 — collecting every worker's own failure, not re-raising here
+            with errors_lock:
+                errors.append(f"worker {i} ({name!r}): {exc}")
+        finally:
+            session.close()
+            engine.dispose()
+
+    threads = [threading.Thread(target=worker, args=(i, name)) for i, name in enumerate(names)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], "Unexpected failure under concurrent creation:\n" + "\n".join(errors)
+    assert results[0] is not None and results[1] is not None
+    assert results[0] == results[1], (
+        f"Two rows were created for equivalent names ({names[0]!r}, {names[1]!r}): {results}"
+    )
+
+    # pg_session itself was never scoped to this org — RLS fails closed
+    # on an unscoped session (see test_rls_fails_closed_with_no_tenant_
+    # context_set above), so it has to be scoped here too before this
+    # final count query, or it would see zero rows regardless of how
+    # many actually exist.
+    scoped = TenantScopedSession(pg_session, org_id)
+    matching_rows = (
+        scoped.query(ComponentType)
+        .filter(ComponentType.organisation_id == org_id, ComponentType.normalized_name == "bespoke heater")
+        .count()
+    )
+    assert matching_rows == 1
