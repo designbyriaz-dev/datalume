@@ -9,10 +9,13 @@ import { signUp } from "./helpers";
 // drawing-metadata gap earlier this session, documented in STATUS.md
 // as a separate, smaller gap rather than folded into that fix. Adds a
 // "New version" action to both ComponentDetailClient.tsx and
-// DevelopmentDetailClient.tsx's Evidence sections: clicking it reveals
-// an inline revision+file form; the previous row is marked SUPERSEDED
-// (append-only, never edited) and the current-versions-only list
-// (GET /documents' own default) shows only the new one in its place.
+// DevelopmentDetailClient.tsx's Evidence sections, and to the general
+// Documents table on data-and-uploads/page.tsx (the same gap, spotted
+// on a second, org-wide view of the same documents): clicking it
+// reveals an inline revision+file form; the previous row is marked
+// SUPERSEDED (append-only, never edited) and the current-versions-only
+// list (GET /documents' own default) shows only the new one in its
+// place.
 test("uploading a new version of a document against a component replaces it in the current list, not silently", async ({
   page,
 }) => {
@@ -99,4 +102,35 @@ test("uploading a new version of a document against a development works the same
 
   await expect(page.getByText(/O&M manual \(O&M\)/)).toBeVisible();
   await expect(page.locator("li", { hasText: "O&M manual" })).toHaveCount(1);
+});
+
+test("uploading a new version from the general documents list works the same way", async ({ page }) => {
+  await signUp(page, "E2E General Document Version Org");
+
+  await page.goto("/data-and-uploads");
+  await page.locator("#doc-title").fill("General inspection report");
+  await page.locator("#doc-type").selectOption("REPORT");
+  await page.setInputFiles("#doc-file", {
+    name: "inspection-v1.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("version 1 content"),
+  });
+  await page.getByRole("button", { name: "Upload document" }).click();
+  await expect(page.getByRole("row", { name: /General inspection report/ })).toBeVisible();
+  await expect(page.locator("tr", { hasText: "General inspection report" })).toHaveCount(1);
+
+  await page
+    .getByRole("row", { name: /General inspection report/ })
+    .getByRole("button", { name: "New version" })
+    .click();
+  await page.locator("#new-version-revision").fill("B");
+  await page.setInputFiles("#new-version-file", {
+    name: "inspection-v2.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("version 2 content"),
+  });
+  await page.locator("#new-version-revision").locator("xpath=..").getByRole("button", { name: "Upload" }).click();
+
+  await expect(page.getByRole("row", { name: /General inspection report/ })).toBeVisible();
+  await expect(page.locator("tr", { hasText: "General inspection report" })).toHaveCount(1);
 });

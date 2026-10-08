@@ -3859,6 +3859,18 @@ punch list for whoever takes this toward a real pilot:
   `commissioning-evidence.spec.ts`, which had been passing on luck;
   applied the same explicit-select-and-retry fix to both. 44 Playwright
   specs green, `npm run lint` clean.
+- **The "upload new version" fix above only covered the two entity-
+  scoped Evidence sections; the general, org-wide Documents table on
+  `data-and-uploads/page.tsx` — the only other place any document
+  (drawings, O&M manuals, specifications, certificates, anything
+  uploaded from any page) shows up — had the identical gap.** Added the
+  same "New version" button/inline revision+file form to that table's
+  action column, reusing `api.uploadDocumentVersion` exactly as the
+  other two do. `apps/web/e2e/document-new-version.spec.ts` gained a
+  third test proving the same "replaces, not duplicates" behaviour
+  there (a row-count check on the `<tr>`, same shape as the other two
+  tests' `<li>` check). 45 Playwright specs green, `npm run lint`
+  clean.
 - **Checked Handover Readiness's own nine checks for the same
   "backend built, UI incomplete" shape as the Building Control
   reference gap above, and found two more: `check_warranties_received`
