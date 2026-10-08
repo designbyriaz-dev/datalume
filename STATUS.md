@@ -4076,8 +4076,33 @@ Specifically flagged as gaps to close early, not deferred to "later":
   but removed the inert `# lgtm[...]` suffixes so a future reader isn't
   misled into thinking they do something. Full 396-test backend suite
   still green.
+- **Pinned every GitHub Actions `uses:` reference in both workflow
+  files (`ci.yml`, `codeql.yml`) to an exact commit SHA instead of a
+  floating major-version tag** (`actions/checkout@v7` etc.) — the
+  standard supply-chain hardening practice (OpenSSF Scorecard's
+  "Pinned-Dependencies" check, GitHub's own security hardening guide):
+  a tag can be force-moved to point at different, potentially malicious
+  code without the version number changing, where a commit SHA cannot.
+  All 6 actions used here are first-party GitHub ones
+  (`actions/checkout`, `actions/setup-python`, `actions/setup-node`,
+  `actions/upload-artifact`, `github/codeql-action/init`,
+  `github/codeql-action/analyze`) — lower real-world risk than a
+  third-party action, but the hardening is free and the same either
+  way. Each SHA resolved via the GitHub API directly (`git/refs/tags/
+  vN` for lightweight tags, dereferencing through `git/tags/<sha>` for
+  `codeql-action`'s annotated `v4` tag) rather than assumed/typed by
+  hand, with the exact version kept as a trailing comment
+  (`# v7.0.1` etc.) both for human readability and because Dependabot
+  recognises that convention and will keep the pin current going
+  forward. Verified via a real CI run on the pinned workflow before
+  calling this done, not just a local YAML syntax check.
+  (Separately: while re-reading this file to add this entry, found and
+  fixed an unrelated self-inflicted mistake — a prior entry's edit had
+  accidentally deleted the "## How to run this locally" heading below;
+  restored it.)
 
 
+## How to run this locally
 
 **With Docker** (once installed): `docker compose -f infra/docker-compose.yml up`,
 then in another terminal: `cd apps/api && source .venv/bin/activate &&
