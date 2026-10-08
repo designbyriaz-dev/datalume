@@ -3710,9 +3710,15 @@ punch list for whoever takes this toward a real pilot:
   `LEASE_EVENT_UPCOMING` entry above. This was the last genuinely
   missing item in either spec §77 or §78; both acceptance tests are
   now fully REAL.
-- **The Playwright E2E acceptance suite covers a real first slice, not
-  the full 50 steps.** See the dedicated notes above for what exists
-  now (auth, the Development->Building->Property golden thread, Ask
+- ~~The Playwright E2E acceptance suite covers a real first slice, not
+  the full 50 steps.~~ **Stale as of a later session — see the
+  dedicated entry much further below for the actual current state
+  (every step in spec §76-78 individually checked and accounted for,
+  not just a first slice).** This entry's own list is still an
+  accurate record of what existed at the time it was written, so left
+  as-is below rather than rewritten. See the dedicated notes above for
+  what exists now (auth, the Development->Building->Property golden
+  thread, Ask
   DataLume's ungrounded-question guarantee, a compliance requirement
   against a seeded domain, commercial arrears, worker-driven report
   generation, a manual attention-engine scan that genuinely detects a
@@ -4157,6 +4163,39 @@ Specifically flagged as gaps to close early, not deferred to "later":
   9/9 reachable Postgres RLS tests green (the 10th needs a local Redis
   this sandbox didn't have running — a pre-existing, unrelated
   environment gap, not a new skip).
+- **Re-checked whether "the Playwright suite covers a real first
+  slice, not the full 50 steps" (the entry much further above, now
+  marked stale) is actually still true, rather than assuming either
+  way.** Read spec §76's 50 steps and §77/§78's own lists straight from
+  `docs/BUILD_PROMPT.md` again and cross-referenced each one against
+  the current E2E suite and backend, the same systematic audit that
+  found the Building Control reference, drawing-metadata, floors, and
+  audit-log gaps earlier. Two real, small E2E coverage gaps turned up —
+  both cases of "backend/UI already real, nothing ever asserted it in
+  a spec," not missing features:
+  - Step 30, "Complete defect": `defects-and-warranties.spec.ts` only
+    ever drove a defect to ASSIGNED, despite `DEFECT_TRANSITIONS`
+    (`app/development/service.py`) having always supported the full
+    OPEN -> ASSIGNED -> IN_PROGRESS -> READY_FOR_INSPECTION ->
+    COMPLETED -> CLOSED chain, including setting `completion_date` on
+    the COMPLETED transition. Added a second test driving a defect all
+    the way to CLOSED, including asserting READY_FOR_INSPECTION's
+    "closed" button genuinely isn't offered (only "completed"/"in
+    progress" are) and that CLOSED renders with zero transition
+    buttons at all (`DEFECT_TRANSITIONS[CLOSED] == ()`).
+  - Step 6, "Enter planning reference supplied externally": a real,
+    already-working field (`#development-planning-ref`,
+    `create_development` has always accepted it) with zero E2E
+    coverage. Folded into `building-control-reference.spec.ts`'s
+    existing "Beta" development (steps 6-8 are the same "external
+    reference captured at creation, displayed on the detail page"
+    shape) rather than a new file.
+
+  Every other step in both lists was already covered or already
+  correctly closed by an earlier entry in this file — this really is
+  now the full 50-plus-§77/§78 list, not a first slice, modulo the two
+  items above (now also closed). All 47 Playwright specs green,
+  `npm run lint` clean.
 
 ## How to run this locally
 

@@ -13,6 +13,12 @@ import { signUp } from "./helpers";
 // data problem. Added the two fields to the "Add a building" form
 // (both buildings/page.tsx and the same client method used everywhere
 // else) plus display on BuildingDetailClient.tsx.
+//
+// Also covers step 6, "Enter planning reference supplied externally" —
+// a real, already-built field (`#development-planning-ref` on
+// developments/page.tsx, create_development has always accepted it)
+// that simply had zero E2E coverage, unlike the two building-level
+// references above which were a genuine UI gap.
 test("a Building Control reference clears the readiness check that flags its absence", async ({ page }) => {
   await signUp(page, "E2E BCO Org");
 
@@ -37,6 +43,7 @@ test("a Building Control reference clears the readiness check that flags its abs
   // creation — the same check must now genuinely pass.
   await page.goto("/developments");
   await page.getByLabel("Name").fill("E2E BCO Gardens Beta");
+  await page.locator("#development-planning-ref").fill("PLN/2026/00912");
   await page.getByRole("button", { name: "Add" }).click();
   await expect(page.getByText("E2E BCO Gardens Beta")).toBeVisible();
 
@@ -56,4 +63,5 @@ test("a Building Control reference clears the readiness check that flags its abs
   await page.goto("/developments");
   await page.getByRole("row", { name: /E2E BCO Gardens Beta/ }).getByRole("link").click();
   await expect(page.getByText(/buildings missing a Building Control reference/)).not.toBeVisible();
+  await expect(page.getByText(/Planning: PLN\/2026\/00912/)).toBeVisible();
 });
