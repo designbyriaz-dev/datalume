@@ -4030,6 +4030,12 @@ Specifically flagged as gaps to close early, not deferred to "later":
   deliberately left unbumped until their respective ecosystems support
   the new majors; Dependabot will re-propose them once a compatible
   `typescript-eslint`/`eslint-config-next` release exists.
+  (Dependabot's next grouped attempt, PR #13, re-proposed all three a
+  few days later — `eslint-config-next` had moved one further patch,
+  16.3.7 -> 16.3.8, `eslint`/`typescript` unchanged — and failed CI the
+  same way. Took the one safe part again: bumped straight to 16.3.8,
+  verified the same way (`npm run build && npm run lint`, all 47
+  Playwright specs), `eslint`/`typescript` still pinned.)
 - **While investigating the Dependabot PR above, `npm audit` surfaced 6
   real high-severity CVEs in the exact pinned `next` version
   (16.3.7)** — cache poisoning of SSG/ISR pages, information disclosure
