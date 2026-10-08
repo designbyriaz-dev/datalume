@@ -3778,19 +3778,33 @@ punch list for whoever takes this toward a real pilot:
   mostly meant "exists but untested," and these two don't exist at
   all: step 21, "Upload drawing metadata" (no `Drawing` model, no
   route, no UI — grepped for "drawing" across the whole backend and
-  found nothing), and step 50, "Audit all significant changes" (every
-  domain writes to `AuditEvent` via `record_audit_event`
-  (`app/platform/audit.py`) and has done since early in this build,
-  but there is no `GET` endpoint anywhere that reads `AuditEvent` back
-  and no page that would show it — the audit *trail* is real and has
-  been all along, there is just no way for a user to ever see it).
-  Neither is a quick E2E-test addition like floors/the report types
-  above — both need real backend + frontend work first (an audit log
-  endpoint needs its own pagination given this file's own load-testing
-  entries' recurring theme of what an unbounded "list everything"
-  endpoint costs at scale, and a decision about who's allowed to see
-  it), so flagged here rather than attempted under this pass's "find
-  the gap, close it" momentum.
+  found nothing — still open), and ~~step 50, "Audit all significant
+  changes"~~ **Closed.** `AuditEvent`/`record_audit_event`
+  (`app/platform/audit.py`) had been writing a real, append-only trail
+  since early in this build, but there was no way to read it back.
+  Added: `GET /api/v1/audit` (`app/platform/router.py`), tenant-scoped
+  via `get_tenant_db` the same way every other list endpoint is, with
+  real limit/offset pagination (capped at 500, same shape as
+  `list_repairs`) and server-side filtering by `entity_type`,
+  `entity_id`, `action_code` and a `created_from`/`created_to` date
+  range — this file's own load-testing entries are the reason it
+  shipped paginated from the start rather than as an unbounded list.
+  Gated by a new `platform.audit` permission, deliberately not granted
+  to any role in `app/auth/rbac.py`'s `ROLE_PERMISSIONS` except via the
+  OWNER/ADMIN wildcard — the same "permission string that exists only
+  to be granted by the wildcard" convention as `billing.manage`/
+  `org.manage_members`/`settings.write`, chosen because audit events
+  can reveal any user's before/after values and IP address across
+  every domain in the org, which is more sensitive than any one
+  domain's own data. New Organisation → Audit log page
+  (`apps/web/src/app/(app)/organisation/audit/page.tsx`) with the same
+  filters plus a Previous/Next pager, and a "forbidden" state for
+  non-admins matching the Users page's own pattern. Backend tests
+  (`app/tests/test_audit.py`) cover tenant isolation, pagination, and
+  the permission gate; `apps/web/e2e/audit-log.spec.ts` exercises the
+  real flow end to end (add a property, then see it in the audit log).
+  Step 21 still needs the same real backend-plus-frontend treatment
+  this one just got — not attempted here, out of scope for this pass.
 - **Checked Handover Readiness's own nine checks for the same
   "backend built, UI incomplete" shape as the Building Control
   reference gap above, and found two more: `check_warranties_received`

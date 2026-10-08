@@ -8,6 +8,7 @@ const SECONDARY_NAV = [
   { key: "organisation", label: "Organisation", href: "/organisation" },
   { key: "users", label: "Users", href: "/organisation/users" },
   { key: "billing", label: "Billing", href: "/organisation/billing" },
+  { key: "audit", label: "Audit log", href: "/organisation/audit" },
   { key: "settings", label: "Settings", href: "/settings" },
 ];
 

@@ -1,6 +1,9 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.auth.models import User
 from app.core.db import get_db
 from app.core.tenancy import AuthContext, get_auth_context, get_tenant_db, require_permission
 from app.integrations.billing_provider import (
@@ -10,10 +13,16 @@ from app.integrations.billing_provider import (
     get_billing_provider,
 )
 from app.organisations.models import Organisation
+from app.platform.audit import AuditEvent
 from app.platform.billing import Plan, Subscription, ensure_plan_catalog_seeded, resolve_entitlements
-from app.platform.schemas import PlanOut, SubscriptionOut
+from app.platform.schemas import AuditEventOut, PlanOut, SubscriptionOut
 
 router = APIRouter(prefix="/api/v1/subscriptions", tags=["billing"])
+
+# Separate router (own prefix) rather than a path on the one above —
+# /api/v1/audit isn't a subscriptions resource, this module just happens
+# to be where app/platform/audit.py's AuditEvent model already lives.
+audit_router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 
 @router.get("/plans", response_model=list[PlanOut])
@@ -105,3 +114,59 @@ async def stripe_webhook(
         # resending a request that will never succeed.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     return {"received": True}
+
+
+# "platform.audit" is deliberately absent from every ROLE_PERMISSIONS set
+# in app/auth/rbac.py except via the OWNER/ADMIN wildcard ("*") — same
+# convention as "billing.manage" above and "org.manage_members"
+# (app/organisations/router.py): a permission string that exists only to
+# be granted by the wildcard, not spelled out per role. Audit events can
+# contain other users' before/after field values and IP addresses across
+# the whole organisation, which is more sensitive than any single
+# domain's own data — EXECUTIVE and the domain-manager roles that can
+# read everything *in their domain* still shouldn't see e.g. a rent
+# officer's edits to a tenancy, so this isn't folded into reports.board
+# or reports.read.
+@audit_router.get("", response_model=list[AuditEventOut])
+def list_audit_events(
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    action_code: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    ctx: AuthContext = Depends(require_permission("platform.audit")),
+    db: Session = Depends(get_tenant_db),
+):
+    query = (
+        db.query(AuditEvent, User)
+        .outerjoin(User, AuditEvent.actor_user_id == User.id)
+        .filter(AuditEvent.organisation_id == ctx.organisation_id)
+    )
+    if entity_type is not None:
+        query = query.filter(AuditEvent.entity_type == entity_type)
+    if entity_id is not None:
+        query = query.filter(AuditEvent.entity_id == entity_id)
+    if action_code is not None:
+        query = query.filter(AuditEvent.action_code == action_code)
+    if created_from is not None:
+        query = query.filter(AuditEvent.created_at >= created_from)
+    if created_to is not None:
+        query = query.filter(AuditEvent.created_at <= created_to)
+    rows = query.order_by(AuditEvent.created_at.desc()).offset(offset).limit(min(limit, 500)).all()
+    return [
+        AuditEventOut(
+            id=event.id,
+            actor_user_id=event.actor_user_id,
+            actor_name=user.name if user else None,
+            action_code=event.action_code,
+            entity_type=event.entity_type,
+            entity_id=event.entity_id,
+            before=event.before,
+            after=event.after,
+            ip_address=event.ip_address,
+            created_at=event.created_at,
+        )
+        for event, user in rows
+    ]

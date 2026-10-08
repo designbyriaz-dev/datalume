@@ -22,3 +22,16 @@ class SubscriptionOut(BaseModel):
     current_period_end: datetime | None
     plan: PlanOut
     entitlements: dict
+
+
+class AuditEventOut(BaseModel):
+    id: uuid.UUID
+    actor_user_id: uuid.UUID | None
+    actor_name: str | None
+    action_code: str
+    entity_type: str
+    entity_id: str | None
+    before: dict | None
+    after: dict | None
+    ip_address: str | None
+    created_at: datetime

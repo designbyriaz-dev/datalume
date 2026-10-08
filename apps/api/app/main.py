@@ -17,7 +17,7 @@ from app.organisations.router import (
     members_router,
     router as organisations_router,
 )
-from app.platform.router import router as billing_router
+from app.platform.router import audit_router, router as billing_router
 from app.reports.router import router as reports_router
 
 import app.commercial.importers  # noqa: F401  (registers IMPORTERS["RENT_OBLIGATIONS", "PAYMENTS"] as a side effect)
@@ -62,6 +62,7 @@ app.include_router(organisations_router)
 app.include_router(members_router)
 app.include_router(invitations_router)
 app.include_router(billing_router)
+app.include_router(audit_router)
 app.include_router(ingestion_router)
 app.include_router(documents_router)
 app.include_router(development_router)

@@ -948,6 +948,19 @@ export type PublicInvitation = {
   account_exists: boolean;
 };
 
+export type AuditEventOut = {
+  id: string;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  action_code: string;
+  entity_type: string;
+  entity_id: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+};
+
 export const api = {
   signup: (payload: {
     name: string;
@@ -1873,6 +1886,29 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  listAuditEvents: (
+    organisationId: string,
+    filters?: {
+      entity_type?: string;
+      entity_id?: string;
+      action_code?: string;
+      created_from?: string;
+      created_to?: string;
+      limit?: number;
+      offset?: number;
+    },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.entity_type) params.set("entity_type", filters.entity_type);
+    if (filters?.entity_id) params.set("entity_id", filters.entity_id);
+    if (filters?.action_code) params.set("action_code", filters.action_code);
+    if (filters?.created_from) params.set("created_from", filters.created_from);
+    if (filters?.created_to) params.set("created_to", filters.created_to);
+    if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
+    if (filters?.offset !== undefined) params.set("offset", String(filters.offset));
+    const qs = params.toString();
+    return request<AuditEventOut[]>(`/api/v1/audit${qs ? `?${qs}` : ""}`, { organisationId });
+  },
 };
 
 export const ORGANISATION_TYPES = [
