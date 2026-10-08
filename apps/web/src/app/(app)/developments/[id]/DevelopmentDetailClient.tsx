@@ -8,11 +8,25 @@ import {
   api,
   type DevelopmentHierarchy,
   type DevelopmentOut,
+  type DocumentOut,
   type HandoverReadiness,
   type HandoverRecordOut,
 } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
+
+const DOCUMENT_TYPES = ["O&M", "EVIDENCE", "CERTIFICATE", "REPORT", "OTHER"];
+
+// Defined outside the component — same reasoning as ComponentDetailClient.tsx's
+// own copy of this helper (react-hooks/immutability).
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function statusVariant(status: string) {
   if (status === "OPERATIONAL" || status === "COMPLETED") return "success" as const;
@@ -36,6 +50,13 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
   const [authorising, setAuthorising] = useState(false);
   const [authoriseError, setAuthoriseError] = useState<string | null>(null);
 
+  const [documents, setDocuments] = useState<DocumentOut[] | null>(null);
+  const [docTitle, setDocTitle] = useState("");
+  const [docType, setDocType] = useState<string>(DOCUMENT_TYPES[0] ?? "O&M");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docSubmitting, setDocSubmitting] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
+
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
   }
@@ -44,6 +65,12 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
     const id = orgId();
     if (!id) return;
     setHierarchy(await api.getDevelopmentHierarchy(id, developmentId));
+  }
+
+  async function refreshDocuments() {
+    const id = orgId();
+    if (!id) return;
+    setDocuments(await api.listDocuments(id, { related_entity_type: "development", related_entity_id: developmentId }));
   }
 
   async function refreshHandover() {
@@ -65,16 +92,18 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
         return;
       }
       try {
-        const [dev, tree, readinessResult, recordList] = await Promise.all([
+        const [dev, tree, readinessResult, recordList, documentList] = await Promise.all([
           api.getDevelopment(id, developmentId),
           api.getDevelopmentHierarchy(id, developmentId),
           api.getHandoverReadiness(id, developmentId),
           api.listHandoverRecords(id, developmentId),
+          api.listDocuments(id, { related_entity_type: "development", related_entity_id: developmentId }),
         ]);
         setDevelopment(dev);
         setHierarchy(tree);
         setReadiness(readinessResult);
         setRecords(recordList);
+        setDocuments(documentList);
       } catch {
         setLoadError("Couldn't load this development.");
       }
@@ -123,11 +152,49 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
     }
   }
 
+  async function onUploadDocument() {
+    const id = orgId();
+    if (!id || !docFile || !docTitle.trim()) {
+      setDocError("Give the evidence a title and choose a file first.");
+      return;
+    }
+    setDocSubmitting(true);
+    setDocError(null);
+    try {
+      await api.uploadDocument(id, docTitle.trim(), docType, docFile, {
+        related_entity_type: "development",
+        related_entity_id: developmentId,
+      });
+      setDocTitle("");
+      setDocFile(null);
+      // Evidence against this development can be exactly what
+      // OM_DOCUMENTATION (and, once backed by real data, other checks)
+      // was waiting on — refresh readiness alongside the document list
+      // so the score reflects it without requiring a full page reload.
+      await Promise.all([refreshDocuments(), refreshHandover()]);
+    } catch {
+      setDocError("Upload failed.");
+    } finally {
+      setDocSubmitting(false);
+    }
+  }
+
+  async function onDownloadDocument(doc: DocumentOut) {
+    const id = orgId();
+    if (!id) return;
+    try {
+      const blob = await api.downloadDocument(id, doc.id);
+      triggerBlobDownload(blob, doc.title);
+    } catch {
+      setDocError("Download failed.");
+    }
+  }
+
   if (loadError) {
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!development || !hierarchy || !readiness || !records) {
+  if (!development || !hierarchy || !readiness || !records || !documents) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -227,6 +294,85 @@ export function DevelopmentDetailClient({ developmentId }: { developmentId: stri
             );
           })}
         </div>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, marginTop: 24 }}>Evidence</h2>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.5fr 1fr 1.5fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="development-evidence-title" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Title
+            </label>
+            <input
+              id="development-evidence-title"
+              style={inputStyle}
+              value={docTitle}
+              onChange={(e) => setDocTitle(e.target.value)}
+              placeholder="e.g. Operation & Maintenance manual"
+            />
+          </div>
+          <div>
+            <label htmlFor="development-evidence-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Type
+            </label>
+            <select id="development-evidence-type" style={inputStyle} value={docType} onChange={(e) => setDocType(e.target.value)}>
+              {DOCUMENT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="development-evidence-file" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              File
+            </label>
+            <input id="development-evidence-file" style={inputStyle} type="file" onChange={(e) => setDocFile(e.target.files?.[0] ?? null)} />
+          </div>
+          <button style={primaryBtn} onClick={onUploadDocument} disabled={docSubmitting}>
+            {docSubmitting ? "Uploading…" : "Upload"}
+          </button>
+        </div>
+        {docError && <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{docError}</div>}
+      </div>
+      {documents.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>
+          No evidence linked to this development yet.
+        </div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {documents.map((d) => (
+            <li
+              key={d.id}
+              style={{
+                padding: "10px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {d.document_reference}
+                </span>
+                {d.title} <span style={{ color: "var(--text-secondary)" }}>({d.document_type})</span>
+              </span>
+              <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={() => onDownloadDocument(d)}>
+                Download
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, marginTop: 24 }}>Handover readiness</h2>

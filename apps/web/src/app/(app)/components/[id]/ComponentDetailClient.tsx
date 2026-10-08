@@ -16,6 +16,7 @@ import {
   type PlannedInvestmentScoreOut,
   type RequirementApplicabilityOut,
   type SpecificationOut,
+  type WarrantyOut,
 } from "@/lib/api";
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
@@ -103,6 +104,19 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
     setDocuments(await api.listDocuments(id, { related_entity_type: "component", related_entity_id: componentId }));
   }
 
+  const [warranties, setWarranties] = useState<WarrantyOut[] | null>(null);
+  const [warrantyProvider, setWarrantyProvider] = useState("");
+  const [warrantyType, setWarrantyType] = useState("");
+  const [warrantyExpiryDate, setWarrantyExpiryDate] = useState("");
+  const [warrantySubmitting, setWarrantySubmitting] = useState(false);
+  const [warrantyFormError, setWarrantyFormError] = useState<string | null>(null);
+
+  async function refreshWarranties() {
+    const id = orgId();
+    if (!id) return;
+    setWarranties(await api.listWarranties(id, { component_id: componentId }));
+  }
+
   const [requirements, setRequirements] = useState<ComplianceRequirementOut[] | null>(null);
   const [applicability, setApplicability] = useState<RequirementApplicabilityOut[] | null>(null);
   const [complianceStatuses, setComplianceStatuses] = useState<ComplianceStatusOut[]>([]);
@@ -172,7 +186,7 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         return;
       }
       try {
-        const [comp, childList, typeList, specList, changeList, investment, documentList, requirementList, applicabilityList, statusList] =
+        const [comp, childList, typeList, specList, changeList, investment, documentList, warrantyList, requirementList, applicabilityList, statusList] =
           await Promise.all([
             api.getComponent(id, componentId),
             api.listComponentChildren(id, componentId),
@@ -181,6 +195,7 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
             api.listChangeControl(id, { related_entity_type: "component", related_entity_id: componentId }),
             api.getComponentPlannedInvestment(id, componentId),
             api.listDocuments(id, { related_entity_type: "component", related_entity_id: componentId }),
+            api.listWarranties(id, { component_id: componentId }),
             api.listComplianceRequirements(id, { current_only: true }),
             api.listApplicability(id, { entity_type: "component", entity_id: componentId }),
             api.listComplianceStatuses(id, "component", componentId),
@@ -192,6 +207,7 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
         setChanges(changeList);
         setPlannedInvestment(investment);
         setDocuments(documentList);
+        setWarranties(warrantyList);
         setRequirements(requirementList);
         setApplicability(applicabilityList);
         setComplianceStatuses(statusList);
@@ -314,6 +330,40 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
     }
   }
 
+  async function onAddWarranty() {
+    const id = orgId();
+    if (!id || !warrantyProvider.trim() || !warrantyType.trim() || !warrantyExpiryDate) {
+      setWarrantyFormError("Give the warranty a provider, type, and expiry date.");
+      return;
+    }
+    setWarrantySubmitting(true);
+    setWarrantyFormError(null);
+    try {
+      await api.createWarranty(id, {
+        provider: warrantyProvider.trim(),
+        warranty_type: warrantyType.trim(),
+        start_date: new Date().toISOString().slice(0, 10),
+        expiry_date: warrantyExpiryDate,
+        component_id: componentId,
+      });
+      setWarrantyProvider("");
+      setWarrantyType("");
+      setWarrantyExpiryDate("");
+      await refreshWarranties();
+    } catch {
+      setWarrantyFormError("Couldn't add that warranty.");
+    } finally {
+      setWarrantySubmitting(false);
+    }
+  }
+
+  async function onVoidWarranty(warrantyId: string) {
+    const id = orgId();
+    if (!id) return;
+    await api.voidWarranty(id, warrantyId);
+    await refreshWarranties();
+  }
+
   async function onAddApplicability() {
     const id = orgId();
     if (!id || !applicabilityRequirementId) {
@@ -350,7 +400,7 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
     return <div style={{ color: "var(--text-secondary)" }}>{loadError}</div>;
   }
 
-  if (!component || !children || !specifications || !changes || !documents || !requirements || !applicability) {
+  if (!component || !children || !specifications || !changes || !documents || !warranties || !requirements || !applicability) {
     return <div style={{ color: "var(--text-secondary)" }}>Loading…</div>;
   }
 
@@ -574,6 +624,109 @@ export function ComponentDetailClient({ componentId }: { componentId: string }) 
               <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={() => onDownloadDocument(d)}>
                 Download
               </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Warranties</h2>
+      <div
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border-subtle)",
+          borderRadius: "var(--radius-card)",
+          padding: 20,
+          marginBottom: 16,
+        }}
+      >
+        <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, marginBottom: 16 }}>Add a warranty</h2>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1.2fr 1.2fr 1fr auto", alignItems: "end" }}>
+          <div>
+            <label htmlFor="component-warranty-provider" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Provider
+            </label>
+            <input
+              id="component-warranty-provider"
+              style={inputStyle}
+              value={warrantyProvider}
+              onChange={(e) => setWarrantyProvider(e.target.value)}
+            />
+          </div>
+          <div>
+            <label htmlFor="component-warranty-type" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Type
+            </label>
+            <input
+              id="component-warranty-type"
+              style={inputStyle}
+              value={warrantyType}
+              onChange={(e) => setWarrantyType(e.target.value)}
+              placeholder="e.g. Manufacturer warranty"
+            />
+          </div>
+          <div>
+            <label htmlFor="component-warranty-expiry-date" style={{ fontSize: 12, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
+              Expiry date
+            </label>
+            <input
+              id="component-warranty-expiry-date"
+              style={inputStyle}
+              type="date"
+              value={warrantyExpiryDate}
+              onChange={(e) => setWarrantyExpiryDate(e.target.value)}
+            />
+          </div>
+          <button style={primaryBtn} onClick={onAddWarranty} disabled={warrantySubmitting}>
+            {warrantySubmitting ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {warrantyFormError && (
+          <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{warrantyFormError}</div>
+        )}
+      </div>
+      {warranties.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14, marginBottom: 24 }}>
+          No warranties linked to this component yet.
+        </div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px" }}>
+          {warranties.map((w) => (
+            <li
+              key={w.id}
+              style={{
+                padding: "10px 0",
+                borderTop: "1px solid var(--border-subtle)",
+                fontSize: 13,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <span>
+                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
+                  {w.warranty_reference}
+                </span>
+                {w.provider} — {w.warranty_type}{" "}
+                <span style={{ color: "var(--text-secondary)" }}>
+                  (expires {w.expiry_date}
+                  {w.is_expired ? ", expired" : `, ${w.days_until_expiry}d left`})
+                </span>
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusBadge
+                  label={w.status === "VOID" ? "VOID" : w.is_expired ? "EXPIRED" : "ACTIVE"}
+                  variant={w.status === "VOID" ? "critical" : w.is_expired ? "warning" : "success"}
+                />
+                {w.status === "ACTIVE" && (
+                  <button
+                    style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12, background: "var(--text-secondary)" }}
+                    onClick={() => onVoidWarranty(w.id)}
+                  >
+                    Void
+                  </button>
+                )}
+              </span>
             </li>
           ))}
         </ul>
