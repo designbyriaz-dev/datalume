@@ -3910,7 +3910,7 @@ punch list for whoever takes this toward a real pilot:
   gate, tenant isolation). Deliberately NOT built: spec §31's full
   `regulatory_requirements`/`requirement_applicability` chain — a
   separate, much larger piece of work this table doesn't depend on and
-  this entry doesn't claim to close. 47 Playwright specs green, 396
+  this entry doesn't claim to close. 46 Playwright specs green, 396
   backend tests green, `npm run lint` clean.
 - **Checked Handover Readiness's own nine checks for the same
   "backend built, UI incomplete" shape as the Building Control
@@ -4010,6 +4010,24 @@ Specifically flagged as gaps to close early, not deferred to "later":
   docstring for why (no per-component-type "this should have one" flag
   exists, and spec §19 explicitly says not to require every hierarchy
   level).
+- **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
+  16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
+  job.** Investigated in an isolated worktree rather than assumed-fixable
+  or ignored: `typescript` 7.0 breaks `typescript-eslint` (bundled
+  transitively via `eslint-config-next`, which pins `typescript` to
+  `>=4.8.4 <6.1.0` — TS 7.0 is a brand-new major the typescript-eslint
+  ecosystem doesn't support yet), and independently, `eslint` 10 itself
+  breaks `eslint-config-next`'s bundled `eslint-plugin-react` (a
+  `context.getFilename` call that assumes ESLint 9's old `Linter` API).
+  Both are real, confirmed upstream incompatibilities, not something
+  worth papering over in this repo's own config. Isolated the actually-
+  safe third of the group — `eslint-config-next` 16.3.4→16.3.7 alone —
+  verified clean (`npm run build && npm run lint`, full `tsc --noEmit`,
+  all 46 Playwright specs) in a worktree first, then applied directly to
+  main rather than editing Dependabot's own branch. `eslint`/`typescript`
+  deliberately left unbumped until their respective ecosystems support
+  the new majors; Dependabot will re-propose them once a compatible
+  `typescript-eslint`/`eslint-config-next` release exists.
 
 
 ## How to run this locally
