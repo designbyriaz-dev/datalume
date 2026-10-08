@@ -3773,13 +3773,14 @@ punch list for whoever takes this toward a real pilot:
   floor form there. 34 Playwright specs green.
 - **Checked the rest of spec §76's 50 steps against both the backend
   and the frontend while looking for the floors gap above, and found
-  two genuinely missing features, not just missing tests** — worth
-  recording precisely since "not yet done" so far in this file has
-  mostly meant "exists but untested," and these two don't exist at
-  all: step 21, "Upload drawing metadata" (no `Drawing` model, no
-  route, no UI — grepped for "drawing" across the whole backend and
-  found nothing — still open), and ~~step 50, "Audit all significant
-  changes"~~ **Closed.** `AuditEvent`/`record_audit_event`
+  what looked like two genuinely missing features, not just missing
+  tests** — worth recording precisely since "not yet done" so far in
+  this file has mostly meant "exists but untested." One of the two
+  turned out to be a research mistake, corrected in its own dedicated
+  entry below (grepping only the backend for "drawing" missed that the
+  frontend already offered it as a document type). The other, ~~step
+  50, "Audit all significant changes"~~, **is a real closure.**
+  `AuditEvent`/`record_audit_event`
   (`app/platform/audit.py`) had been writing a real, append-only trail
   since early in this build, but there was no way to read it back.
   Added: `GET /api/v1/audit` (`app/platform/router.py`), tenant-scoped
@@ -3803,8 +3804,38 @@ punch list for whoever takes this toward a real pilot:
   (`app/tests/test_audit.py`) cover tenant isolation, pagination, and
   the permission gate; `apps/web/e2e/audit-log.spec.ts` exercises the
   real flow end to end (add a property, then see it in the audit log).
-  Step 21 still needs the same real backend-plus-frontend treatment
-  this one just got — not attempted here, out of scope for this pass.
+- ~~Step 21, "Upload drawing metadata," had no `Drawing` model, no
+  route, no UI~~ **That claim was wrong — corrected, and the one real
+  gap it was hiding is now closed.** Re-grepping properly (the whole
+  frontend too, not just the backend) found `"DRAWING"` already listed
+  as a selectable `document_type` on the general `/data-and-uploads`
+  upload form since early in the build, and on
+  `ComponentDetailClient.tsx`'s own Evidence section. The generic
+  `Document` model (`app/documents/models.py`) already tracks every
+  field spec §28 names for drawing metadata specifically —
+  `document_reference`, `title`, `document_type`, `revision`, `status`,
+  `uploaded_by`/`uploaded_at`, `effective_date`,
+  `superseded_by_document_id`, `related_entity_type`/`id`, `source`,
+  `external_reference` — and "never silently overwrite previous
+  versions" is handled the same append-only way `DocumentStatus.
+  SUPERSEDED` already works for specifications. The one real gap:
+  `DevelopmentDetailClient.tsx`'s own Evidence section (added earlier
+  this session for O&M documentation) never offered `"DRAWING"` as an
+  option — a one-line fix, `document_type` being a free-text column
+  rather than a backend-enforced enum. Added
+  `apps/web/e2e/drawing-metadata.spec.ts`: two tests proving a drawing
+  uploaded against a component (the pre-existing path) and against a
+  development (the newly-fixed path) both capture real metadata — a
+  generated reference, the type genuinely recorded as `DRAWING`, and
+  correct entity-linking cross-checked via the general documents list
+  — not just that the upload succeeds. 42 Playwright specs green.
+  `api.uploadDocumentVersion`/`POST /documents/{id}/versions` (the
+  "never overwrite, create a new revision instead" endpoint) exists
+  and is already exercised by `app/tests/test_documents.py`, but no
+  page anywhere has a "upload new version" button yet for *any*
+  document type, drawings included — a smaller, separate, genuinely
+  open gap, left here rather than folded into this fix since it's not
+  specific to drawings.
 - **Checked Handover Readiness's own nine checks for the same
   "backend built, UI incomplete" shape as the Building Control
   reference gap above, and found two more: `check_warranties_received`

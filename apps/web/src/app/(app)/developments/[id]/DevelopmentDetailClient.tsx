@@ -15,7 +15,7 @@ import {
 
 const SELECTED_ORG_KEY = "datalume.selectedOrganisationId";
 
-const DOCUMENT_TYPES = ["O&M", "EVIDENCE", "CERTIFICATE", "REPORT", "OTHER"];
+const DOCUMENT_TYPES = ["O&M", "DRAWING", "EVIDENCE", "CERTIFICATE", "REPORT", "OTHER"];
 
 // Defined outside the component — same reasoning as ComponentDetailClient.tsx's
 // own copy of this helper (react-hooks/immutability).
