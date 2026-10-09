@@ -1298,6 +1298,7 @@ export const api = {
       inspection_date: string;
       result: string;
       next_due_date?: string;
+      evidence_document_id?: string;
     },
   ) =>
     request<InspectionOut>("/api/v1/compliance/inspections", {
@@ -1333,7 +1334,11 @@ export const api = {
       organisationId,
       body: JSON.stringify(payload),
     }),
-  updateComplianceActionStatus: (organisationId: string, actionId: string, payload: { status: string; completed_date?: string }) =>
+  updateComplianceActionStatus: (
+    organisationId: string,
+    actionId: string,
+    payload: { status: string; completed_date?: string; evidence_document_id?: string },
+  ) =>
     request<ComplianceActionOut>(`/api/v1/compliance/actions/${actionId}/status`, {
       method: "POST",
       organisationId,

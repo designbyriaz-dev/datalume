@@ -40,6 +40,10 @@ test("raising and completing a compliance action against a requirement's applica
 
   await expect(applicabilityItem.getByText(/Replace smoke detector — due 2026-06-01/)).toBeVisible();
 
+  // "complete" opens an inline confirm-with-optional-evidence form rather
+  // than completing immediately — see document-new-version.spec.ts's own
+  // note on the same toggle-button shape used throughout this codebase.
   await applicabilityItem.getByRole("button", { name: "complete" }).click();
+  await applicabilityItem.getByRole("button", { name: "Confirm" }).click();
   await expect(applicabilityItem.getByText(/Replace smoke detector — due 2026-06-01/)).not.toBeVisible();
 });

@@ -22,20 +22,28 @@ for how each one avoids being the "noisy blanket rule" earlier
 versions of this docstring worried about, by scoping to a real,
 specific subset rather than every row.
 
+Missing evidence closed too, in a later session still: the earlier
+claim here ("no document is currently linked to a specific compliance
+requirement in a way 'missing evidence' could query") turned out to be
+wrong, not just incomplete — app.operations.compliance.models.py's own
+module docstring names EVIDENCE as the explicit link between
+INSPECTION and ACTION in the compliance chain, and both `Inspection`
+and `ComplianceAction` have carried a real `evidence_document_id`
+column since Sprint 16, simply never queried this way before. See
+check_missing_inspection_evidence and check_missing_completed_action_
+evidence's own docstrings.
+
 Still genuinely open, and still deliberately not implemented: missing
 component types (Component.component_type_id is NOT NULL at the
 schema level — no row can ever fail this, so there's nothing to
 query), missing specifications (unlike warranties, there's no
 defensible per-component-type "this type always needs one" list —
 whether a specification document exists is project- and context-
-specific in a way a fixed type list can't capture), missing evidence
-(no document is currently linked to a specific compliance requirement
-in a way "missing evidence" could query — this needs new tracking,
-not a new rule against what already exists), and missing building
-relationships (architecture 03's own design, and spec §19 explicitly,
-say not every hierarchy level is required — a property or component
-with no building link is a deliberate, valid shape, not a data
-problem, so this one isn't "not yet done", it's correctly out of
+specific in a way a fixed type list can't capture), and missing
+building relationships (architecture 03's own design, and spec §19
+explicitly, say not every hierarchy level is required — a property or
+component with no building link is a deliberate, valid shape, not a
+data problem, so this one isn't "not yet done", it's correctly out of
 scope permanently).
 
 Each check below queries narrow column projections (just the id/
@@ -72,6 +80,7 @@ from app.development.models import (
 )
 from app.documents.models import Document, DocumentStatus
 from app.identifiers.models import ExternalReference, ExternalReferenceType
+from app.operations.compliance.models import ComplianceAction, ComplianceActionStatus, Inspection
 from app.operations.stock_condition.models import StockConditionSurvey
 
 
@@ -598,6 +607,73 @@ def check_missing_bsr_reference_for_higher_risk_buildings(db: Session, organisat
     return CheckResult("MISSING_BSR_REFERENCE", len(higher_risk), len(findings), findings)
 
 
+def check_missing_inspection_evidence(db: Session, organisation_id) -> CheckResult:
+    """spec §42's "Missing evidence". architecture/04-operations-domain.md
+    §3's own chain (app/operations/compliance/models.py's module
+    docstring) is "...APPLICABILITY -> ... -> INSPECTION -> EVIDENCE ->
+    ACTION..." — EVIDENCE is the explicit link right after INSPECTION,
+    and `Inspection.evidence_document_id` is exactly that column,
+    already real since Sprint 16. Scoped to inspections that already
+    exist, not to "should an inspection exist at all" — that's a
+    different, already-covered signal (status_engine.py's own
+    MISSING_EVIDENCE/UNKNOWN compliance statuses for an applicable
+    requirement with no inspection on record at all); this check is
+    about an inspection that *was* carried out and recorded, with
+    nothing proving it."""
+    filters = [Inspection.organisation_id == organisation_id]
+    applicable_count = db.query(Inspection).filter(*filters).count()
+    missing = (
+        db.query(Inspection.id, Inspection.inspector, Inspection.inspection_date)
+        .filter(*filters, Inspection.evidence_document_id.is_(None))
+        .all()
+    )
+    findings = [
+        Finding(
+            "MISSING_INSPECTION_EVIDENCE",
+            FindingSeverity.MEDIUM,
+            "inspection",
+            str(iid),
+            f"The {inspection_date} inspection by {inspector} has no evidence document attached.",
+        )
+        for iid, inspector, inspection_date in missing
+    ]
+    return CheckResult("MISSING_INSPECTION_EVIDENCE", applicable_count, len(findings), findings)
+
+
+def check_missing_completed_action_evidence(db: Session, organisation_id) -> CheckResult:
+    """The same real "Missing evidence" gap as
+    check_missing_inspection_evidence above, for the chain's other
+    `evidence_document_id` column — `ComplianceAction`, same since
+    Sprint 16. Scoped to COMPLETED actions only: an OPEN action
+    genuinely has no completion evidence yet, that's expected, not a
+    data problem (same "don't flag the case that's supposed to be
+    empty" reasoning check_invalid_installation_date and
+    check_stale_stock_condition_survey already use elsewhere in this
+    file); a CANCELLED action was never carried out, so it has nothing
+    to provide evidence of either."""
+    filters = [
+        ComplianceAction.organisation_id == organisation_id,
+        ComplianceAction.status == ComplianceActionStatus.COMPLETED,
+    ]
+    applicable_count = db.query(ComplianceAction).filter(*filters).count()
+    missing = (
+        db.query(ComplianceAction.id, ComplianceAction.description, ComplianceAction.completed_date)
+        .filter(*filters, ComplianceAction.evidence_document_id.is_(None))
+        .all()
+    )
+    findings = [
+        Finding(
+            "MISSING_ACTION_EVIDENCE",
+            FindingSeverity.MEDIUM,
+            "compliance_action",
+            str(aid),
+            f'Completed action "{description}" has no evidence document attached.',
+        )
+        for aid, description, completed_date in missing
+    ]
+    return CheckResult("MISSING_ACTION_EVIDENCE", applicable_count, len(findings), findings)
+
+
 RULES = [
     check_missing_property_type,
     check_missing_uprn,
@@ -615,6 +691,8 @@ RULES = [
     check_duplicate_documents,
     check_missing_warranty_for_expected_component_type,
     check_missing_bsr_reference_for_higher_risk_buildings,
+    check_missing_inspection_evidence,
+    check_missing_completed_action_evidence,
 ]
 
 

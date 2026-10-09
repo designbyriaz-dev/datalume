@@ -63,10 +63,10 @@ Postgres. See `## Not yet done` below for the full list of what was
 found and fixed this way, in each case with the specific reasoning for
 why it was safe.
 
-**Verification state**, most recently confirmed: 400 backend tests
+**Verification state**, most recently confirmed: 402 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
-environment gap, not a skip hiding a failure), 47 Playwright E2E specs
+environment gap, not a skip hiding a failure), 49 Playwright E2E specs
 green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
 runs all of this plus CodeQL on every push to `main` — last confirmed
 fully green.
@@ -75,21 +75,29 @@ fully green.
 these was checked and the reasoning written down, not just left
 unmentioned): full OpenTelemetry/Sentry wiring to a real collector and
 object-storage-level document versioning both need real infrastructure
-this sandbox doesn't have; Data Health covers 12 of spec §42's 15
-items (missing warranties and missing external references beyond UPRN
-closed in a later session, each scoped narrowly — a curated list of
-component types that genuinely carry a manufacturer warranty, and
-buildings that actually meet the Building Safety Act's higher-risk
-threshold — rather than as a blanket rule); missing specifications and
-missing evidence remain genuinely open (no defensible per-type rule
-for the former, no requirement-to-evidence tracking to query yet for
-the latter); missing building relationships isn't really "not yet
-done" at all — architecture 03 and spec §19 both say not every
-hierarchy level is required, so flagging the absence of one would
-contradict the design, not complete it. The fuzzy singular/plural
-component-type-matching gap, long the one open item in this list, was
-also closed in a later session (see above). Full detail and reasoning
-for each is in `## Not yet done` below.
+this sandbox doesn't have; Data Health covers 13 of spec §42's 15
+items — missing warranties, missing external references beyond UPRN,
+and missing evidence all closed in later sessions, each scoped
+narrowly or fixing a real UI gap rather than just adding a query: a
+curated list of component types that genuinely carry a manufacturer
+warranty, buildings that actually meet the Building Safety Act's
+higher-risk threshold, and — for evidence — both a new check *and* the
+missing file-upload controls on `InspectionsPanel.tsx` that meant no
+one could actually attach evidence through the UI at all before this.
+Missing specifications remains genuinely open (no defensible per-type
+rule for which component types always need one); missing building
+relationships isn't really "not yet done" at all — architecture 03 and
+spec §19 both say not every hierarchy level is required, so flagging
+the absence of one would contradict the design, not complete it. A
+related, separate gap found but not closed while fixing evidence:
+`GET /api/v1/data-health`'s own full findings list has no page
+anywhere that calls it — `/home` only shows the headline score and
+property pages only show property-scoped findings, so every finding
+type beyond those two views is currently invisible in the UI; a real
+general findings-browsing page is its own, larger piece of work. The
+fuzzy singular/plural component-type-matching gap, long the one open
+item in this list, was also closed in a later session (see above).
+Full detail and reasoning for each is in `## Not yet done` below.
 
 ## Done
 
@@ -4120,17 +4128,74 @@ Specifically flagged as gaps to close early, not deferred to "later":
   Still genuinely open: missing specifications (unlike warranties,
   there's no defensible per-type "this type always needs one" list —
   whether a specification exists is project-specific in a way a fixed
-  type list can't capture) and missing evidence (no document is
-  currently linked to a specific compliance requirement in a way
-  "missing evidence" could query — needs new tracking, not a new rule
-  against data that already exists). Missing component types still
-  isn't really open — `Component.component_type_id` is `NOT NULL` at
-  the schema level, so no row can ever fail that check. Missing
-  building relationships is now understood as correctly, permanently
-  out of scope rather than "not yet done" — architecture 03's own
-  design and spec §19 explicitly say not every hierarchy level is
-  required, so a property or component with no building link is a
-  deliberate, valid shape, not a data problem a check should flag.
+  type list can't capture). Missing component types still isn't really
+  open — `Component.component_type_id` is `NOT NULL` at the schema
+  level, so no row can ever fail that check. Missing building
+  relationships is now understood as correctly, permanently out of
+  scope rather than "not yet done" — architecture 03's own design and
+  spec §19 explicitly say not every hierarchy level is required, so a
+  property or component with no building link is a deliberate, valid
+  shape, not a data problem a check should flag.
+- ~~Missing evidence: no document is currently linked to a specific
+  compliance requirement in a way "missing evidence" could query —
+  needs new tracking, not a new rule against data that already
+  exists.~~ **That claim was wrong, not just incomplete — closed in a
+  later session.** `app/operations/compliance/models.py`'s own module
+  docstring names the chain "...APPLICABILITY -> ... -> INSPECTION ->
+  EVIDENCE -> ACTION..." — EVIDENCE is the explicit link right after
+  INSPECTION, and both `Inspection.evidence_document_id` and
+  `ComplianceAction.evidence_document_id` have been real, nullable FK
+  columns since Sprint 16, simply never queried this way before. Added
+  `check_missing_inspection_evidence` (any inspection with none) and
+  `check_missing_completed_action_evidence` (any COMPLETED action with
+  none — an OPEN one genuinely has nothing to attach yet, so it's
+  excluded from the applicable count entirely, not just passing).
+
+  **Found and fixed the real reason nobody had closed this yet while
+  building it: the UI never let anyone set either column at all.**
+  `InspectionsPanel.tsx`'s "Record inspection" form and its "complete"
+  action button both called their respective API methods with no
+  `evidence_document_id` whatsoever — adding the Data Health check
+  alone would have flagged a gap no real user could ever fix, the
+  exact anti-pattern this file's own Building Control/BSR/document-
+  version entries already learned to watch for. Added a file input to
+  the inspection form (uploads via the existing `api.uploadDocument`
+  first, then passes the resulting id) and turned "complete" from a
+  single click into an inline confirm-with-optional-evidence form,
+  same per-row toggle shape as this codebase's other "New version"/
+  "Manage" controls — `compliance-action.spec.ts` updated for the new
+  two-step flow, since its old one-click assumption no longer holds.
+  Also added a lightweight inline warning ("— no evidence document
+  attached") next to the latest-inspection summary `InspectionsPanel`
+  already renders, rather than building an entire new general Data
+  Health findings page just for this: there currently isn't one at
+  all — `GET /api/v1/data-health`'s own full findings list has no page
+  anywhere that calls it; `/home` only ever reads the headline score
+  and `PropertyDetailClient.tsx` only ever shows findings scoped to
+  that one property (`affected_entity_type == "property"`), so every
+  non-property finding this file's 14 pre-existing checks already
+  produced (orphan/duplicate components, missing warranties, missing
+  BSR references, ...) was already invisible in the UI before this
+  session, not a new gap this entry introduces. A real, dedicated
+  findings-browsing page is a genuinely separate, larger piece of work
+  than "close the missing evidence check," so left as a found-but-
+  out-of-scope note here rather than folded in.
+
+  Verified three ways: 2 new backend tests (SQLite) covering both
+  checks' exact applicable/failing shape (an OPEN action is excluded
+  entirely, not just passing; a second, evidenced inspection correctly
+  supersedes a first undocumented one in the "latest" read
+  `InspectionsPanel` uses); a direct check against real
+  Postgres (fresh database, the real seeded compliance catalog via
+  `ensure_compliance_catalog_seeded` rather than hand-rolled rows, both
+  checks run directly and their counts/finding-ids asserted); and 2 new
+  Playwright specs (`inspection-evidence.spec.ts`) driving the actual
+  forms — recording an inspection with no file (warning shows), then a
+  second with one (warning clears, same cross-view entity-linking proof
+  via `/data-and-uploads` every other evidence spec in this suite
+  uses), and completing an action with evidence attached at the moment
+  of completion. Full 402-test backend suite and 49 Playwright specs
+  green, `npm run lint`/`tsc --noEmit` clean.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable

@@ -29,11 +29,18 @@ export function InspectionsPanel({
   const [inspectionDate, setInspectionDate] = useState("");
   const [result, setResult] = useState("SATISFACTORY");
   const [nextDueDate, setNextDueDate] = useState("");
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showActionForm, setShowActionForm] = useState(false);
   const [actionDescription, setActionDescription] = useState("");
   const [actionDeadline, setActionDeadline] = useState("");
   const [actionSubmitting, setActionSubmitting] = useState(false);
+  // "Complete" is a per-action toggle — only one action's inline
+  // complete-with-evidence form is open at a time, keyed by its own id,
+  // same pattern as this codebase's other "New version"/"Manage" toggles.
+  const [completingActionId, setCompletingActionId] = useState<string | null>(null);
+  const [completionEvidenceFile, setCompletionEvidenceFile] = useState<File | null>(null);
+  const [completingSubmitting, setCompletingSubmitting] = useState(false);
 
   async function refresh() {
     if (!organisationId) return;
@@ -56,6 +63,17 @@ export function InspectionsPanel({
     if (!inspector.trim() || !inspectionDate) return;
     setSubmitting(true);
     try {
+      let evidenceDocumentId: string | undefined;
+      if (evidenceFile) {
+        const doc = await api.uploadDocument(
+          organisationId,
+          `Inspection evidence — ${inspector.trim()}, ${inspectionDate}`,
+          "CERTIFICATE",
+          evidenceFile,
+          { related_entity_type: entityType, related_entity_id: entityId },
+        );
+        evidenceDocumentId = doc.id;
+      }
       await api.createInspection(organisationId, {
         requirement_id: requirementId,
         entity_type: entityType,
@@ -64,10 +82,12 @@ export function InspectionsPanel({
         inspection_date: inspectionDate,
         result,
         next_due_date: nextDueDate || undefined,
+        evidence_document_id: evidenceDocumentId,
       });
       setInspector("");
       setInspectionDate("");
       setNextDueDate("");
+      setEvidenceFile(null);
       setShowForm(false);
       await refresh();
       onChanged?.();
@@ -76,10 +96,36 @@ export function InspectionsPanel({
     }
   }
 
-  async function onCompleteAction(actionId: string) {
-    await api.updateComplianceActionStatus(organisationId, actionId, { status: "COMPLETED" });
-    await refresh();
-    onChanged?.();
+  function onStartCompletingAction(actionId: string) {
+    setCompletingActionId(actionId);
+    setCompletionEvidenceFile(null);
+  }
+
+  async function onConfirmCompleteAction(actionId: string) {
+    setCompletingSubmitting(true);
+    try {
+      let evidenceDocumentId: string | undefined;
+      if (completionEvidenceFile) {
+        const doc = await api.uploadDocument(
+          organisationId,
+          `Action completion evidence — ${new Date().toISOString().slice(0, 10)}`,
+          "CERTIFICATE",
+          completionEvidenceFile,
+          { related_entity_type: entityType, related_entity_id: entityId },
+        );
+        evidenceDocumentId = doc.id;
+      }
+      await api.updateComplianceActionStatus(organisationId, actionId, {
+        status: "COMPLETED",
+        evidence_document_id: evidenceDocumentId,
+      });
+      setCompletingActionId(null);
+      setCompletionEvidenceFile(null);
+      await refresh();
+      onChanged?.();
+    } finally {
+      setCompletingSubmitting(false);
+    }
   }
 
   async function onRaiseAction() {
@@ -114,6 +160,9 @@ export function InspectionsPanel({
           <>
             Last inspection: {latest.inspection_date} by {latest.inspector} — <strong>{latest.result}</strong>
             {latest.next_due_date && ` (next due ${latest.next_due_date})`}
+            {!latest.evidence_document_id && (
+              <span style={{ color: "var(--color-warning)" }}> — no evidence document attached</span>
+            )}
           </>
         ) : (
           "No inspections recorded yet."
@@ -122,13 +171,35 @@ export function InspectionsPanel({
       {openActions.length > 0 && (
         <ul style={{ listStyle: "none", padding: 0, margin: "0 0 6px" }}>
           {openActions.map((a) => (
-            <li key={a.id} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-              <span>
-                {a.description} — due {a.deadline}
-              </span>
-              <button style={{ ...secondaryBtn, padding: "1px 8px", fontSize: 11 }} onClick={() => onCompleteAction(a.id)}>
-                complete
-              </button>
+            <li key={a.id} style={{ padding: "2px 0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>
+                  {a.description} — due {a.deadline}
+                </span>
+                <button
+                  style={{ ...secondaryBtn, padding: "1px 8px", fontSize: 11 }}
+                  onClick={() => (completingActionId === a.id ? setCompletingActionId(null) : onStartCompletingAction(a.id))}
+                >
+                  complete
+                </button>
+              </div>
+              {completingActionId === a.id && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+                  <input
+                    aria-label="Completion evidence file"
+                    type="file"
+                    style={{ fontSize: 11 }}
+                    onChange={(e) => setCompletionEvidenceFile(e.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    style={{ ...primaryBtn, padding: "1px 8px", fontSize: 11 }}
+                    onClick={() => onConfirmCompleteAction(a.id)}
+                    disabled={completingSubmitting}
+                  >
+                    {completingSubmitting ? "Completing…" : "Confirm"}
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -186,6 +257,12 @@ export function InspectionsPanel({
             title="Next due date"
             value={nextDueDate}
             onChange={(e) => setNextDueDate(e.target.value)}
+          />
+          <input
+            aria-label="Inspection evidence file"
+            type="file"
+            style={{ fontSize: 12 }}
+            onChange={(e) => setEvidenceFile(e.target.files?.[0] ?? null)}
           />
           <button style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }} onClick={onRecord} disabled={submitting}>
             Save

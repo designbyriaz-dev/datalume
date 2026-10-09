@@ -474,3 +474,125 @@ def test_data_health_flags_missing_bsr_reference_only_for_higher_risk_buildings(
     flagged_ids = {f["affected_entity_id"] for f in findings}
     assert low_rise["id"] not in flagged_ids
     assert high_rise_with_bsr["id"] not in flagged_ids
+
+
+def _upload_evidence_document(client, org_id, title):
+    return client.post(
+        "/api/v1/documents",
+        headers={"X-Organisation-Id": org_id},
+        data={"title": title, "document_type": "CERTIFICATE"},
+        files={"file": ("evidence.pdf", io.BytesIO(b"evidence content"), "application/pdf")},
+    ).json()
+
+
+def _gas_safety_domain_id(client, org_id):
+    domains = client.get("/api/v1/compliance/domains", headers={"X-Organisation-Id": org_id}).json()
+    return next(d["id"] for d in domains if d["code"] == "GAS_SAFETY")
+
+
+def _setup_compliance_requirement_and_building(client, org_id):
+    domain_id = _gas_safety_domain_id(client, org_id)
+    requirement = client.post(
+        "/api/v1/compliance/requirements",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "domain_id": domain_id,
+            "code": "GAS-001",
+            "title": "Annual gas safety check",
+            "effective_date": "2024-01-01",
+        },
+    ).json()
+    building = client.post("/api/v1/buildings", headers={"X-Organisation-Id": org_id}, json={"name": "Block A"}).json()
+    return requirement, building
+
+
+def test_data_health_flags_missing_inspection_evidence(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    requirement, building = _setup_compliance_requirement_and_building(client, org_id)
+    doc = _upload_evidence_document(client, org_id, "Gas safety certificate")
+
+    client.post(
+        "/api/v1/compliance/inspections",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "requirement_id": requirement["id"],
+            "entity_type": "building",
+            "entity_id": building["id"],
+            "inspector": "Gas Safe Engineer Ltd",
+            "inspection_date": "2026-01-15",
+            "result": "SATISFACTORY",
+            "evidence_document_id": doc["id"],
+        },
+    )
+    undocumented = client.post(
+        "/api/v1/compliance/inspections",
+        headers={"X-Organisation-Id": org_id},
+        json={
+            "requirement_id": requirement["id"],
+            "entity_type": "building",
+            "entity_id": building["id"],
+            "inspector": "Another Engineer Ltd",
+            "inspection_date": "2026-02-15",
+            "result": "SATISFACTORY",
+        },
+    ).json()
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_INSPECTION_EVIDENCE"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == undocumented["id"]
+
+    check = next(c for c in body["checks"] if c["check_code"] == "MISSING_INSPECTION_EVIDENCE")
+    assert check["applicable_count"] == 2
+    assert check["failing_count"] == 1
+
+
+def test_data_health_flags_missing_completed_action_evidence_but_not_open_ones(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    requirement, building = _setup_compliance_requirement_and_building(client, org_id)
+    doc = _upload_evidence_document(client, org_id, "Remedial works photo")
+
+    def _add_action():
+        return client.post(
+            "/api/v1/compliance/actions",
+            headers={"X-Organisation-Id": org_id},
+            json={
+                "requirement_id": requirement["id"],
+                "entity_type": "building",
+                "entity_id": building["id"],
+                "description": "Replace faulty valve",
+                "deadline": "2026-03-01",
+            },
+        ).json()
+
+    # Completed with evidence attached at completion — not a finding.
+    completed_with_evidence = _add_action()
+    client.post(
+        f"/api/v1/compliance/actions/{completed_with_evidence['id']}/status",
+        headers={"X-Organisation-Id": org_id},
+        json={"status": "COMPLETED", "completed_date": "2026-02-10", "evidence_document_id": doc["id"]},
+    )
+
+    # Completed with no evidence — a real finding.
+    completed_without_evidence = _add_action()
+    client.post(
+        f"/api/v1/compliance/actions/{completed_without_evidence['id']}/status",
+        headers={"X-Organisation-Id": org_id},
+        json={"status": "COMPLETED", "completed_date": "2026-02-12"},
+    )
+
+    # Still OPEN — not applicable at all, not just passing.
+    _add_action()
+
+    body = client.get("/api/v1/data-health", headers={"X-Organisation-Id": org_id}).json()
+    findings = [f for f in body["findings"] if f["check_code"] == "MISSING_ACTION_EVIDENCE"]
+    assert len(findings) == 1
+    assert findings[0]["affected_entity_id"] == completed_without_evidence["id"]
+
+    check = next(c for c in body["checks"] if c["check_code"] == "MISSING_ACTION_EVIDENCE")
+    # Only the two COMPLETED actions are applicable — the OPEN one never
+    # counts, applicable or failing.
+    assert check["applicable_count"] == 2
+    assert check["failing_count"] == 1
