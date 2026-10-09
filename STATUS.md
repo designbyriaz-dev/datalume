@@ -66,7 +66,7 @@ why it was safe.
 **Verification state**, most recently confirmed: 403 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
-environment gap, not a skip hiding a failure), 51 Playwright E2E specs
+environment gap, not a skip hiding a failure), 52 Playwright E2E specs
 green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
 runs all of this plus CodeQL on every push to `main` — last confirmed
 fully green.
@@ -88,9 +88,10 @@ open/overdue/warranty-related/by-category/by-contractor/repeat-category
 shape as the already-shipped `repairsIntelligence` panel but no
 building-page consumer; and `listPayments` has no ledger view, so a
 fully-allocated payment disappears from `/rent-and-payments` with no
-way to see payment history. The engine-config settings UI is closed
-(see the dedicated entry below); the other two remain open, tracked
-below rather than silently dropped.
+way to see payment history. The engine-config settings UI and the
+defects intelligence panel are both closed now (see the dedicated
+entries below); `listPayments`/a payments ledger view remains open,
+tracked below rather than silently dropped.
 
 **What's deliberately not done, and why** (not a backlog — each of
 these was checked and the reasoning written down, not just left
@@ -4348,6 +4349,50 @@ Specifically flagged as gaps to close early, not deferred to "later":
   Full 403-test backend suite (unchanged — this was a frontend-only
   change, every endpoint already existed and was already tested) and
   all 51 Playwright specs green, `tsc --noEmit`/`npm run lint` clean.
+- **Built the defects intelligence panel the same audit found
+  missing.** `GET /api/v1/defects/intelligence`
+  (`app/development/defects_intelligence.py`, spec §35) already
+  computed everything the shipped `repairsIntelligence` panel does for
+  repairs — total/open/overdue/warranty-related counts, cost totals,
+  average resolution days, and real location/category-grouped
+  repeat-pattern detection — but `BuildingDetailClient.tsx` only ever
+  rendered the raw `listDefects` register, no summary. Added the exact
+  same `KpiStatCard`-row pattern `/repairs/page.tsx` already uses
+  (Total/Open/Overdue/Warranty-related/Est. cost, plus actual cost and
+  average resolution as a compact text line rather than two more
+  cards), and a repeat-category callout list reusing the same
+  `StatusBadge` component the rest of this codebase already uses for
+  this exact "flag, don't just colour" shape. Deliberately left
+  `by_contractor`/`by_category`/`by_component_type`'s top-10 breakdown
+  lists unrendered for now — the repairs panel this was modelled on
+  doesn't show its own category/contractor breakdowns either, and
+  adding three new breakdown lists beyond matching that established
+  precedent would be scope creep past what this pass set out to close.
+  The panel only renders once `total_count > 0` — an all-zero KPI row
+  nobody asked to see would be visual noise on every building with no
+  defects yet, same reasoning `repairsIntelligence`'s own 0-repair
+  empty state already avoids elsewhere.
+
+  Verified live against the real smoketest backend in the Browser pane
+  first: created a building, reported a defect, confirmed the panel
+  appears with real counts (not zeros) and the KPI row matches the
+  backend response exactly. Then a new Playwright spec
+  (`defects-intelligence.spec.ts`) — asserts the panel is genuinely
+  absent with zero defects (not just empty), reports two same-category
+  defects against one building, and confirms both the KPI counts and
+  the repeat-category callout (&ldquo;1 location with repeat
+  &lsquo;Water ingress&rsquo; defects&rdquo;) render from the real
+  computed response. One test-writing mistake caught by the first
+  failure rather than assumed away: the spec's first draft searched
+  for straight quotes around the category name, but the component
+  wraps it in `&ldquo;`/`&rdquo;` (curly quotes) — fixed the regex
+  rather than the component, since curly quotes are the correct
+  rendering choice here. All 52 Playwright specs green (one unrelated,
+  pre-existing flake in `compliance-csv-import.spec.ts` — a
+  background-worker timeout under full-suite load — confirmed to pass
+  cleanly in isolation before concluding it wasn't a regression), full
+  403-test backend suite unchanged (frontend-only again), `tsc
+  --noEmit`/`npm run lint` clean.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable

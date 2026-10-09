@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { InspectionsPanel } from "@/components/InspectionsPanel";
+import { KpiStatCard } from "@/components/KpiStatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { inputStyle, primaryBtn } from "@/components/formStyles";
 import {
@@ -12,6 +13,7 @@ import {
   type ComplianceRequirementOut,
   type ComplianceStatusOut,
   type DefectOut,
+  type DefectsIntelligence,
   type DocumentOut,
   type FloorOut,
   type GoldenThread,
@@ -79,6 +81,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   const [specifications, setSpecifications] = useState<SpecificationOut[] | null>(null);
   const [goldenThread, setGoldenThread] = useState<GoldenThread | null>(null);
   const [defects, setDefects] = useState<DefectOut[] | null>(null);
+  const [defectsIntelligence, setDefectsIntelligence] = useState<DefectsIntelligence | null>(null);
   const [warranties, setWarranties] = useState<WarrantyOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -162,7 +165,12 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
   async function refreshDefects() {
     const id = orgId();
     if (!id) return;
-    setDefects(await api.listDefects(id, { building_id: buildingId }));
+    const [defectList, intel] = await Promise.all([
+      api.listDefects(id, { building_id: buildingId }),
+      api.defectsIntelligence(id, { building_id: buildingId }),
+    ]);
+    setDefects(defectList);
+    setDefectsIntelligence(intel);
   }
 
   async function refreshWarranties() {
@@ -206,6 +214,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
           specList,
           thread,
           defectList,
+          defectsIntel,
           warrantyList,
           buildingControlList,
           applicabilityList,
@@ -218,6 +227,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
           api.listSpecifications(id, { related_entity_type: "building", related_entity_id: buildingId }),
           api.getGoldenThread(id, buildingId),
           api.listDefects(id, { building_id: buildingId }),
+          api.defectsIntelligence(id, { building_id: buildingId }),
           api.listWarranties(id, { building_id: buildingId }),
           api.listBuildingControlRecords(id, { building_id: buildingId }),
           api.listApplicability(id, { entity_type: "building", entity_id: buildingId }),
@@ -230,6 +240,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
         setSpecifications(specList);
         setGoldenThread(thread);
         setDefects(defectList);
+        setDefectsIntelligence(defectsIntel);
         setWarranties(warrantyList);
         setBuildingControlRecords(buildingControlList);
         setApplicability(applicabilityList);
@@ -491,6 +502,7 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
     !properties ||
     !specifications ||
     !defects ||
+    !defectsIntelligence ||
     !warranties ||
     !buildingControlRecords ||
     !applicability ||
@@ -805,6 +817,37 @@ export function BuildingDetailClient({ buildingId }: { buildingId: string }) {
           <div style={{ color: "var(--color-critical)", fontSize: 13, marginTop: 10 }}>{defectFormError}</div>
         )}
       </div>
+
+      {defectsIntelligence.total_count > 0 && (
+        <>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+            <KpiStatCard label="Total Defects" value={String(defectsIntelligence.total_count)} />
+            <KpiStatCard label="Open" value={String(defectsIntelligence.open_count)} />
+            <KpiStatCard
+              label="Overdue"
+              value={String(defectsIntelligence.overdue_count)}
+              tint={defectsIntelligence.overdue_count > 0 ? "var(--color-critical)" : "var(--color-primary)"}
+            />
+            <KpiStatCard label="Warranty-related" value={String(defectsIntelligence.warranty_related_count)} />
+            <KpiStatCard label="Est. Cost" value={`£${(defectsIntelligence.total_estimated_cost_pence / 100).toFixed(2)}`} />
+          </div>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12, marginBottom: 12 }}>
+            Actual cost to date: £{(defectsIntelligence.total_actual_cost_pence / 100).toFixed(2)}
+            {defectsIntelligence.average_resolution_days !== null &&
+              ` · Average resolution: ${defectsIntelligence.average_resolution_days} days`}
+          </div>
+          {defectsIntelligence.repeat_categories.length > 0 && (
+            <ul style={{ listStyle: "none", padding: 0, margin: "0 0 16px", fontSize: 13 }}>
+              {defectsIntelligence.repeat_categories.map((rc) => (
+                <li key={rc.key} style={{ padding: "6px 0", borderTop: "1px solid var(--border-subtle)" }}>
+                  <StatusBadge label="Repeat pattern" variant="warning" /> {rc.count} location
+                  {rc.count === 1 ? "" : "s"} with repeat &ldquo;{rc.key}&rdquo; defects
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
 
       <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Defects</h2>
       {defects.length === 0 ? (
