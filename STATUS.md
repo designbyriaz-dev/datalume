@@ -66,10 +66,31 @@ why it was safe.
 **Verification state**, most recently confirmed: 403 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
-environment gap, not a skip hiding a failure), 50 Playwright E2E specs
+environment gap, not a skip hiding a failure), 51 Playwright E2E specs
 green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
 runs all of this plus CodeQL on every push to `main` — last confirmed
 fully green.
+
+**A new systematic audit angle, once "backend built, frontend
+incomplete" case-by-case hunting had covered most of the obvious
+candidates**: every one of `apps/web/src/lib/api.ts`'s 154 client
+methods cross-referenced against actual callers across the frontend.
+24 had zero callers. Most were correctly unused — superseded by a
+composed/bulk endpoint the UI genuinely calls instead (`getProperty` by
+`getProperty360`, `getDocument` by `listDocuments`, etc.), or
+deliberately bypassed by a governance workflow (`reviseSpecification`
+by change control's propose→approve→implement) — but three were real:
+no settings UI existed anywhere for the five real, tested per-org
+tunable engine parameters (compliance status thresholds, payment
+reconciliation, planned investment, repair detection rules, attention
+rules); `GET /api/v1/defects/intelligence` has the exact same
+open/overdue/warranty-related/by-category/by-contractor/repeat-category
+shape as the already-shipped `repairsIntelligence` panel but no
+building-page consumer; and `listPayments` has no ledger view, so a
+fully-allocated payment disappears from `/rent-and-payments` with no
+way to see payment history. The engine-config settings UI is closed
+(see the dedicated entry below); the other two remain open, tracked
+below rather than silently dropped.
 
 **What's deliberately not done, and why** (not a backlog — each of
 these was checked and the reasoning written down, not just left
@@ -4232,6 +4253,101 @@ Specifically flagged as gaps to close early, not deferred to "later":
   property page would ever have shown — filters to just that check,
   and follows the affected-record link back to the real component. All
   50 Playwright specs green, `tsc --noEmit`/`npm run lint` clean.
+- **A new systematic audit: cross-referenced every one of
+  `apps/web/src/lib/api.ts`'s 154 client methods against actual callers
+  across the frontend** (`grep -rn "api\.$key\b"` per key, excluding
+  the definition file itself) — the same "backend built, frontend
+  incomplete" shape this file's found and fixed a dozen times over, now
+  done exhaustively instead of by spot-check. 24 methods had zero
+  callers. Investigated each individually rather than assuming the raw
+  count meant a gap — most turned out fine:
+  - **Superseded by a composed/bulk endpoint the UI genuinely calls
+    instead, confirmed by reading the actual page code**:
+    `getProperty`→`getProperty360`, `getDocument`→`listDocuments`,
+    `getReport`→the 3-second-polled `listReports`,
+    `getComplianceStatus`→`listComplianceStatuses`,
+    `getSpecification`/`getComplianceRequirement`→their own list
+    endpoints, `componentRepeatFailures`/`propertyRepeatRepairs`/
+    `repairModelTrend`→folded into `getComponentPlannedInvestment`'s
+    own response server-side.
+  - **Deliberately bypassed by design, confirmed by reading the backend
+    service code**: `listComplianceFrameworks` (every org-created
+    domain resolves to one `get_or_create_default_framework`
+    (`app/operations/compliance/service.py`) — there's never a real
+    choice to show); `reviseSpecification` (the only governed path is
+    change control's propose→approve→implement, which calls the same
+    revision logic internally — a raw shortcut would bypass
+    architecture 03 §7's append-only revision model, same reasoning
+    `change-control.spec.ts` already covers).
+  - **Three were real gaps.** `GET /api/v1/defects/intelligence` has
+    the exact open/overdue/warranty-related/by-contractor/by-category/
+    by-component-type/repeat-category/cost shape as the already-shipped
+    `repairsIntelligence` panel on `/repairs/page.tsx`, but
+    `BuildingDetailClient.tsx` only ever shows the raw `listDefects`
+    list — no summary panel exists. `listPayments` has no ledger view
+    at all — `/rent-and-payments/page.tsx` only ever shows "Needs
+    attention" (unresolved allocations) and the obligations list, so a
+    fully-allocated payment simply disappears from the screen with no
+    way to see payment history. And every tunable engine parameter in
+    the platform — compliance status thresholds, payment
+    reconciliation, planned investment, repair detection rules,
+    attention rules — had a real, tested per-org GET+PATCH endpoint and
+    zero settings UI anywhere; an org owner had no way to tune any of
+    them short of calling the API directly. **This third one is closed
+    — see the dedicated entry immediately below.** The other two
+    (defects intelligence, payments ledger) are real, scoped,
+    not-yet-tackled gaps, recorded here rather than silently dropped.
+  - One item, `reviseComplianceRequirement`, stayed genuinely
+    undetermined: compliance requirements carry the same append-only
+    `version`/`effective_date`/`superseded_date` shape as
+    specifications but have no change-control-equivalent governance
+    workflow built for them at all, so this revise endpoint might be
+    the *only* way to version one — or there might be a reason it's
+    fine unreferenced. Not chased down further.
+- **Built the engine-configuration settings UI the audit above found
+  missing** — five new sections added to the existing Organisation
+  page (`apps/web/src/app/(app)/organisation/page.tsx`), reusing that
+  page's own load-on-mount / draft-state / inline-Save /
+  permission-denied-message pattern already established there for
+  reference patterns, rather than a new page: Compliance status
+  thresholds (`due_soon_days`, `never_assessed_grace_days`), Payment
+  reconciliation (`due_date_window_days`), Planned investment
+  (`repair_frequency_window_months`, `repair_frequency_threshold`),
+  Repair detection rules (a per-rule-code table — `window_months`,
+  `threshold`, `threshold_ratio`, `min_installed_base`, each field
+  independently nullable and safely skipped rather than nulled out on
+  save, confirmed by reading `set_repair_rule_config`/`set_status_config`/
+  `set_planned_investment_config`'s own `if value is not None` guards
+  before assuming the field semantics), and Attention rules (a table
+  with an `is_active` toggle per rule plus a read-only, pretty-printed
+  reveal of each rule's `rule_definition` JSON — editing that
+  free-form dict safely would need a different, per-rule-shaped form
+  for each of the 5 rules, a separate and larger piece of work, so left
+  read-only rather than built as a generic, riskier JSON editor).
+  `codeLabel`/`checkLabel` reused the same lower-case-then-capitalise
+  helper as the Data Health page's own fix for the identical
+  UPPER_SNAKE_CASE-constant-as-display-label problem.
+
+  Verified live against the real smoketest backend in the Browser pane
+  before writing any test — signed up, confirmed every section loads
+  the real seeded defaults (not placeholders), saved a value in each
+  of the five sections, and confirmed via Network tab that each produced
+  a real `PATCH .../200 OK` followed by a `GET` reflecting the new
+  value, not just local component state. One real bug caught this way:
+  `locator.uncheck()` in the first draft of the Playwright spec failed
+  with "Clicking the checkbox did not change its state" — the Active
+  checkbox is intentionally controlled by the save's own async result,
+  not optimistically flipped on click, so Playwright's built-in
+  actionability check for `uncheck()` doesn't fit it; switched to a
+  plain `.click()` plus an assertion on the row's own "Inactive" text
+  once the save completes. Final coverage: a new Playwright spec
+  (`engine-config-settings.spec.ts`) exercises all five sections,
+  re-reading the page after every save (not just trusting the
+  optimistic UI) including a full `page.reload()` for three of them to
+  prove the value survived a real page re-fetch, not just React state.
+  Full 403-test backend suite (unchanged — this was a frontend-only
+  change, every endpoint already existed and was already tested) and
+  all 51 Playwright specs green, `tsc --noEmit`/`npm run lint` clean.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable
