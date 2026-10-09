@@ -63,10 +63,10 @@ Postgres. See `## Not yet done` below for the full list of what was
 found and fixed this way, in each case with the specific reasoning for
 why it was safe.
 
-**Verification state**, most recently confirmed: 402 backend tests
+**Verification state**, most recently confirmed: 403 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
-environment gap, not a skip hiding a failure), 49 Playwright E2E specs
+environment gap, not a skip hiding a failure), 50 Playwright E2E specs
 green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
 runs all of this plus CodeQL on every push to `main` — last confirmed
 fully green.
@@ -89,14 +89,15 @@ rule for which component types always need one); missing building
 relationships isn't really "not yet done" at all — architecture 03 and
 spec §19 both say not every hierarchy level is required, so flagging
 the absence of one would contradict the design, not complete it. A
-related, separate gap found but not closed while fixing evidence:
-`GET /api/v1/data-health`'s own full findings list has no page
-anywhere that calls it — `/home` only shows the headline score and
-property pages only show property-scoped findings, so every finding
-type beyond those two views is currently invisible in the UI; a real
-general findings-browsing page is its own, larger piece of work. The
-fuzzy singular/plural component-type-matching gap, long the one open
-item in this list, was also closed in a later session (see above).
+related gap found while fixing evidence — `GET /api/v1/data-health`'s
+own full findings list had no page anywhere that called it, so every
+finding type beyond the `/home` headline score and a property's own
+scoped findings was invisible in the UI — has since been closed: a
+`/data-health` page (checks summary plus a per-check-filterable
+findings list, reachable from the sidebar) now calls it directly,
+with a matching `check_code` filter added server-side. The fuzzy
+singular/plural component-type-matching gap, long the one open item
+in this list, was also closed in a later session (see above).
 Full detail and reasoning for each is in `## Not yet done` below.
 
 ## Done
@@ -4196,6 +4197,41 @@ Specifically flagged as gaps to close early, not deferred to "later":
   uses), and completing an action with evidence attached at the moment
   of completion. Full 402-test backend suite and 49 Playwright specs
   green, `npm run lint`/`tsc --noEmit` clean.
+- ~~A related gap found while fixing missing evidence, left
+  out-of-scope at the time: `GET /api/v1/data-health`'s own full
+  findings list has no page anywhere that calls it, so every finding
+  type beyond `/home`'s headline score and a property's own
+  property-scoped findings is invisible in the UI.~~ **Closed in a
+  later session.** Added a new `/data-health` page
+  (`apps/web/src/app/(app)/data-health/page.tsx`) — a checks-summary
+  table (every registered check, applicable/failing/pass-rate) plus a
+  findings table filterable by check, following the exact same
+  filters-form/paginated-table/Previous-Next-pager shape as the
+  Audit log page it's modelled on. Reachable from the sidebar
+  (`Sidebar.tsx`'s `SECONDARY_NAV`, same place as Audit log — this is
+  a cross-cutting feature, not something that belongs in the adaptive
+  per-org-type nav). The backend gained a matching optional
+  `check_code` query param on `GET /api/v1/data-health`
+  (`app/data_health/router.py`) — findings are filtered by it before
+  pagination, the checks summary itself stays unfiltered. Also fixed
+  `checkLabel`'s display formatting while building this: check codes
+  are UPPER_SNAKE_CASE constants, so the naive "capitalise the first
+  letter" helper copied from the Audit log's `actionLabel` (which
+  operates on already-lowercase `entity.verb` codes) rendered every
+  label as "ORPHAN COMPONENT" instead of "Orphan component" — lower-
+  cased the rest before capitalising.
+
+  Verified three ways: a new backend test
+  (`test_data_health_findings_filtered_by_check_code`) asserting the
+  filter narrows findings but leaves the checks summary untouched;
+  the full 403-test backend suite green; and a new Playwright spec
+  (`data-health-findings-page.spec.ts`) that deliberately creates an
+  orphan component (no development/building/property/space/parent
+  link) and proves the new page surfaces its `ORPHAN_COMPONENT`
+  finding — a component-scoped finding neither `/home` nor any
+  property page would ever have shown — filters to just that check,
+  and follows the affected-record link back to the real component. All
+  50 Playwright specs green, `tsc --noEmit`/`npm run lint` clean.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable

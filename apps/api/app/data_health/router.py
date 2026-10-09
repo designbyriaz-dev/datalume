@@ -14,6 +14,7 @@ def get_data_health(
     db: Session = Depends(get_tenant_db),
     limit: int | None = Query(default=None, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
+    check_code: str | None = Query(default=None),
 ):
     if ctx.organisation_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Organisation-Id header is required")
@@ -21,6 +22,8 @@ def get_data_health(
     db.commit()
 
     all_findings = [f for r in results for f in r.findings]
+    if check_code:
+        all_findings = [f for f in all_findings if f.check_code == check_code]
     page = all_findings[offset : offset + limit] if limit is not None else all_findings[offset:]
 
     return DataHealthOut(

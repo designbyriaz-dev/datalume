@@ -293,6 +293,7 @@ export type DataHealth = {
   score_pct: number;
   checks: DataHealthCheck[];
   findings: DataHealthFinding[];
+  findings_total: number;
 };
 
 export type ReferencePattern = {
@@ -1137,8 +1138,17 @@ export const api = {
       organisationId,
       body: JSON.stringify(payload),
     }),
-  dataHealth: (organisationId: string) =>
-    request<DataHealth>("/api/v1/data-health", { organisationId }),
+  dataHealth: (
+    organisationId: string,
+    filters?: { check_code?: string; limit?: number; offset?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.check_code) params.set("check_code", filters.check_code);
+    if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
+    if (filters?.offset !== undefined) params.set("offset", String(filters.offset));
+    const qs = params.toString();
+    return request<DataHealth>(`/api/v1/data-health${qs ? `?${qs}` : ""}`, { organisationId });
+  },
   getHandoverReadiness: (organisationId: string, developmentId: string) =>
     request<HandoverReadiness>(`/api/v1/developments/${developmentId}/handover-readiness`, { organisationId }),
   authoriseHandover: (organisationId: string, developmentId: string, overrideReason?: string) =>

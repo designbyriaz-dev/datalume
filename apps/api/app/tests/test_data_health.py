@@ -122,6 +122,20 @@ def test_data_health_findings_pagination(client):
     )
 
 
+def test_data_health_findings_filtered_by_check_code(client):
+    signup = client.post("/api/v1/auth/signup", json=_signup_payload()).json()
+    org_id = signup["organisation_id"]
+    _add_property(client, org_id, address="1 Incomplete Close")  # 4 findings: uprn, postcode, type, survey
+
+    filtered = client.get(
+        "/api/v1/data-health", headers={"X-Organisation-Id": org_id}, params={"check_code": "MISSING_UPRN"}
+    ).json()
+    assert filtered["findings_total"] == 1
+    assert [f["check_code"] for f in filtered["findings"]] == ["MISSING_UPRN"]
+    # checks summary is never filtered — only the findings list is.
+    assert len(filtered["checks"]) > 1
+
+
 def test_data_health_recompute_clears_stale_findings(client):
     """A property that gets fixed should stop appearing on the next check
     — findings are recomputed fresh each time, not accumulated forever."""
