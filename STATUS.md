@@ -66,7 +66,7 @@ why it was safe.
 **Verification state**, most recently confirmed: 403 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
-environment gap, not a skip hiding a failure), 53 Playwright E2E specs
+environment gap, not a skip hiding a failure), 54 Playwright E2E specs
 green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
 runs all of this plus CodeQL on every push to `main` — last confirmed
 fully green.
@@ -4298,12 +4298,21 @@ Specifically flagged as gaps to close early, not deferred to "later":
     (defects intelligence, payments ledger) are real, scoped,
     not-yet-tackled gaps, recorded here rather than silently dropped.
   - One item, `reviseComplianceRequirement`, stayed genuinely
-    undetermined: compliance requirements carry the same append-only
-    `version`/`effective_date`/`superseded_date` shape as
+    undetermined at the time: compliance requirements carry the same
+    append-only `version`/`effective_date`/`superseded_date` shape as
     specifications but have no change-control-equivalent governance
     workflow built for them at all, so this revise endpoint might be
     the *only* way to version one — or there might be a reason it's
-    fine unreferenced. Not chased down further.
+    fine unreferenced. **Chased down in a later session — see the
+    dedicated entry further below.** It genuinely was the only path:
+    unlike `reviseSpecification` (correctly bypassed, since change
+    control's propose→approve→implement is the sole sanctioned route
+    to a new specification revision), compliance requirements have no
+    such governance wrapper at all — `POST /requirements/{id}/versions`
+    is a direct, single-step, immediately-effective write gated only by
+    `operations.compliance`, the same permission as creating a
+    requirement in the first place. A real gap, not a correctly-unused
+    convenience method.
 - **Built the engine-configuration settings UI the audit above found
   missing** — five new sections added to the existing Organisation
   page (`apps/web/src/app/(app)/organisation/page.tsx`), reusing that
@@ -4424,7 +4433,54 @@ Specifically flagged as gaps to close early, not deferred to "later":
   than component state. All 53 Playwright specs green, full 403-test
   backend suite unchanged (frontend-only, same as the defects
   intelligence panel), `tsc --noEmit`/`npm run lint` clean. All three
-  real findings from the `api.ts` audit are now closed.
+  real findings from the `api.ts` audit are now closed — one
+  genuinely-undetermined item from the same audit remained open,
+  closed in the next entry below.
+- **Chased down the one item the `api.ts` audit left undetermined:
+  `reviseComplianceRequirement`.** Read `create_requirement_version`
+  (`app/operations/compliance/service.py`) and its router
+  (`POST /requirements/{id}/versions`) rather than guessing from the
+  name alone — confirmed it's the real, sole, append-only path spec
+  §31 requires ("do not hard-code permanent interpretations of evolving
+  Building Regulations"), same shape as `create_specification_revision`
+  (Sprint 9). The difference from the already-correctly-unused
+  `reviseSpecification`: specifications have change control's
+  propose→approve→implement as their only sanctioned path to a new
+  revision, so a raw shortcut would bypass real governance — compliance
+  requirements have **no such wrapper at all**. The versions endpoint
+  *is* the sanctioned mechanism, gated only by `operations.compliance`
+  (the same permission as creating a requirement), and it had zero
+  frontend callers. The requirement list on `/compliance` already
+  rendered a `v{n}` badge per requirement, implying versioning was a
+  real, visible concept — there was simply no control anywhere to
+  create one.
+
+  Added an inline "revise" toggle per requirement row
+  (`apps/web/src/app/(app)/compliance/page.tsx`), same per-row-form
+  shape as `InspectionsPanel.tsx`'s own toggles elsewhere in this
+  codebase: clicking it reveals a form pre-filled from the current
+  version (title, cadence, today's date as the effective date — editable,
+  since *when* a regulation's change takes effect is the one field a
+  sensible default can't guess at, unlike requirement creation's own
+  hard-coded "today"), calling `api.reviseComplianceRequirement` on
+  save. A 400 from the backend (the requirement was already revised by
+  someone else since the page loaded) gets its own explicit message
+  rather than the generic fallback, since `RequirementAlreadySupersededError`
+  is a real, named condition the backend already distinguishes.
+
+  Verified live against the real smoketest backend in the Browser pane
+  first: created a Gas Safety requirement at v1/annual, revised it to
+  biennial, confirmed the same row updated to v2/biennial with no page
+  reload needed. Then a new Playwright spec
+  (`compliance-requirement-revision.spec.ts`) codifying exactly that —
+  including asserting the revise form is genuinely pre-filled (not
+  blank), that v1's badge is gone after the revision (a real new
+  current-only row replaced it, not an edit in place), and a
+  `page.reload()` proving persistence. All 54 Playwright specs green,
+  full 403-test backend suite unchanged (frontend-only — every
+  endpoint already existed and was already tested), `tsc --noEmit`/
+  `npm run lint` clean. This closes every item the `api.ts` audit
+  surfaced, real gap or otherwise.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable

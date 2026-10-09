@@ -126,6 +126,17 @@ export default function CompliancePage() {
   const [reqSubmitting, setReqSubmitting] = useState(false);
   const [reqFormError, setReqFormError] = useState<string | null>(null);
 
+  // "do not hard-code permanent interpretations of evolving Building
+  // Regulations" (spec §31) is exactly why POST .../versions exists —
+  // a requirement's cadence/title changing is a real event, not an
+  // edit-in-place, same append-only shape as a Specification revision.
+  const [revisingRequirementId, setRevisingRequirementId] = useState<string | null>(null);
+  const [reviseTitle, setReviseTitle] = useState("");
+  const [reviseCadence, setReviseCadence] = useState("");
+  const [reviseEffectiveDate, setReviseEffectiveDate] = useState("");
+  const [reviseSubmitting, setReviseSubmitting] = useState(false);
+  const [reviseError, setReviseError] = useState<string | null>(null);
+
   function orgId(): string | null {
     return typeof window === "undefined" ? null : window.localStorage.getItem(SELECTED_ORG_KEY);
   }
@@ -212,6 +223,41 @@ export default function CompliancePage() {
       setReqFormError("Couldn't add that requirement.");
     } finally {
       setReqSubmitting(false);
+    }
+  }
+
+  function onStartRevise(r: ComplianceRequirementOut) {
+    setRevisingRequirementId(r.id);
+    setReviseTitle(r.title);
+    setReviseCadence(r.cadence ?? "");
+    setReviseEffectiveDate(new Date().toISOString().slice(0, 10));
+    setReviseError(null);
+  }
+
+  async function onSaveRevision(requirementId: string) {
+    const id = orgId();
+    if (!id || !reviseTitle.trim() || !reviseEffectiveDate) {
+      setReviseError("Give the new version a title and an effective date.");
+      return;
+    }
+    setReviseSubmitting(true);
+    setReviseError(null);
+    try {
+      await api.reviseComplianceRequirement(id, requirementId, {
+        title: reviseTitle.trim(),
+        cadence: reviseCadence.trim() || undefined,
+        effective_date: reviseEffectiveDate,
+      });
+      setRevisingRequirementId(null);
+      await refreshRequirements(selectedDomainId);
+    } catch (err) {
+      setReviseError(
+        err instanceof ApiError && err.status === 400
+          ? "That requirement already has a newer version — reload to see the latest one."
+          : "Couldn't save that revision.",
+      );
+    } finally {
+      setReviseSubmitting(false);
     }
   }
 
@@ -357,16 +403,64 @@ export default function CompliancePage() {
             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
               {requirements.map((r) => (
                 <li key={r.id} style={{ padding: "10px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span>
                       <span style={{ fontFamily: "monospace", color: "var(--text-secondary)", marginRight: 8 }}>
                         {r.code}
                       </span>
                       {r.title}
                     </span>
-                    <StatusBadge label={`v${r.version}`} variant="neutral" />
+                    <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <StatusBadge label={`v${r.version}`} variant="neutral" />
+                      <button
+                        style={{ ...primaryBtn, padding: "2px 10px", fontSize: 11, background: "var(--text-secondary)" }}
+                        onClick={() => (revisingRequirementId === r.id ? setRevisingRequirementId(null) : onStartRevise(r))}
+                      >
+                        revise
+                      </button>
+                    </span>
                   </div>
                   {r.cadence && <div style={{ color: "var(--text-secondary)", marginTop: 4 }}>Cadence: {r.cadence}</div>}
+                  {revisingRequirementId === r.id && (
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--border-subtle)" }}>
+                      <div style={{ color: "var(--text-secondary)", fontSize: 11, marginBottom: 6 }}>
+                        Creates a new version effective from the date below — {r.code} v{r.version} is kept, never
+                        edited in place.
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                        <input
+                          aria-label="Revised title"
+                          style={{ ...inputStyle, fontSize: 12, maxWidth: 180 }}
+                          value={reviseTitle}
+                          onChange={(e) => setReviseTitle(e.target.value)}
+                        />
+                        <input
+                          aria-label="Revised cadence"
+                          style={{ ...inputStyle, fontSize: 12, maxWidth: 110 }}
+                          placeholder="cadence"
+                          value={reviseCadence}
+                          onChange={(e) => setReviseCadence(e.target.value)}
+                        />
+                        <input
+                          aria-label="Revision effective date"
+                          style={{ ...inputStyle, fontSize: 12, maxWidth: 140 }}
+                          type="date"
+                          value={reviseEffectiveDate}
+                          onChange={(e) => setReviseEffectiveDate(e.target.value)}
+                        />
+                        <button
+                          style={{ ...primaryBtn, padding: "4px 10px", fontSize: 12 }}
+                          onClick={() => onSaveRevision(r.id)}
+                          disabled={reviseSubmitting}
+                        >
+                          {reviseSubmitting ? "Saving…" : "Save new version"}
+                        </button>
+                      </div>
+                      {reviseError && (
+                        <div style={{ color: "var(--color-critical)", fontSize: 12, marginTop: 6 }}>{reviseError}</div>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
