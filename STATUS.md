@@ -66,7 +66,7 @@ why it was safe.
 **Verification state**, most recently confirmed: 403 backend tests
 green (SQLite), 9 of 10 Postgres-RLS-gated tests green (the 10th needs
 a local Redis this sandbox doesn't always have running — an
-environment gap, not a skip hiding a failure), 52 Playwright E2E specs
+environment gap, not a skip hiding a failure), 53 Playwright E2E specs
 green, `npm run lint`/`npm run build` clean. CI (`.github/workflows/`)
 runs all of this plus CodeQL on every push to `main` — last confirmed
 fully green.
@@ -79,19 +79,18 @@ methods cross-referenced against actual callers across the frontend.
 composed/bulk endpoint the UI genuinely calls instead (`getProperty` by
 `getProperty360`, `getDocument` by `listDocuments`, etc.), or
 deliberately bypassed by a governance workflow (`reviseSpecification`
-by change control's propose→approve→implement) — but three were real:
-no settings UI existed anywhere for the five real, tested per-org
-tunable engine parameters (compliance status thresholds, payment
+by change control's propose→approve→implement) — but three were real,
+and all three are now closed (see the dedicated entries below): no
+settings UI existed anywhere for the five real, tested per-org tunable
+engine parameters (compliance status thresholds, payment
 reconciliation, planned investment, repair detection rules, attention
-rules); `GET /api/v1/defects/intelligence` has the exact same
+rules); `GET /api/v1/defects/intelligence` had the exact same
 open/overdue/warranty-related/by-category/by-contractor/repeat-category
 shape as the already-shipped `repairsIntelligence` panel but no
-building-page consumer; and `listPayments` has no ledger view, so a
-fully-allocated payment disappears from `/rent-and-payments` with no
-way to see payment history. The engine-config settings UI and the
-defects intelligence panel are both closed now (see the dedicated
-entries below); `listPayments`/a payments ledger view remains open,
-tracked below rather than silently dropped.
+building-page consumer; and `listPayments` had no ledger view, so a
+cleanly-matched payment — the common case, not an edge case — simply
+disappeared from `/rent-and-payments` the moment reconciliation
+resolved it, with no way to see payment history afterward.
 
 **What's deliberately not done, and why** (not a backlog — each of
 these was checked and the reasoning written down, not just left
@@ -4393,6 +4392,39 @@ Specifically flagged as gaps to close early, not deferred to "later":
   cleanly in isolation before concluding it wasn't a regression), full
   403-test backend suite unchanged (frontend-only again), `tsc
   --noEmit`/`npm run lint` clean.
+- **Closed the third and final finding from the same audit: no
+  payments ledger view.** `listPayments` (`GET /api/v1/payments`) was
+  real and tested, but `/rent-and-payments/page.tsx` only ever showed
+  "Needs attention" (unresolved allocations) and the obligations list
+  — and reconciliation's deterministic MATCHED path (an exact amount/
+  date match against a single open obligation) means a cleanly-matched
+  payment is the *common* case, not an edge case, and it never touches
+  "Needs attention" at all. The payment simply vanished from the page
+  the instant it was recorded. Added a "Payment history" section
+  scoped to the same `selectedLeaseId` dropdown the obligations list
+  already drives, refreshed alongside obligations on lease switch and
+  after recording a new payment (`refreshPayments`, mirroring
+  `refreshObligations` exactly). Deliberately kept to the plain
+  transaction fields (date, payer reference, method, amount) rather
+  than also joining each payment's own allocation status — that would
+  mean fetching every allocation across every status and matching
+  `payment_transaction_id` client-side, a real second feature (closer
+  to the Data Health findings page's own general-browsing shape) than
+  what "show payment history" needs to stop being a real gap.
+
+  Verified live against the real smoketest backend in the Browser pane
+  first, same discipline as the other two closures this audit
+  produced: created a property/tenant/lease, added a matching
+  obligation, recorded an exactly-matching payment, confirmed via the
+  UI that it reconciled straight to MATCHED (never appearing in "Needs
+  attention"), and confirmed Payment history showed it anyway with the
+  real date/reference/amount. Then a new Playwright spec
+  (`payment-history.spec.ts`) codifying exactly that scenario,
+  including a `page.reload()` to prove it's a persisted record rather
+  than component state. All 53 Playwright specs green, full 403-test
+  backend suite unchanged (frontend-only, same as the defects
+  intelligence panel), `tsc --noEmit`/`npm run lint` clean. All three
+  real findings from the `api.ts` audit are now closed.
 - **Dependabot PR #11 (grouped bump: eslint 9→10, eslint-config-next
   16.3.4→16.3.7, typescript 6.0.3→7.0.2) failed CI's "Web build & lint"
   job.** Investigated in an isolated worktree rather than assumed-fixable

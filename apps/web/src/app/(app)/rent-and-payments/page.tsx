@@ -7,6 +7,7 @@ import {
   api,
   type LeaseOut,
   type PaymentAllocationOut,
+  type PaymentTransactionOut,
   type RentObligationOut,
 } from "@/lib/api";
 
@@ -145,6 +146,7 @@ function ResolveAllocationRow({
 export default function RentAndPaymentsPage() {
   const [leases, setLeases] = useState<LeaseOut[] | null>(null);
   const [obligations, setObligations] = useState<RentObligationOut[] | null>(null);
+  const [payments, setPayments] = useState<PaymentTransactionOut[] | null>(null);
   const [pendingAllocations, setPendingAllocations] = useState<PaymentAllocationOut[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -178,6 +180,16 @@ export default function RentAndPaymentsPage() {
     setObligations(await api.listRentObligations(id, { lease_id: leaseId }));
   }
 
+  // Scoped to the same selected lease as obligations above — a payment
+  // that's already been fully allocated has nothing left in "Needs
+  // attention", so without this list it simply vanished from the page
+  // the moment reconciliation resolved it.
+  async function refreshPayments(leaseId: string) {
+    const id = orgId();
+    if (!id || !leaseId) return;
+    setPayments(await api.listPayments(id, { lease_id: leaseId }));
+  }
+
   async function refreshPendingAllocations() {
     const id = orgId();
     if (!id) return;
@@ -203,8 +215,10 @@ export default function RentAndPaymentsPage() {
           setSelectedLeaseId(leaseList[0].id);
           setPaymentLeaseId(leaseList[0].id);
           setObligations(await api.listRentObligations(id, { lease_id: leaseList[0].id }));
+          setPayments(await api.listPayments(id, { lease_id: leaseList[0].id }));
         } else {
           setObligations([]);
+          setPayments([]);
         }
         await refreshPendingAllocations();
       } catch {
@@ -217,7 +231,8 @@ export default function RentAndPaymentsPage() {
   async function onSelectLease(leaseId: string) {
     setSelectedLeaseId(leaseId);
     setObligations(null);
-    await refreshObligations(leaseId);
+    setPayments(null);
+    await Promise.all([refreshObligations(leaseId), refreshPayments(leaseId)]);
   }
 
   async function onAddObligation() {
@@ -272,7 +287,7 @@ export default function RentAndPaymentsPage() {
       setPaymentAmount("");
       setPayerReference("");
       setPaymentMethod("");
-      if (selectedLeaseId) await refreshObligations(selectedLeaseId);
+      if (selectedLeaseId) await Promise.all([refreshObligations(selectedLeaseId), refreshPayments(selectedLeaseId)]);
       await refreshPendingAllocations();
     } catch {
       setPaymentError("Couldn't record that payment.");
@@ -447,6 +462,26 @@ export default function RentAndPaymentsPage() {
                   ({o.outstanding_pence > 0 ? `${money(o.outstanding_pence)} outstanding` : "settled"})
                 </span>
               </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 style={{ fontSize: 16, fontWeight: 700, margin: "24px 0 12px" }}>Payment history</h2>
+      {payments === null ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>Loading…</div>
+      ) : payments.length === 0 ? (
+        <div style={{ color: "var(--text-secondary)", fontSize: 14 }}>No payments recorded for this lease yet.</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {payments.map((p) => (
+            <li key={p.id} style={{ padding: "8px 0", borderTop: "1px solid var(--border-subtle)", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
+              <span>
+                {p.received_date}
+                {p.payer_reference && ` · ${p.payer_reference}`}
+                {p.method && ` · ${p.method}`}
+              </span>
+              <span>{money(p.amount_pence)}</span>
             </li>
           ))}
         </ul>
